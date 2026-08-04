@@ -1,0 +1,168 @@
+from __future__ import annotations
+
+from datetime import date, datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from core.orm import STATUSES
+
+Status = Field(default="open", pattern="^(" + "|".join(STATUSES) + ")$")
+
+
+class ORMModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+class Page[T](BaseModel):
+    items: list[T]
+    total: int
+    page: int
+    page_size: int
+
+
+# ── in ────────────────────────────────────────────────────────────────────────
+
+
+class ItemIn(BaseModel):
+    task_type_id: int
+    question_type_id: int | None = None
+    customer: str | None = None
+    count: int | None = Field(default=None, gt=0)
+    notes: str | None = None
+    due_at: date | None = None
+    status: str = Status
+
+
+class PlanIn(BaseModel):
+    member_id: int
+    entry_date: date
+    raw_text: str | None = None
+    items: list[ItemIn] = []
+
+
+class PlanLineIn(BaseModel):
+    """One row of the update form: progress against a planned task."""
+
+    plan_item_id: int
+    status: str = Status
+    count: int | None = Field(default=None, gt=0)
+    notes: str = Field(min_length=1)
+    due_at: date
+
+
+class UpdateIn(BaseModel):
+    member_id: int
+    entry_date: date
+    raw_text: str | None = None
+    plan_lines: list[PlanLineIn] = []
+    # Work done that wasn't planned. Always lands closed — it's already done.
+    extra_items: list[ItemIn] = []
+
+
+class ItemPatch(BaseModel):
+    status: str | None = Field(default=None, pattern="^(" + "|".join(STATUSES) + ")$")
+    count: int | None = Field(default=None, gt=0)
+    notes: str | None = None
+    due_at: date | None = None
+
+
+# ── out ───────────────────────────────────────────────────────────────────────
+
+
+class ItemOut(ORMModel):
+    id: int
+    plan_item_id: int | None
+    task_type_id: int
+    task_type: str
+    question_type: str | None
+    customer: str | None
+    count: int | None
+    notes: str | None
+    due_at: date | None
+    status: str
+    jira_issue_key: str | None
+    jira_issue_url: str | None
+    jira_state: str
+
+    @classmethod
+    def of(cls, it) -> ItemOut:
+        return cls(
+            **{k: getattr(it, k) for k in
+               ("id", "plan_item_id", "task_type_id", "customer", "count", "notes",
+                "due_at", "status", "jira_issue_key", "jira_issue_url", "jira_state")},
+            task_type=it.task_type.name,
+            question_type=it.question_type.name if it.question_type else None,
+        )
+
+
+class EntryOut(ORMModel):
+    id: int
+    entry_date: date
+    kind: str
+    status: str
+    member_id: int
+    member: str
+    raw_text: str | None
+    source: str
+    updated_at: datetime
+    items: list[ItemOut]
+
+    @classmethod
+    def of(cls, e) -> EntryOut:
+        return cls(
+            **{k: getattr(e, k) for k in
+               ("id", "entry_date", "kind", "status", "member_id", "raw_text",
+                "source", "updated_at")},
+            member=e.member.display_name,
+            items=[ItemOut.of(i) for i in e.items],
+        )
+
+
+class StatusEventOut(ORMModel):
+    from_status: str | None
+    to_status: str
+    source: str
+    note: str | None
+    changed_at: datetime
+
+
+class MemberOut(ORMModel):
+    id: int
+    display_name: str
+    email: str | None
+    role: str
+    is_active: bool
+    slack_user_id: str | None
+
+
+class MemberIn(BaseModel):
+    display_name: str = Field(min_length=1)
+    email: str | None = None
+    role: str = Field(default="content", pattern="^(content|ae|manager|admin)$")
+    slack_user_id: str | None = None
+
+
+class MemberPatch(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1)
+    email: str | None = None
+    role: str | None = Field(default=None, pattern="^(content|ae|manager|admin)$")
+    slack_user_id: str | None = None
+    is_active: bool | None = None
+
+
+class LookupOut(ORMModel):
+    id: int
+    name: str
+    is_active: bool
+    sort_order: int
+
+
+class LookupIn(BaseModel):
+    name: str = Field(min_length=1)
+    sort_order: int = 0
+
+
+class LookupPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    is_active: bool | None = None
+    sort_order: int | None = None
