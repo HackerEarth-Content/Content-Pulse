@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
@@ -18,9 +18,26 @@ AE = ("ae", "manager", "admin")
 async def get_member(
     user: User = Depends(current_user), db: AsyncSession = Depends(get_session)
 ) -> Member | None:
-    """None for a signed-in user with no linked members row — they can read,
-    but every write goes through require_member below."""
-    return await db.scalar(select(Member).where(Member.user_id == user.id))
+    """The caller's member row, or None if their account isn't linked to one.
+
+    Claims an unlinked row matching their email on the way past. Linking used to
+    happen only in the OAuth callback, so adding your own member row while
+    already signed in did nothing until you signed out and back in.
+    """
+    if member := await db.scalar(select(Member).where(Member.user_id == user.id)):
+        return member
+
+    member = await db.scalar(
+        select(Member).where(
+            func.lower(Member.email) == (user.email or "").lower(),
+            Member.user_id.is_(None),
+            Member.is_active.is_(True),
+        )
+    )
+    if member:
+        member.user_id = user.id
+        await db.commit()
+    return member
 
 
 def require_member(*roles: str):

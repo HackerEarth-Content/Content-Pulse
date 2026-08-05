@@ -51,10 +51,10 @@ export default function App() {
         <Route path="/members" element={<Members range={range} />} />
         <Route path="/members/:id" element={<MemberDetail range={range} />} />
         <Route path="/admin" element={<Admin />} />
-        <Route path="/ae" element={<AEDaily range={range} />} />
+        <Route path="/ae" element={<AEDaily range={range} me={user.member} />} />
         <Route path="/content-requests" element={<ContentRequests />} />
-        <Route path="/plans/new" element={<PlanForm />} />
-        <Route path="/updates/new" element={<UpdateForm />} />
+        <Route path="/plans/new" element={<PlanForm me={user.member} />} />
+        <Route path="/updates/new" element={<UpdateForm me={user.member} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 

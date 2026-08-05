@@ -12,7 +12,8 @@ import {
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { Async, BarList, Card, SectionHeading, StatTile, StatusPill } from "../components/ui";
-import { hours, num, pct, shortDate } from "../format";
+import { hours, num, pct } from "../format";
+import { bucketFor, bucketNoun, bucketTick, groupSeries } from "../series";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
 
@@ -28,14 +29,23 @@ export function Overview({ range }: { range: Range }) {
   const cycle = useApi(() => api.cycleTime(p), [range.from, range.to]);
   const open = useApi(() => api.openItems({ ...p, limit: 12 }), [range.from, range.to]);
 
+  // A quarter is ~92 daily points — roll up so the axis stays readable.
+  const bucket = bucketFor(range.from, range.to);
+  const trendRows = groupSeries(trend.data ?? [], bucket, ["tasks", "volume", "closed", "plans", "updates"]);
+
   return (
     <>
       <SectionHeading title="This period" />
       <Async loading={summary.loading} error={summary.error} data={summary.data}>
         {(s) => (
           <div className="stat-row">
-            <StatTile label="Tasks" value={num(s.tasks)} sub={`${s.members} people`} accent="var(--accent-blue)" />
-            <StatTile label="Volume" value={num(s.volume)} sub="items produced" accent="var(--accent-indigo)" />
+            <StatTile label="Tasks" value={num(s.tasks)} sub={`logged by ${s.members} ${s.members === 1 ? "person" : "people"}`} accent="var(--accent-blue)" />
+            <StatTile
+              label="Items produced"
+              value={num(s.volume)}
+              sub="sum of the Count column"
+              accent="var(--accent-indigo)"
+            />
             <StatTile
               label="Completion"
               value={pct(s.completion_rate)}
@@ -50,13 +60,21 @@ export function Overview({ range }: { range: Range }) {
       </Async>
 
       <SectionHeading title="Activity" color="var(--accent-indigo)" />
-      <Card>
+      <Card sub={`per ${bucketNoun(bucket)}`}>
         <Async loading={trend.loading} error={trend.error} data={trend.data}>
-          {(rows) => (
+          {() => (
             <ResponsiveContainer width="100%" height={230}>
-              <ComposedChart data={rows} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+              <ComposedChart data={trendRows} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
                 <CartesianGrid stroke="var(--line)" vertical={false} />
-                <XAxis dataKey="date" tickFormatter={shortDate} tickLine={false} axisLine={false} {...AXIS} />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(d) => bucketTick(d, bucket)}
+                  tickLine={false}
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                  minTickGap={28}
+                  {...AXIS}
+                />
                 <YAxis tickLine={false} axisLine={false} {...AXIS} allowDecimals={false} />
                 <Tooltip
                   contentStyle={{
@@ -65,7 +83,7 @@ export function Overview({ range }: { range: Range }) {
                     borderRadius: 8,
                     fontSize: 12,
                   }}
-                  labelFormatter={shortDate}
+                  labelFormatter={(d) => bucketTick(String(d), bucket)}
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Bar dataKey="tasks" name="Tasks" fill="var(--accent-blue)" radius={[3, 3, 0, 0]} maxBarSize={26} />

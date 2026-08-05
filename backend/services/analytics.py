@@ -236,14 +236,6 @@ async def by_customer(db: AsyncSession, s: Scope, limit: int = 20) -> list[dict]
              "outstanding": r.outstanding} for r in rows]
 
 
-async def status_distribution(db: AsyncSession, s: Scope) -> list[dict]:
-    rows = await db.execute(
-        _from_tasks(s, EntryItem.status, func.count().label("tasks"))
-        .group_by(EntryItem.status)
-    )
-    counts = {r.status: r.tasks for r in rows}
-    return [{"status": st, "tasks": counts.get(st, 0)} for st in STATUSES]
-
 
 # ── flow, timing, adherence ───────────────────────────────────────────────────
 

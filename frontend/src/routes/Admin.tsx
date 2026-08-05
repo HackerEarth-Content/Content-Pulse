@@ -76,10 +76,61 @@ function LookupEditor({ kind, title, sub }: { kind: LookupKind; title: string; s
   );
 }
 
+const ROLES = ["content", "ae", "manager", "admin"];
+
 function MemberEditor() {
   const list = useApi(() => api.members({ is_active: undefined }), []);
   const [error, setError] = useState<ApiError | null>(null);
   const [draft, setDraft] = useState<Record<number, { email: string; role: string }>>({});
+  const [adding, setAdding] = useState({ display_name: "", email: "", role: "content" });
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function add() {
+    setError(null);
+    setBusy(true);
+    try {
+      await api.createMember({
+        display_name: adding.display_name.trim(),
+        email: adding.email.trim() || null,
+        role: adding.role,
+      });
+      setAdding({ display_name: "", email: "", role: "content" });
+      list.reload();
+    } catch (e) {
+      setError(e as ApiError);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(m: { id: number; display_name: string }) {
+    const ok = confirm(
+      `Remove ${m.display_name}?\n\n` +
+        "If they never logged any work they're deleted outright. If they did, " +
+        "their history is kept and their access is revoked instead."
+    );
+    if (!ok) return;
+    setError(null);
+    setNote(null);
+    try {
+      const result = await api.removeMember(m.id);
+      setNote(result.detail);
+      list.reload();
+    } catch (e) {
+      setError(e as ApiError);
+    }
+  }
+
+  async function setActive(id: number, is_active: boolean) {
+    setError(null);
+    try {
+      await api.patchMember(id, { is_active });
+      list.reload();
+    } catch (e) {
+      setError(e as ApiError);
+    }
+  }
 
   async function save(id: number) {
     setError(null);
@@ -101,6 +152,48 @@ function MemberEditor() {
   return (
     <Card title="Members" sub="an email links a person to their Google account at sign-in">
       {error ? <Banner tone="error">{error.message}</Banner> : null}
+      {note ? <Banner tone="info">{note}</Banner> : null}
+
+      <div className="filter-bar">
+        <input
+          className="field"
+          placeholder="Full name"
+          value={adding.display_name}
+          onChange={(e) => setAdding((a) => ({ ...a, display_name: e.target.value }))}
+        />
+        <input
+          className="field"
+          type="email"
+          placeholder="name@hackerearth.com"
+          value={adding.email}
+          onChange={(e) => setAdding((a) => ({ ...a, email: e.target.value }))}
+          onKeyDown={(e) => e.key === "Enter" && adding.display_name.trim() && add()}
+        />
+        <select
+          className="field"
+          value={adding.role}
+          onChange={(e) => setAdding((a) => ({ ...a, role: e.target.value }))}
+          aria-label="Role"
+        >
+          {ROLES.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        <button
+          className="btn btn-primary"
+          disabled={busy || !adding.display_name.trim()}
+          onClick={add}
+        >
+          {busy ? "Adding…" : "Add member"}
+        </button>
+      </div>
+      <p className="hint" style={{ marginTop: -4, marginBottom: 12 }}>
+        Give them an email and they can sign in with Google straight away — no
+        restart, no deploy.
+      </p>
+
       <Async loading={list.loading} error={list.error} data={list.data}>
         {(rows) => (
           <div className="table-scroll" style={{ border: 0, boxShadow: "none" }}>
@@ -110,7 +203,8 @@ function MemberEditor() {
                   <th>Member</th>
                   <th>Email</th>
                   <th>Role</th>
-                  <th>Active</th>
+                  <th>Access</th>
+                  <th />
                   <th />
                 </tr>
               </thead>
@@ -145,7 +239,7 @@ function MemberEditor() {
                             }))
                           }
                         >
-                          {["content", "ae", "manager", "admin"].map((r) => (
+                          {ROLES.map((r) => (
                             <option key={r} value={r}>
                               {r}
                             </option>
@@ -153,11 +247,17 @@ function MemberEditor() {
                         </select>
                       </td>
                       <td>
-                        {m.is_active ? (
-                          <span className="pill pill-closed">Active</span>
-                        ) : (
-                          <span className="pill pill-muted">Inactive</span>
-                        )}
+                        <button
+                          className={`pill ${m.is_active ? "pill-closed" : "pill-muted"} pill-button`}
+                          onClick={() => setActive(m.id, !m.is_active)}
+                          title={
+                            m.is_active
+                              ? "Revoke access — keeps all their history"
+                              : "Restore access"
+                          }
+                        >
+                          {m.is_active ? "Active" : "Inactive"}
+                        </button>
                       </td>
                       <td>
                         <button
@@ -166,6 +266,11 @@ function MemberEditor() {
                           onClick={() => save(m.id)}
                         >
                           Save
+                        </button>
+                      </td>
+                      <td>
+                        <button className="btn btn-danger btn-sm" onClick={() => remove(m)}>
+                          Remove
                         </button>
                       </td>
                     </tr>

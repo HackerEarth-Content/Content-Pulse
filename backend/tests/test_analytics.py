@@ -9,7 +9,7 @@ import pytest
 DAY = "2030-03-04"
 ENDPOINTS = [
     "summary", "trend", "by-member", "by-task-type", "by-question-type",
-    "by-customer", "status-distribution", "status-flow", "cycle-time",
+    "by-customer", "status-flow", "cycle-time",
     "plan-adherence", "aging", "due-risk", "throughput", "workload",
     "open-items", "data-quality", "ae-metrics",
 ]

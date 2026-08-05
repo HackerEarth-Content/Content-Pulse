@@ -32,7 +32,7 @@ export function Members({ range }: { range: Range }) {
                   <th>Role</th>
                   <th>Email</th>
                   <th className="num">Tasks</th>
-                  <th className="num">Volume</th>
+                  <th className="num">Items</th>
                   <th className="num">Open</th>
                   <th className="num">Blocked</th>
                   <th className="num">Completion</th>
@@ -83,7 +83,7 @@ export function Members({ range }: { range: Range }) {
             {(rows) => <BarList items={rows.map((r) => ({ label: r.member, value: r.tasks }))} />}
           </Async>
         </Card>
-        <Card title="Volume" sub="items produced">
+        <Card title="Items produced" sub="sum of the Count column">
           <Async loading={stats.loading} error={stats.error} data={stats.data}>
             {(rows) => (
               <BarList

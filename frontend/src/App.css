@@ -779,3 +779,24 @@ textarea.field {
   color: var(--ink-3);
   text-decoration: line-through;
 }
+
+.btn-sm {
+  font-size: 11.5px;
+  padding: 5px 12px;
+}
+
+/* A read-only field that still reads as a field, for values you can't change. */
+.field-static {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border-style: dashed;
+}
+
+/* Heatmap cells sit tighter than normal rows so a wide grid stays scannable. */
+td.heat {
+  padding: 7px 10px;
+  min-width: 46px;
+  color: var(--ink);
+}

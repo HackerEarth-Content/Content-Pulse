@@ -68,10 +68,6 @@ async def by_customer(limit: int = Query(20, ge=1, le=100), s: an.Scope = Scope,
     return await an.by_customer(db, s, limit)
 
 
-@router.get("/status-distribution")
-async def status_distribution(s: an.Scope = Scope, db: AsyncSession = DB):
-    return await an.status_distribution(db, s)
-
 
 @router.get("/status-flow")
 async def status_flow(s: an.Scope = Scope, db: AsyncSession = DB):

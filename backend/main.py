@@ -13,6 +13,7 @@ from api.entries_routes import router as entries_router
 from api.export_routes import router as export_router
 from api.members_routes import router as members_router
 from core.config import settings
+from core.database import engine
 from core.scheduler import start as start_scheduler
 from core.users import OAuthNotAllowedError
 
@@ -21,6 +22,7 @@ async def lifespan(app: FastAPI):
     scheduler = start_scheduler()
     yield
     scheduler.shutdown(wait=False)
+    await engine.dispose()
 
 
 app = FastAPI(title="ContentOps API", lifespan=lifespan)

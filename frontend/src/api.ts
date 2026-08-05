@@ -112,6 +112,8 @@ export const api = {
   members: (params?: Params) => get<Member[]>("/members", params),
   createMember: (body: unknown) => send<Member>("POST", "/members", body),
   patchMember: (id: number, body: unknown) => send<Member>("PATCH", `/members/${id}`, body),
+  removeMember: (id: number) =>
+    send<{ deleted: boolean; entries: number; detail: string }>("DELETE", `/members/${id}`),
   taskTypes: () => get<Lookup[]>("/meta/lookups/task-types"),
   questionTypes: () => get<Lookup[]>("/meta/lookups/question-types"),
   lookups: (kind: string, includeInactive = false) =>
@@ -142,8 +144,6 @@ export const api = {
   byQuestionType: (p: Params) =>
     get<{ question_type: string; tasks: number; volume: number }[]>("/analytics/by-question-type", p),
   byCustomer: (p: Params) => get<CustomerStat[]>("/analytics/by-customer", p),
-  statusDistribution: (p: Params) =>
-    get<{ status: Status; tasks: number }[]>("/analytics/status-distribution", p),
   statusFlow: (p: Params) =>
     get<{ from: Status; to: Status; count: number }[]>("/analytics/status-flow", p),
   cycleTime: (p: Params) => get<CycleTime>("/analytics/cycle-time", p),
@@ -151,6 +151,11 @@ export const api = {
   aging: (p: Params) => get<Aging>("/analytics/aging", p),
   dueRisk: (p: Params) => get<DueRisk>("/analytics/due-risk", p),
   throughput: (p: Params) => get<{ date: string; closed: number }[]>("/analytics/throughput", p),
+  workload: (p: Params) =>
+    get<{ member: string; date: string; tasks: number; volume: number }[]>(
+      "/analytics/workload",
+      p
+    ),
   openItems: (p: Params) => get<OpenItem[]>("/analytics/open-items", p),
   dataQuality: (p: Params) => get<DataQuality>("/analytics/data-quality", p),
   aeAnalytics: (p: Params) => get<AEMetrics>("/analytics/ae-metrics", p),

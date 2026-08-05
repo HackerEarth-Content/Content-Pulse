@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { api } from "../api";
+import { WorkloadHeatmap } from "../components/WorkloadHeatmap";
 import { Async, BarList, Card, SectionHeading, StatTile } from "../components/ui";
 import { hours, num, pct } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
+import { bucketFor, bucketNoun, bucketTick, groupSeries } from "../series";
 
 const TABS = ["Delivery", "Timing", "Customers", "Quality"] as const;
 type Tab = (typeof TABS)[number];
@@ -24,6 +26,8 @@ export function Analytics({ range }: { range: Range }) {
   const questions = useApi(() => api.byQuestionType(p), deps);
   const quality = useApi(() => api.dataQuality(p), deps);
   const throughput = useApi(() => api.throughput(p), deps);
+  const workload = useApi(() => api.workload(p), deps);
+  const bucket = bucketFor(range.from, range.to);
 
   return (
     <>
@@ -101,13 +105,17 @@ export function Analytics({ range }: { range: Range }) {
           </Card>
 
           <div className="grid cols-2" style={{ marginTop: 12 }}>
-            <Card title="Throughput" sub="tasks closed per day, from the status log">
+            <Card title="Throughput" sub={`tasks closed per ${bucketNoun(bucket)}, from the status log`}>
               <Async loading={throughput.loading} error={throughput.error} data={throughput.data}>
                 {(rows) => (
                   <BarList
-                    items={rows
+                    items={groupSeries(rows, bucket, ["closed"])
                       .filter((r) => r.closed > 0)
-                      .map((r) => ({ label: r.date, value: r.closed, color: "var(--accent-aqua)" }))}
+                      .map((r) => ({
+                        label: bucketTick(r.date, bucket),
+                        value: r.closed,
+                        color: "var(--accent-aqua)",
+                      }))}
                   />
                 )}
               </Async>
@@ -128,6 +136,19 @@ export function Analytics({ range }: { range: Range }) {
                     }))}
                   />
                 )}
+              </Async>
+            </Card>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <Card title="Workload" sub={`tasks per member per ${bucketNoun(bucket)}`}>
+              <Async
+                loading={workload.loading}
+                error={workload.error}
+                data={workload.data}
+                empty={{ title: "Nothing logged in this range" }}
+              >
+                {(rows) => <WorkloadHeatmap rows={rows} bucket={bucket} />}
               </Async>
             </Card>
           </div>
@@ -195,7 +216,7 @@ export function Analytics({ range }: { range: Range }) {
                       <tr>
                         <th>Customer</th>
                         <th className="num">Tasks</th>
-                        <th className="num">Volume</th>
+                        <th className="num">Items</th>
                         <th className="num">Outstanding</th>
                       </tr>
                     </thead>

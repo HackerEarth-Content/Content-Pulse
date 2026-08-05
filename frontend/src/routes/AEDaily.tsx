@@ -4,15 +4,18 @@ import { Async, Banner, Card, SectionHeading, StatTile } from "../components/ui"
 import { num, today } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
+import type { CurrentUser } from "../types";
 
-export function AEDaily({ range }: { range: Range }) {
+export function AEDaily({ range, me }: { range: Range; me: CurrentUser["member"] }) {
   const p = { from: range.from, to: range.to };
   const metrics = useApi(() => api.aeMetrics(), []);
   const members = useApi(() => api.members({ role: "ae" }), []);
   const grid = useApi(() => api.aeDaily(p), [range.from, range.to]);
   const totals = useApi(() => api.aeAnalytics(p), [range.from, range.to]);
 
-  const [memberId, setMemberId] = useState("");
+  // Leads log for the whole team; an AE logs for themselves.
+  const canLogForOthers = !me || me.role === "admin" || me.role === "manager";
+  const [memberId, setMemberId] = useState(me && me.role === "ae" ? String(me.id) : "");
   const [date, setDate] = useState(today());
   const [notes, setNotes] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
@@ -93,22 +96,29 @@ export function AEDaily({ range }: { range: Range }) {
       <Card>
         <div className="field-row">
           <div>
-            <label className="label">Engineer</label>
-            <select
-              className="field"
-              value={memberId}
-              onChange={(e) => {
-                setMemberId(e.target.value);
-                setSaved(false);
-              }}
-            >
-              <option value="">Select…</option>
-              {(members.data ?? []).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.display_name}
-                </option>
-              ))}
-            </select>
+            <label className="label">{canLogForOthers ? "Engineer" : "Logging as"}</label>
+            {canLogForOthers ? (
+              <select
+                className="field"
+                value={memberId}
+                onChange={(e) => {
+                  setMemberId(e.target.value);
+                  setSaved(false);
+                }}
+              >
+                <option value="">Select…</option>
+                {(members.data ?? []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="field field-static">
+                <strong>{me!.display_name}</strong>
+                <span className="pill pill-muted">{me!.role}</span>
+              </div>
+            )}
           </div>
           <div>
             <label className="label">Date</label>

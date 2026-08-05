@@ -4,7 +4,7 @@ import { ApiError, api } from "../api";
 import { Banner, Card, SectionHeading, Skeleton, StatusPill } from "../components/ui";
 import { today } from "../format";
 import { useApi } from "../hooks/useApi";
-import type { Entry, Status } from "../types";
+import type { CurrentUser, Entry, Status } from "../types";
 
 interface Line {
   plan_item_id: number;
@@ -30,13 +30,16 @@ const blankExtra = (): Extra => ({
   notes: "",
 });
 
-export function UpdateForm() {
+export function UpdateForm({ me }: { me: CurrentUser["member"] }) {
   const navigate = useNavigate();
   const members = useApi(() => api.members(), []);
   const taskTypes = useApi(() => api.taskTypes(), []);
   const questionTypes = useApi(() => api.questionTypes(), []);
 
-  const [memberId, setMemberId] = useState("");
+  // Managers and admins file on anyone's behalf; everyone else files as
+  // themselves, so the field becomes a label rather than a choice.
+  const canFileForOthers = !me || me.role === "admin" || me.role === "manager";
+  const [memberId, setMemberId] = useState(me ? String(me.id) : "");
   const [date, setDate] = useState(today());
   const [plan, setPlan] = useState<Entry | null>(null);
   const [planState, setPlanState] = useState<"idle" | "loading" | "none" | "ready">("idle");
@@ -138,21 +141,28 @@ export function UpdateForm() {
         <div className="field-row">
           <div>
             <label className="label" htmlFor="member">
-              Member
+              {canFileForOthers ? "Member" : "Filing as"}
             </label>
-            <select
-              id="member"
-              className="field"
-              value={memberId}
-              onChange={(e) => setMemberId(e.target.value)}
-            >
-              <option value="">Select a member…</option>
-              {(members.data ?? []).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.display_name}
-                </option>
-              ))}
-            </select>
+            {canFileForOthers ? (
+              <select
+                id="member"
+                className="field"
+                value={memberId}
+                onChange={(e) => setMemberId(e.target.value)}
+              >
+                <option value="">Select a member…</option>
+                {(members.data ?? []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="field field-static">
+                <strong>{me!.display_name}</strong>
+                <span className="pill pill-muted">{me!.role}</span>
+              </div>
+            )}
           </div>
           <div>
             <label className="label" htmlFor="date">
@@ -218,7 +228,9 @@ export function UpdateForm() {
               </select>
             </div>
             <div>
-              <label className="label">Count</label>
+              <label className="label" title="How many items this task produces — questions, docs, reviews">
+              Count
+            </label>
               <input
                 className="field"
                 type="number"
@@ -295,7 +307,9 @@ export function UpdateForm() {
             />
           </div>
           <div>
-            <label className="label">Count</label>
+            <label className="label" title="How many items this task produces — questions, docs, reviews">
+              Count
+            </label>
             <input
               className="field"
               type="number"

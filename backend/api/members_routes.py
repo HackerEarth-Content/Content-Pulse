@@ -67,20 +67,33 @@ async def patch_member(member_id: int, patch: MemberPatch, db: AsyncSession = De
     return member
 
 
-@router.delete("/members/{member_id}", status_code=204, dependencies=[admin_only])
-async def deactivate_member(member_id: int, db: AsyncSession = Depends(get_session)):
-    """Soft delete. A member with entries can never be hard-deleted — the FK is
-    RESTRICT, and their history is the point of the app."""
+@router.delete("/members/{member_id}", dependencies=[admin_only])
+async def remove_member(member_id: int, db: AsyncSession = Depends(get_session)):
+    """Delete outright if they never logged anything; otherwise revoke access and
+    keep the history. Reports which happened — a bare 204 left the caller unable
+    to tell why the person was still on the list."""
     member = await db.get(Member, member_id)
     if member is None:
         raise err(404, "not_found", "No such member.")
-    if await db.scalar(select(func.count()).select_from(DailyEntry)
-                       .where(DailyEntry.member_id == member_id)):
+
+    entries = await db.scalar(
+        select(func.count()).select_from(DailyEntry).where(DailyEntry.member_id == member_id)
+    )
+    if entries:
         member.is_active = False
         await db.commit()
-        return
+        return {
+            "deleted": False,
+            "entries": entries,
+            "detail": f"{member.display_name} has {entries} logged "
+                      f"{'entry' if entries == 1 else 'entries'}, so their history was kept "
+                      "and their access revoked.",
+        }
+
+    name = member.display_name
     await db.delete(member)
     await db.commit()
+    return {"deleted": True, "entries": 0, "detail": f"{name} was removed."}
 
 
 LOOKUPS = {"task-types": TaskType, "question-types": QuestionType}
