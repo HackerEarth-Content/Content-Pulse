@@ -12,7 +12,7 @@ import {
 import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { StatusDialog } from "../components/StatusDialog";
-import { Async, Card, KindPill, SectionHeading, StatTile, StatusPill } from "../components/ui";
+import { Async, BarList, Card, KindPill, SectionHeading, StatTile, StatusPill } from "../components/ui";
 import { hours, mins, num, pct, statusLabel } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
@@ -26,6 +26,7 @@ export function MemberDetail({ range }: { range: Range }) {
   const deps = [memberId, range.from, range.to];
   const [moving, setMoving] = useState<Item | null>(null);
 
+  const profile = useApi(() => api.memberProfile(memberId, p), deps);
   const members = useApi(() => api.members({ is_active: undefined }), []);
   const stats = useApi(() => api.byMember(p), deps);
   const adherence = useApi(() => api.adherence(p), deps);
@@ -53,6 +54,80 @@ export function MemberDetail({ range }: { range: Range }) {
           {member.email ?? "no email on file — can't sign in yet"}
         </p>
       ) : null}
+
+      <Async loading={profile.loading} error={profile.error} data={profile.data}>
+        {(pr) => (
+          <>
+            <div className="stat-row">
+              <StatTile
+                label="Effort logged"
+                value={mins(pr.totals.effort_minutes || null)}
+                sub="every stream combined"
+                accent="var(--accent-orange)"
+              />
+              <StatTile label="Tickets" value={num(pr.totals.tasks)} accent="var(--accent-blue)" />
+              <StatTile
+                label="Share of team effort"
+                value={pct(pr.share_of_team.effort)}
+                sub={`${pct(pr.share_of_team.tasks)} of tickets`}
+                accent="var(--accent-indigo)"
+              />
+              <StatTile label="Done" value={pct(pr.totals.completion_rate)}
+                        sub={`${pr.totals.closed} of ${pr.totals.tasks}`} accent="var(--accent-aqua)" />
+              <StatTile label="Customers" value={num(pr.by_customer.length)} />
+            </div>
+
+            <SectionHeading title="Where the time went" color="var(--accent-magenta)" />
+            <div className="grid cols-2">
+              <Card title="By stream" sub="tickets and hours per pipeline">
+                {pr.by_pipeline.length === 0 ? (
+                  <div className="empty">Nothing logged in this range.</div>
+                ) : (
+                  <div className="table-scroll" style={{ border: 0, boxShadow: "none" }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Stream</th>
+                          <th className="num">Tickets</th>
+                          <th className="num">Effort</th>
+                          <th className="num">Share</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pr.by_pipeline.map((s) => (
+                          <tr key={s.pipeline}>
+                            <td className="strong">{s.label}</td>
+                            <td className="num">{s.tasks}</td>
+                            <td className="num">{mins(s.effort_minutes || null)}</td>
+                            <td className="num">
+                              {pct(s.effort_minutes / (pr.totals.effort_minutes || 1))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+              <Card title="Customers" sub="Content Requests only — Jira records it nowhere else">
+                {pr.by_customer.length === 0 ? (
+                  <div className="empty">No customer recorded against their work.</div>
+                ) : (
+                  <BarList
+                    items={pr.by_customer.slice(0, 8).map((cst) => ({
+                      label: cst.customer,
+                      value: Math.round(cst.effort_minutes / 60),
+                      color: "var(--accent-magenta)",
+                    }))}
+                  />
+                )}
+              </Card>
+            </div>
+
+            <SectionHeading title="Detail" color="var(--accent-blue)" />
+          </>
+        )}
+      </Async>
 
       <div className="stat-row">
         <StatTile label="Tasks" value={num(stat?.tasks ?? 0)} accent="var(--accent-blue)" />

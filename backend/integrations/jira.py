@@ -12,6 +12,7 @@ Everything that was hardcoded there now lives in `integration_settings`.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from datetime import date
@@ -22,13 +23,19 @@ from sqlalchemy import select
 
 from core.config import settings
 from core.database import Session
-from core.orm import DailyEntry, EntryItem, IntegrationSetting
+from core.orm import PIPELINES, AuditLog, DailyEntry, EntryItem, IntegrationSetting
 
 log = logging.getLogger(__name__)
+
+# Inverse of core.orm.PIPELINES, so the two never drift apart.
+ISSUE_TYPES = {slug: name for name, slug in PIPELINES.items()}
+# Only these carry a customer field in Jira.
+CUSTOMER_TYPES = {"Content Requests"}
 
 DEFAULTS: dict[str, Any] = {
     "project_key": "TCE",
     "issue_type": "Content Tasks",
+    "customer_field": "customfield_10225",
     "summary_prefix": "[Plan]",
     "status_names": {
         "open": ["To Do"], "in_progress": ["In Progress"],
@@ -65,6 +72,29 @@ async def config(db) -> dict[str, Any]:
     return {**DEFAULTS, **(row.value if row else {})}
 
 
+async def _send(c: httpx.AsyncClient, method: str, path: str, **kw) -> httpx.Response:
+    """One retry policy for every Jira call.
+
+    429 carries Retry-After and must be obeyed — ignoring it is how an account
+    gets throttled harder. 5xx is transient, so back off. 4xx is our mistake and
+    retrying just repeats it, so it returns immediately.
+    """
+    delay = 1.0
+    for attempt in range(4):
+        r = await c.request(method, path, **kw)
+        if r.status_code == 429:
+            wait = float(r.headers.get("Retry-After") or delay)
+            log.warning("jira rate limited, waiting %.1fs (attempt %d)", wait, attempt + 1)
+            await asyncio.sleep(min(wait, 60))
+        elif 500 <= r.status_code < 600:
+            log.warning("jira %s on %s, retrying in %.1fs", r.status_code, path, delay)
+            await asyncio.sleep(delay)
+        else:
+            return r
+        delay *= 2
+    return r
+
+
 def _client() -> httpx.AsyncClient:
     auth = base64.b64encode(
         f"{settings.JIRA_EMAIL}:{settings.JIRA_API_TOKEN}".encode()
@@ -95,6 +125,31 @@ def _adf(text: str) -> dict:
     }
 
 
+async def option_ids(db, c: httpx.AsyncClient, cfg: dict, issue_type: str) -> dict[str, dict]:
+    """Jira wants option *ids*, not the labels we store. Fetch the map once from
+    createmeta and cache it — 45 Task Types and 11 Question types that change
+    about never. Refreshed by deleting the `jira_options` settings row."""
+    key = f"jira_options:{issue_type}"
+    if (row := await db.get(IntegrationSetting, key)) is not None:
+        return row.value
+
+    r = await c.get("/rest/api/3/issue/createmeta/TCE/issuetypes")
+    types = {t["name"]: t["id"] for t in r.json().get("issueTypes", [])}
+    if issue_type not in types:
+        raise RuntimeError(f"Jira has no issue type {issue_type!r}")
+    r = await c.get(f"/rest/api/3/issue/createmeta/TCE/issuetypes/{types[issue_type]}")
+    fields = {f["fieldId"]: f for f in r.json().get("fields", [])}
+
+    f = cfg["done_fields"]
+    value = {
+        name: {o["value"]: o["id"] for o in (fields.get(fid, {}).get("allowedValues") or [])}
+        for name, fid in (("task_type", f["task_type"]), ("question_type", f["question_type"]))
+    }
+    db.add(IntegrationSetting(key=key, value=value))
+    await db.commit()
+    return value
+
+
 def _describe(entry: DailyEntry, item: EntryItem) -> str:
     lines = [
         f"ContentOps — {entry.kind.title()} — {entry.entry_date} — {entry.member.display_name}",
@@ -114,20 +169,44 @@ def _describe(entry: DailyEntry, item: EntryItem) -> str:
 
 
 async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str]:
+    """Creates the issue carrying every field the analytics later read back.
+
+    Sending only a summary produced tickets with no work type, no customer and
+    no assignee — invisible to the reporting this app then does.
+    """
     cfg = await config(db)
     _writes_allowed()
-    fields = {
+    f = cfg["done_fields"]
+    issue_type = ISSUE_TYPES.get(item.pipeline, cfg["issue_type"])
+
+    fields: dict[str, Any] = {
         "project": {"key": cfg["project_key"]},
         "summary": (f"{cfg['summary_prefix']} {item.task_type.name} · "
                     f"{entry.member.display_name} · {entry.entry_date}")[:254],
         "description": _adf(_describe(entry, item)),
-        "issuetype": {"name": cfg["issue_type"]},
+        "issuetype": {"name": issue_type},
     }
     if item.due_at:
         fields["duedate"] = item.due_at.isoformat()
+        fields[f["due_at"]] = item.due_at.isoformat()
+    if item.count is not None:
+        fields[f["question_count"]] = item.count
+    if item.effort_minutes is not None:
+        fields[f["effort_logged"]] = item.effort_minutes
+    if item.customer and issue_type in CUSTOMER_TYPES:
+        fields[cfg["customer_field"]] = item.customer
+    if entry.member.jira_account_id:
+        fields["assignee"] = {"id": entry.member.jira_account_id}
 
     async with _client() as c:
-        r = await c.post("/rest/api/3/issue", json={"fields": fields})
+        options = await option_ids(db, c, cfg, issue_type)
+        # Task Type is required on Content Tasks; an unmapped name would 400.
+        if tt := options["task_type"].get(item.task_type.name):
+            fields[f["task_type"]] = {"id": tt}
+        if item.question_type and (qt := options["question_type"].get(item.question_type.name)):
+            fields[f["question_type"]] = [{"id": qt}]
+
+        r = await _send(c, "POST", "/rest/api/3/issue", json={"fields": fields})
     if r.status_code >= 400:
         raise RuntimeError(_explain(r))
     key = r.json()["key"]
@@ -147,7 +226,7 @@ async def _done_fields(
     """
     f = cfg["done_fields"]
     ids = ",".join(v for k, v in f.items() if k != "question_type_fallback_id")
-    r = await c.get(f"/rest/api/3/issue/{key}", params={"fields": ids})
+    r = await _send(c, "GET", f"/rest/api/3/issue/{key}", params={"fields": ids})
     if r.status_code >= 400:
         raise RuntimeError(
             f"cannot read {key} before transitioning to Done ({_explain(r)}); "
@@ -201,7 +280,7 @@ async def transition(db, key: str, status: str, *, comment: str | None = None,
 
     async with _client() as c:
         async def options() -> list[dict]:
-            r = await c.get(f"/rest/api/3/issue/{key}/transitions",
+            r = await _send(c, "GET", f"/rest/api/3/issue/{key}/transitions",
                             params={"expand": "transitions.fields"})
             if r.status_code >= 400:
                 raise RuntimeError(_explain(r))
@@ -214,8 +293,8 @@ async def transition(db, key: str, status: str, *, comment: str | None = None,
             # Done only appears once the issue is In Progress. Step through.
             step = _pick(available, {n.lower() for n in cfg["status_names"]["in_progress"]})
             if step:
-                await c.post(f"/rest/api/3/issue/{key}/transitions",
-                             json={"transition": {"id": step["id"]}})
+                await _send(c, "POST", f"/rest/api/3/issue/{key}/transitions",
+                            json={"transition": {"id": step["id"]}})
                 chosen = _pick(await options(), want)
 
         if chosen is None:
@@ -233,17 +312,26 @@ async def transition(db, key: str, status: str, *, comment: str | None = None,
         if comment and comment.strip():
             payload["update"] = {"comment": [{"add": {"body": _adf(comment.strip())}}]}
 
-        r = await c.post(f"/rest/api/3/issue/{key}/transitions", json=payload)
+        r = await _send(c, "POST", f"/rest/api/3/issue/{key}/transitions", json=payload)
         if r.status_code >= 400:
             # A workflow that doesn't expose the due-date field on its screen
             # rejects the whole payload — retry bare so the status still moves.
-            r = await c.post(f"/rest/api/3/issue/{key}/transitions",
-                             json={"transition": {"id": chosen["id"]}})
+            r = await _send(c, "POST", f"/rest/api/3/issue/{key}/transitions",
+                            json={"transition": {"id": chosen["id"]}})
             if r.status_code >= 400:
                 raise RuntimeError(_explain(r))
 
 
 # ── background workers ────────────────────────────────────────────────────────
+
+
+async def _audit(db, action: str, item: EntryItem, detail: dict) -> None:
+    """audit_log has existed unused since the schema was written. Every Jira
+    write lands here, so "who made this ticket" is answerable."""
+    db.add(AuditLog(
+        action=action, entity_type="entry_item", entity_id=str(item.id),
+        payload={"jira_issue_key": item.jira_issue_key, **detail},
+    ))
 
 
 async def push_item(item_id: int) -> None:
@@ -258,6 +346,7 @@ async def push_item(item_id: int) -> None:
             key, url = await create_issue(db, entry, item)
             item.jira_issue_key, item.jira_issue_url = key, url
             item.jira_state, item.jira_error = "ok", None
+            await _audit(db, "jira.create", item, {"pipeline": item.pipeline})
             if item.status != "open":
                 await transition(db, key, item.status, comment=item.notes,
                                  due_at=item.due_at, effort_minutes=item.effort_minutes)
@@ -279,6 +368,8 @@ async def push_status(item_id: int, status: str, note: str | None = None) -> Non
             await transition(db, item.jira_issue_key, status, comment=note,
                              due_at=item.due_at, effort_minutes=item.effort_minutes)
             item.jira_state, item.jira_error = "ok", None
+            await _audit(db, "jira.transition", item,
+                         {"to": status, "effort_minutes": item.effort_minutes})
         except JiraDisabled:
             return
         except Exception as e:

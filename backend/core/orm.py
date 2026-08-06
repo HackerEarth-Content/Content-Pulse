@@ -29,8 +29,54 @@ from sqlalchemy.orm import (
 )
 
 STATUSES = ("open", "in_progress", "blocked", "closed")
+# Jira owns this vocabulary — a new issue type there must not need a migration
+# here, so `pipeline` is an indexed slug rather than a CHECK-constrained enum.
+PIPELINES = {
+    "Content Tasks": "content_task",
+    "Content Requests": "content_request",
+    "HC Request": "hc_request",
+    "HT Request": "ht_request",
+    "HC/HT Feasibility": "hc_ht_feasibility",
+    "TCE: Technical writing": "technical_writing",
+    "Creation and Review": "creation_and_review",
+}
+DEFAULT_PIPELINE = "content_task"
+
+
+# Assessment work is a Request type, not an issue type, so the reporting areas
+# don't line up 1:1 with pipelines.
+ASSESSMENT_REQUEST_TYPES = {"Assessment Creation", "Assessment Review"}
+
+AREA_LABELS = {
+    "content_task": "Content Tasks",
+    "content_request": "Content Requests",
+    "content_assessment": "Content Assessments",
+    "hc_request": "HC Request",
+    "ht_request": "HT Request",
+    "hc_ht_feasibility": "HC/HT Feasibility",
+    "technical_writing": "Technical Writing",
+}
+
+
+def area_for(pipeline: str, request_type: str | None) -> str:
+    """The grouping the Requests screen reports on. Content Requests split by
+    their Request type; everything else is its own area."""
+    if pipeline == "content_request" and (request_type or "") in ASSESSMENT_REQUEST_TYPES:
+        return "content_assessment"
+    return pipeline
+
+
+def pipeline_for(issue_type: str | None) -> str:
+    """Unknown types get a slug rather than being dropped or mislabelled."""
+    if not issue_type:
+        return DEFAULT_PIPELINE
+    return PIPELINES.get(
+        issue_type.strip(),
+        issue_type.strip().lower().replace(":", "").replace("/", "_")
+        .replace(" ", "_").strip("_") or DEFAULT_PIPELINE,
+    )
 KINDS = ("plan", "update")
-SOURCES = ("web", "slack", "api", "import")
+SOURCES = ("web", "slack", "api", "import", "jira")
 ROLES = ("content", "ae", "manager", "admin")
 JIRA_STATES = ("none", "pending", "ok", "failed")
 
@@ -103,6 +149,18 @@ class QuestionType(Lookup, Base):
 # ── members ───────────────────────────────────────────────────────────────────
 
 
+class MemberAlias(Base):
+    """Jira spells people differently from us — `shivendra`, `shruti.jain`,
+    `Niharika Kanakala`. One row per spelling, so the backfill never guesses."""
+
+    __tablename__ = "member_aliases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    alias: Mapped[str] = mapped_column(unique=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
+    source: Mapped[str] = mapped_column(default="jira")
+
+
 class Member(Timestamps, Base):
     __tablename__ = "members"
     __table_args__ = (
@@ -121,6 +179,9 @@ class Member(Timestamps, Base):
         ForeignKey("user.user_id", ondelete="SET NULL")
     )
     slack_user_id: Mapped[str | None]
+    # Needed to assign issues we create — without it they land unassigned and
+    # attribute to nobody.
+    jira_account_id: Mapped[str | None]
     role: Mapped[str] = mapped_column(default="content")
     is_active: Mapped[bool] = mapped_column(default=True)
 
@@ -181,6 +242,7 @@ class EntryItem(Timestamps, Base):
         Index("ix_items_plan_item", "plan_item_id"),
         Index("ix_items_status_due", "status", "due_at"),
         Index("ix_items_customer", "customer"),
+        Index("ix_items_pipeline", "pipeline"),
         # The background Jira writer's work queue.
         Index(
             "ix_items_jira_retry",
@@ -206,6 +268,22 @@ class EntryItem(Timestamps, Base):
     # Minutes spent. NULL means nobody logged it — distinct from 0, and every
     # average must skip it rather than treating unlogged work as instant.
     effort_minutes: Mapped[int | None]
+    # Set when the value is implausible (see the backfill's threshold). Kept, not
+    # deleted — dropping it loses information, averaging it loses the truth.
+    effort_suspect: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false")
+    )
+    # Which stream of work this is. The one dimension Jira has that we didn't.
+    pipeline: Mapped[str] = mapped_column(
+        default="content_task", server_default=text("'content_task'")
+    )
+    # Jira's own status and issue type verbatim, so the Requests screen can split
+    # by the real type rather than by our grouping of it.
+    external_status: Mapped[str | None]
+    external_issue_type: Mapped[str | None]
+    # Jira's "Request type" — how Content Requests sub-divide into assessment
+    # work, content issues, validation and so on.
+    request_type: Mapped[str | None]
 
     jira_issue_key: Mapped[str | None]
     jira_issue_url: Mapped[str | None]

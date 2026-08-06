@@ -1,9 +1,12 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
-from core.deps import ADMINS, require_role
+from core.dates import resolve_range
+from core.deps import ADMINS, Viewer, get_viewer, require_role
 from core.orm import DailyEntry, Member, QuestionType, TaskType
 from core.users import current_user
 from schemas.entries import (
@@ -14,6 +17,7 @@ from schemas.entries import (
     MemberOut,
     MemberPatch,
 )
+from services import analytics as an
 from services.entries import err
 
 router = APIRouter(prefix="/api", tags=["members"], dependencies=[Depends(current_user)])
@@ -90,6 +94,54 @@ async def remove_member(member_id: int, db: AsyncSession = Depends(get_session))
     await db.delete(member)
     await db.commit()
     return {"deleted": True, "entries": 0, "detail": f"{name} was removed."}
+
+
+@router.get("/members/{member_id}/profile")
+async def member_profile(
+    member_id: int,
+    period: str | None = None,
+    frm: date | None = Query(None, alias="from"),
+    to: date | None = None,
+    db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
+):
+    """Everything about one person in a single call: totals across every
+    pipeline, then the split by stream, work area, question type and customer.
+
+    One request rather than eight, because the page shows them together and a
+    half-loaded profile reads as wrong numbers rather than as loading.
+    """
+    if not viewer.may_write_for(member_id):
+        raise err(404, "not_found", "No such member.")
+    member = await db.get(Member, member_id)
+    if member is None:
+        raise err(404, "not_found", "No such member.")
+
+    start, end = resolve_range(period, frm, to)
+    mine = an.Scope(frm=start, to=end, member_id=member_id)
+    team = an.Scope(frm=start, to=end)
+
+    totals, team_totals = await an.summary(db, mine), await an.summary(db, team)
+    return {
+        "member": {"id": member.id, "display_name": member.display_name,
+                   "role": member.role, "email": member.email},
+        "range": {"from": start.isoformat(), "to": end.isoformat()},
+        # Unified: every pipeline folded into one set of headline numbers.
+        "totals": totals,
+        "share_of_team": {
+            "tasks": round(totals["tasks"] / team_totals["tasks"], 4)
+            if team_totals["tasks"] else None,
+            "effort": round(totals["effort_minutes"] / team_totals["effort_minutes"], 4)
+            if team_totals["effort_minutes"] else None,
+        },
+        "by_pipeline": await an.by_pipeline(db, mine),
+        "by_task_type": await an.by_task_type(db, mine),
+        "by_question_type": await an.by_question_type(db, mine),
+        "by_customer": await an.by_customer(db, mine, limit=25),
+        "cycle_time": await an.cycle_time(db, mine),
+        "adherence": (await an.plan_adherence(db, mine) or [None])[0],
+        "trend": await an.trend(db, mine),
+    }
 
 
 LOOKUPS = {"task-types": TaskType, "question-types": QuestionType}

@@ -10,6 +10,7 @@ import { useTheme } from "./hooks/useTheme";
 import { Admin } from "./routes/Admin";
 import { Analytics } from "./routes/Analytics";
 import { ContentRequests } from "./routes/ContentRequests";
+import { Requests } from "./routes/Requests";
 import { Login } from "./routes/Login";
 import { MemberDetail } from "./routes/MemberDetail";
 import { Members } from "./routes/Members";
@@ -57,6 +58,7 @@ export default function App() {
         <Route path="/members" element={<Members range={range} />} />
         <Route path="/members/:id" element={<MemberDetail range={range} />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/requests" element={<Requests range={range} />} />
         <Route path="/content-requests" element={<ContentRequests />} />
         <Route path="/plans/new" element={<PlanForm me={user.member} />} />
         <Route path="/updates/new" element={<UpdateForm me={user.member} />} />

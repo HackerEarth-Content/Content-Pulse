@@ -11,7 +11,7 @@ ENDPOINTS = [
     "summary", "trend", "by-member", "by-task-type", "by-question-type",
     "by-customer", "status-flow", "cycle-time",
     "plan-adherence", "aging", "due-risk", "throughput", "workload",
-    "open-items", "data-quality",
+    "open-items", "data-quality", "by-area", "by-request-type", "by-pipeline",
 ]
 
 
@@ -101,3 +101,42 @@ async def test_bad_range_rejected(client):
     r = await client.get("/api/analytics/summary",
                          params={"from": "2030-02-01", "to": "2030-01-01"})
     assert r.status_code == 422 and r.json()["detail"]["code"] == "bad_range"
+
+
+async def test_areas_partition_the_work(client, member, task_type, params):
+    """Every ticket lands in exactly one area — no double counting, none lost."""
+    await dataset(client, member, task_type)
+    total = (await client.get("/api/analytics/summary", params=params)).json()["tasks"]
+    areas = (await client.get("/api/analytics/by-area", params=params)).json()
+    assert sum(a["tasks"] for a in areas) == total
+
+
+async def test_assessments_split_out_of_content_requests(client, member, task_type, params):
+    """Assessment work is a Request *type* inside Content Requests, so it has to
+    be carved out rather than sitting as its own Jira issue type."""
+    from core.database import Session
+    from core.orm import EntryItem
+    from sqlalchemy import select
+
+    plan = (await client.post("/api/entries/plans", json={
+        "member_id": member, "entry_date": DAY,
+        "items": [{"task_type_id": task_type, "effort_minutes": 60},
+                  {"task_type_id": task_type, "effort_minutes": 30}],
+    })).json()
+    async with Session() as db:
+        for i, (rt) in enumerate(("Assessment Review", "Content Issue")):
+            item = await db.scalar(
+                select(EntryItem).where(EntryItem.id == plan["items"][i]["id"]))
+            item.pipeline, item.request_type = "content_request", rt
+        await db.commit()
+
+    by_area = {a["area"]: a for a in
+               (await client.get("/api/analytics/by-area", params=params)).json()}
+    assert by_area["content_assessment"]["tasks"] == 1
+    assert by_area["content_request"]["tasks"] == 1
+    assert by_area["content_assessment"]["effort_minutes"] == 60
+
+    # and the same split holds when filtering to one area
+    only = (await client.get("/api/analytics/summary",
+                             params=params | {"area": "content_assessment"})).json()
+    assert only["tasks"] == 1 and only["effort_minutes"] == 60

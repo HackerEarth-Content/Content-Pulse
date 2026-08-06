@@ -19,6 +19,8 @@ from sqlalchemy import Select, and_, case, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.orm import (
+    AREA_LABELS,
+    ASSESSMENT_REQUEST_TYPES,
     STATUSES,
     DailyEntry,
     EntryItem,
@@ -35,6 +37,8 @@ class Scope:
     to: date
     member_id: int | None = None
     task_type_id: int | None = None
+    pipeline: str | None = None
+    area: str | None = None
 
 
 def _entry_where(s: Scope) -> list:
@@ -44,35 +48,49 @@ def _entry_where(s: Scope) -> list:
     return where
 
 
+def _item_where(s: Scope) -> list:
+    """Every filter that narrows the task set. One list, used by both query
+    builders — they drifted apart once already and an `area` filter silently
+    applied to only one of them."""
+    where = [
+        *_entry_where(s),
+        or_(DailyEntry.kind == "plan", EntryItem.plan_item_id.is_(None)),
+    ]
+    if s.task_type_id:
+        where.append(EntryItem.task_type_id == s.task_type_id)
+    if s.pipeline:
+        where.append(EntryItem.pipeline == s.pipeline)
+
+    assessments = sorted(ASSESSMENT_REQUEST_TYPES)
+    if s.area == "content_assessment":
+        where += [EntryItem.pipeline == "content_request",
+                  EntryItem.request_type.in_(assessments)]
+    elif s.area == "content_request":
+        where += [EntryItem.pipeline == "content_request",
+                  or_(EntryItem.request_type.is_(None),
+                      EntryItem.request_type.notin_(assessments))]
+    elif s.area:
+        where.append(EntryItem.pipeline == s.area)
+    return where
+
+
 def tasks(s: Scope) -> Select:
     """Items joined to their entry, mirrors excluded. Base of most queries."""
-    stmt = (
+    return (
         select(EntryItem, DailyEntry)
         .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
-        .where(
-            *_entry_where(s),
-            or_(DailyEntry.kind == "plan", EntryItem.plan_item_id.is_(None)),
-        )
+        .where(*_item_where(s))
     )
-    if s.task_type_id:
-        stmt = stmt.where(EntryItem.task_type_id == s.task_type_id)
-    return stmt
 
 
 def _from_tasks(s: Scope, *cols) -> Select:
     """Same join and filters as tasks(), but selecting arbitrary columns."""
-    stmt = (
+    return (
         select(*cols)
         .select_from(EntryItem)
         .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
-        .where(
-            *_entry_where(s),
-            or_(DailyEntry.kind == "plan", EntryItem.plan_item_id.is_(None)),
-        )
+        .where(*_item_where(s))
     )
-    if s.task_type_id:
-        stmt = stmt.where(EntryItem.task_type_id == s.task_type_id)
-    return stmt
 
 
 def _effort():
@@ -185,6 +203,95 @@ async def by_member(db: AsyncSession, s: Scope) -> list[dict]:
             "effort_minutes": int(r.effort_minutes),
             **{st: getattr(r, st) for st in STATUSES},
             "completion_rate": round(r.closed / r.tasks, 4) if r.tasks else None,
+        }
+        for r in rows
+    ]
+
+
+def _area_col():
+    """Assessment work is a Request *type* inside Content Requests, not its own
+    issue type, so the reporting areas don't line up 1:1 with pipelines."""
+    assessments = ", ".join(f"'{v}'" for v in sorted(ASSESSMENT_REQUEST_TYPES))
+    return case(
+        (
+            and_(EntryItem.pipeline == "content_request",
+                 EntryItem.request_type.in_(sorted(ASSESSMENT_REQUEST_TYPES))),
+            "content_assessment",
+        ),
+        else_=EntryItem.pipeline,
+    ).label("area")
+
+
+async def by_area(db: AsyncSession, s: Scope) -> list[dict]:
+    """The Requests screen's split: Content Requests, Content Assessments,
+    HC/HT and Technical Writing, each with its own effort."""
+    area = _area_col()
+    rows = await db.execute(
+        _from_tasks(
+            s, area,
+            func.count().label("tasks"),
+            func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
+            func.count(distinct(DailyEntry.member_id)).label("members"),
+            func.count(distinct(EntryItem.customer)).label("customers"),
+            *_status_cols(),
+        ).group_by(area).order_by(func.count().desc())
+    )
+    return [
+        {
+            "area": r.area,
+            "label": AREA_LABELS.get(r.area, r.area.replace("_", " ").title()),
+            "tasks": r.tasks, "volume": int(r.volume),
+            "effort_minutes": int(r.effort_minutes),
+            "members": r.members, "customers": r.customers,
+            **{st: getattr(r, st) for st in STATUSES},
+        }
+        for r in rows
+    ]
+
+
+async def by_request_type(db: AsyncSession, s: Scope) -> list[dict]:
+    """Inside Content Requests: what kind of request was it?"""
+    rows = await db.execute(
+        _from_tasks(
+            s, EntryItem.request_type,
+            func.count().label("tasks"), _effort(),
+        )
+        .where(EntryItem.request_type.isnot(None))
+        .group_by(EntryItem.request_type)
+        .order_by(func.count().desc())
+    )
+    return [{"request_type": r.request_type, "tasks": r.tasks,
+             "effort_minutes": int(r.effort_minutes)} for r in rows]
+
+
+async def by_pipeline(db: AsyncSession, s: Scope) -> list[dict]:
+    """The streams of work: Content Tasks, Content Requests, HC/HT, Technical
+    writing. `external_issue_type` is carried through so the UI can label each
+    with Jira's own words rather than our slug."""
+    rows = await db.execute(
+        _from_tasks(
+            s,
+            EntryItem.pipeline,
+            func.max(EntryItem.external_issue_type).label("label"),
+            func.count().label("tasks"),
+            func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
+            func.count(distinct(DailyEntry.member_id)).label("members"),
+            func.count(distinct(EntryItem.customer)).label("customers"),
+            *_status_cols(),
+        )
+        .group_by(EntryItem.pipeline)
+        .order_by(func.count().desc())
+    )
+    return [
+        {
+            "pipeline": r.pipeline,
+            "label": r.label or r.pipeline.replace("_", " ").title(),
+            "tasks": r.tasks, "volume": int(r.volume),
+            "effort_minutes": int(r.effort_minutes),
+            "members": r.members, "customers": r.customers,
+            **{st: getattr(r, st) for st in STATUSES},
         }
         for r in rows
     ]

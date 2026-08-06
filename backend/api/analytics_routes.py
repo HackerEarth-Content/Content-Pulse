@@ -26,6 +26,8 @@ async def scope(
     to: date | None = None,
     member_id: int | None = None,
     task_type_id: int | None = None,
+    pipeline: str | None = None,
+    area: str | None = None,
     viewer: Viewer = Depends(get_viewer),
 ) -> an.Scope:
     """Row-level endpoints get their member_id from the viewer, not the query —
@@ -35,7 +37,7 @@ async def scope(
         from services.entries import err
         raise err(422, "bad_range", "`from` is after `to`.")
     return an.Scope(frm=start, to=end, member_id=viewer.scope(member_id),
-                    task_type_id=task_type_id)
+                    task_type_id=task_type_id, pipeline=pipeline, area=area)
 
 
 async def team_scope(
@@ -44,6 +46,8 @@ async def team_scope(
     to: date | None = None,
     member_id: int | None = None,
     task_type_id: int | None = None,
+    pipeline: str | None = None,
+    area: str | None = None,
 ) -> an.Scope:
     """Aggregate-only endpoints: everyone sees the whole team's numbers. These
     return counts and rates, never a row you could read someone's notes from."""
@@ -51,7 +55,8 @@ async def team_scope(
     if start > end:
         from services.entries import err
         raise err(422, "bad_range", "`from` is after `to`.")
-    return an.Scope(frm=start, to=end, member_id=member_id, task_type_id=task_type_id)
+    return an.Scope(frm=start, to=end, member_id=member_id,
+                    task_type_id=task_type_id, pipeline=pipeline, area=area)
 
 
 Scope = Depends(scope)
@@ -72,6 +77,21 @@ async def trend(s: an.Scope = TeamScope, db: AsyncSession = DB):
 @router.get("/by-member")
 async def by_member(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.by_member(db, s)
+
+
+@router.get("/by-area")
+async def by_area(s: an.Scope = TeamScope, db: AsyncSession = DB):
+    return await an.by_area(db, s)
+
+
+@router.get("/by-request-type")
+async def by_request_type(s: an.Scope = TeamScope, db: AsyncSession = DB):
+    return await an.by_request_type(db, s)
+
+
+@router.get("/by-pipeline")
+async def by_pipeline(s: an.Scope = TeamScope, db: AsyncSession = DB):
+    return await an.by_pipeline(db, s)
 
 
 @router.get("/by-task-type")

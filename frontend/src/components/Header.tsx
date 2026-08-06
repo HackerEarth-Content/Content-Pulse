@@ -6,7 +6,8 @@ const LINKS = [
   { to: "/work-log", label: "Work log" },
   { to: "/analytics", label: "Analytics" },
   { to: "/members", label: "Members" },
-  { to: "/content-requests", label: "Requests" },
+  { to: "/requests", label: "Requests" },
+  { to: "/content-requests", label: "Jira board" },
   { to: "/admin", label: "Admin", roles: ["admin"] },
 ];
 

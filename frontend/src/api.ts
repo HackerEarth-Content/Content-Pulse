@@ -1,5 +1,6 @@
 import type {
   Adherence,
+  AreaStat,
   Aging,
   ContentRequest,
   CurrentUser,
@@ -10,9 +11,11 @@ import type {
   Entry,
   Lookup,
   Member,
+  MemberProfile,
   MemberStat,
   OpenItem,
   Page,
+  PipelineStat,
   Status,
   Summary,
   SyncStatus,
@@ -107,6 +110,7 @@ export const api = {
   logout: () => send<void>("POST", "/auth/logout"),
 
   members: (params?: Params) => get<Member[]>("/members", params),
+  memberProfile: (id: number, p: Params) => get<MemberProfile>(`/members/${id}/profile`, p),
   createMember: (body: unknown) => send<Member>("POST", "/members", body),
   patchMember: (id: number, body: unknown) => send<Member>("PATCH", `/members/${id}`, body),
   removeMember: (id: number) =>
@@ -137,6 +141,11 @@ export const api = {
   summary: (p: Params) => get<Summary>("/analytics/summary", p),
   trend: (p: Params) => get<TrendPoint[]>("/analytics/trend", p),
   byMember: (p: Params) => get<MemberStat[]>("/analytics/by-member", p),
+  byArea: (p: Params) => get<AreaStat[]>("/analytics/by-area", p),
+  byRequestType: (p: Params) =>
+    get<{ request_type: string; tasks: number; effort_minutes: number }[]>(
+      "/analytics/by-request-type", p),
+  byPipeline: (p: Params) => get<PipelineStat[]>("/analytics/by-pipeline", p),
   byTaskType: (p: Params) => get<TaskTypeStat[]>("/analytics/by-task-type", p),
   byQuestionType: (p: Params) =>
     get<{ question_type: string; tasks: number; volume: number }[]>("/analytics/by-question-type", p),

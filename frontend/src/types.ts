@@ -99,6 +99,34 @@ export interface MemberStat {
   completion_rate: number | null;
 }
 
+export interface AreaStat {
+  area: string;
+  label: string;
+  tasks: number;
+  volume: number;
+  effort_minutes: number;
+  members: number;
+  customers: number;
+  open: number;
+  in_progress: number;
+  blocked: number;
+  closed: number;
+}
+
+export interface PipelineStat {
+  pipeline: string;
+  label: string;
+  tasks: number;
+  volume: number;
+  effort_minutes: number;
+  members: number;
+  customers: number;
+  open: number;
+  in_progress: number;
+  blocked: number;
+  closed: number;
+}
+
 export interface TaskTypeStat {
   task_type: string;
   tasks: number;
@@ -116,6 +144,20 @@ export interface CustomerStat {
   volume: number;
   effort_minutes: number;
   outstanding: number;
+}
+
+export interface MemberProfile {
+  member: { id: number; display_name: string; role: string; email: string | null };
+  range: { from: string; to: string };
+  totals: Summary;
+  share_of_team: { tasks: number | null; effort: number | null };
+  by_pipeline: PipelineStat[];
+  by_task_type: TaskTypeStat[];
+  by_question_type: { question_type: string; tasks: number; volume: number }[];
+  by_customer: CustomerStat[];
+  cycle_time: CycleTime;
+  adherence: Adherence | null;
+  trend: TrendPoint[];
 }
 
 export interface Adherence {
