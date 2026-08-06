@@ -169,28 +169,6 @@ export interface DataQuality {
   tasks_on_retired_task_types: number;
 }
 
-export interface AEMetricDef {
-  key: string;
-  label: string;
-  sort_order: number;
-}
-
-export interface AEDay {
-  id: number;
-  member_id: number;
-  member: string;
-  entry_date: string;
-  notes: string;
-  updated_at: string;
-  metrics: Record<string, number>;
-}
-
-export interface AEMetrics {
-  totals: { key: string; label: string; total: number }[];
-  by_member: { member: string; key: string; total: number }[];
-  trend: { date: string; total: number }[];
-}
-
 export interface ContentRequest {
   issue_key: string;
   summary: string;

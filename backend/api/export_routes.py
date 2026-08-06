@@ -57,19 +57,6 @@ async def work_log_csv(filters: dict = Depends(_filters), db: AsyncSession = Dep
     return _attachment(content, f"work-log-{filters['frm']}_{filters['to']}.csv", "text/csv")
 
 
-@router.get("/ae-daily.xlsx")
-async def ae_daily_xlsx(
-    period: str | None = None,
-    frm: date | None = Query(None, alias="from"),
-    to: date | None = None,
-    db: AsyncSession = Depends(get_session),
-    viewer: Viewer = Depends(get_viewer),
-):
-    start, end = resolve_range(period, frm, to)
-    content = await export.ae_daily_xlsx(db, start, end, viewer.scope(None))
-    return _attachment(content, f"ae-daily-{start:%d%b%Y}_{end:%d%b%Y}.xlsx", XLSX)
-
-
 @router.get("/content-requests.xlsx")
 async def content_requests_xlsx(
     status: str | None = None,

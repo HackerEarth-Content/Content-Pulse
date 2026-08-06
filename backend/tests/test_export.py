@@ -65,23 +65,6 @@ async def test_work_log_csv_quotes_formulas_too(client, logged, member):
     assert rows[1][notes] == "'=cmd|calc"
 
 
-async def test_ae_daily_xlsx_lays_out_dates_over_members(client, ae_member):
-    await client.put("/api/ae/daily", json={
-        "member_id": ae_member, "entry_date": DAY, "notes": "steady",
-        "metrics": {"bug_fixes": 7},
-    })
-    r = await client.get("/api/exports/ae-daily.xlsx", params={"from": DAY, "to": DAY})
-    assert r.status_code == 200
-
-    ws = load_workbook(io.BytesIO(r.content)).active
-    assert ws.cell(row=1, column=1).value == "Metric"
-    assert ws.cell(row=1, column=2).value == DAY        # date band
-    assert ws.cell(row=2, column=2).value == "PyTest AE"  # member under it
-    labels = [ws.cell(row=r_, column=1).value for r_ in range(3, 14)]
-    assert "Bug Fixes" in labels and labels[-1] == "Notes"
-    assert ws.cell(row=3 + labels.index("Bug Fixes"), column=2).value == 7
-
-
 async def test_analytics_workbook_has_a_sheet_per_breakdown(client, logged, member):
     r = await client.get("/api/exports/analytics.xlsx",
                          params={"from": DAY, "to": DAY, "member_id": member})

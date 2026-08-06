@@ -135,8 +135,3 @@ async def open_items(limit: int = Query(200, ge=1, le=1000), s: an.Scope = Scope
 @router.get("/data-quality")
 async def data_quality(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.data_quality(db, s)
-
-
-@router.get("/ae-metrics")
-async def ae_metrics(s: an.Scope = TeamScope, db: AsyncSession = DB):
-    return await an.ae_metrics(db, s)

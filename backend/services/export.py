@@ -18,7 +18,6 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.orm import STATUSES
-from services import ae as ae_svc
 from services import content_requests as cr_svc
 from services import entries as entries_svc
 
@@ -125,75 +124,6 @@ async def work_log_csv(db: AsyncSession, **filters) -> str:
     if truncated:
         w.writerow([f"Truncated at {MAX_ROWS} entries"])
     return buf.getvalue()
-
-
-# ── AE daily ──────────────────────────────────────────────────────────────────
-
-
-async def ae_daily_xlsx(db: AsyncSession, frm: date, to: date,
-                        member_id: int | None = None) -> bytes:
-    """Metrics down the left, one column block per date across the top — the
-    layout the team already reads, ported from the Django export."""
-    updates = await ae_svc.list_range(db, frm, to, member_id)
-    metrics = await ae_svc.metric_defs(db)
-    members = sorted({u.member.display_name for u in updates})
-    dates = sorted({u.entry_date for u in updates})
-    grid = {(u.entry_date, u.member.display_name): u for u in updates}
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "AE Daily"
-    ws.column_dimensions["A"].width = 36
-    head = ws.cell(row=1, column=1, value="Metric")
-    head.fill, head.font = HEAD_FILL, HEAD_FONT
-    ws.cell(row=2, column=1).fill = HEAD_FILL
-
-    span = max(len(members), 1)
-    for d_index, day in enumerate(dates):
-        base = 2 + d_index * span
-        cell = ws.cell(row=1, column=base, value=day.isoformat())
-        cell.fill, cell.font, cell.border = HEAD_FILL, DATE_FONT, RULE
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        if span > 1:
-            ws.merge_cells(start_row=1, start_column=base, end_row=1,
-                           end_column=base + span - 1)
-        for m_index, name in enumerate(members):
-            col = base + m_index
-            c = ws.cell(row=2, column=col, value=name)
-            c.fill, c.font, c.border = NAME_FILL, NAME_FONT, RULE
-            c.alignment = Alignment(horizontal="center", vertical="center")
-            ws.column_dimensions[get_column_letter(col)].width = 14
-
-    ws.row_dimensions[1].height = 22
-    ws.freeze_panes = "B3"
-
-    def write_row(row: int, label: str, value_of, *, wrap=False) -> None:
-        stripe = STRIPE if row % 2 else None
-        cell = ws.cell(row=row, column=1, value=label)
-        cell.font, cell.border = BOLD_FONT, RULE
-        if stripe:
-            cell.fill = stripe
-        for d_index, day in enumerate(dates):
-            for m_index, name in enumerate(members):
-                c = ws.cell(row=row, column=2 + d_index * span + m_index,
-                            value=safe(value_of(grid.get((day, name)))))
-                c.font, c.border = BODY_FONT, RULE
-                c.alignment = Alignment(
-                    horizontal="left" if wrap else "center",
-                    vertical="top" if wrap else "center", wrap_text=wrap,
-                )
-                if stripe:
-                    c.fill = stripe
-
-    for i, metric in enumerate(metrics):
-        write_row(3 + i, metric.name,
-                  lambda u, key=metric.key: "" if u is None
-                  else {m.metric.key: m.value for m in u.metrics}.get(key, 0))
-
-    notes_row = 3 + len(metrics)
-    write_row(notes_row, "Notes", lambda u: (u.notes if u else "") or "", wrap=True)
-    ws.row_dimensions[notes_row].height = 40
-    return _save(wb)
 
 
 # ── content requests ──────────────────────────────────────────────────────────

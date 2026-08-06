@@ -4,7 +4,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from api.ae_routes import router as ae_router
 from api.analytics_routes import router as analytics_router
 from api.auth_routes import router as auth_router
 from api.integrations_routes import router as integrations_router
@@ -53,7 +52,6 @@ async def health():
 app.include_router(auth_router)
 app.include_router(members_router)
 app.include_router(entries_router)
-app.include_router(ae_router)
 app.include_router(analytics_router)
 app.include_router(integrations_router)
 app.include_router(intake_router)

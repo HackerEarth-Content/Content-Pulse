@@ -1,7 +1,4 @@
 import type {
-  AEDay,
-  AEMetricDef,
-  AEMetrics,
   Adherence,
   Aging,
   ContentRequest,
@@ -158,11 +155,6 @@ export const api = {
     ),
   openItems: (p: Params) => get<OpenItem[]>("/analytics/open-items", p),
   dataQuality: (p: Params) => get<DataQuality>("/analytics/data-quality", p),
-  aeAnalytics: (p: Params) => get<AEMetrics>("/analytics/ae-metrics", p),
-
-  aeMetrics: () => get<AEMetricDef[]>("/ae/metrics"),
-  aeDaily: (p: Params) => get<{ range: { from: string; to: string }; items: AEDay[] }>("/ae/daily", p),
-  aeUpsert: (body: unknown) => send<AEDay>("PUT", "/ae/daily", body),
 
   contentRequests: (p: Params) => get<Page<ContentRequest>>("/content-requests", p),
   contentRequestFilters: () =>
@@ -191,8 +183,6 @@ export const api = {
   exportWorkLog: (f: EntryFilters, format: "xlsx" | "csv") =>
     download(`/exports/work-log.${format}`, f, `work-log-${f.from}_${f.to}.${format}`),
   exportAnalytics: (p: Params) =>
-    download("/exports/analytics.xlsx", p, `analytics-${p.from}_${p.to}.xlsx`),
-  exportAeDaily: (p: Params) => download("/exports/ae-daily.xlsx", p, "ae-daily.xlsx"),
-  exportContentRequests: (p: Params) =>
+    download("/exports/analytics.xlsx", p, `analytics-${p.from}_${p.to}.xlsx`),  exportContentRequests: (p: Params) =>
     download("/exports/content-requests.xlsx", p, "content-requests.xlsx"),
 };

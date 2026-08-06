@@ -11,7 +11,7 @@ ENDPOINTS = [
     "summary", "trend", "by-member", "by-task-type", "by-question-type",
     "by-customer", "status-flow", "cycle-time",
     "plan-adherence", "aging", "due-risk", "throughput", "workload",
-    "open-items", "data-quality", "ae-metrics",
+    "open-items", "data-quality",
 ]
 
 

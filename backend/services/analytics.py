@@ -20,9 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.orm import (
     STATUSES,
-    AEDailyMetric,
-    AEDailyUpdate,
-    AEMetricDefinition,
     DailyEntry,
     EntryItem,
     EntryItemStatusEvent,
@@ -505,63 +502,4 @@ async def data_quality(db: AsyncSession, s: Scope) -> dict:
         },
         "plans_with_unreported_tasks": silent or 0,
         "tasks_on_retired_task_types": inactive_types or 0,
-    }
-
-
-# ── AE metrics ────────────────────────────────────────────────────────────────
-
-
-async def ae_metrics(db: AsyncSession, s: Scope) -> dict:
-    where = [AEDailyUpdate.entry_date.between(s.frm, s.to)]
-    if s.member_id:
-        where.append(AEDailyUpdate.member_id == s.member_id)
-
-    # Aggregate in range first, then LEFT JOIN the definitions onto it — a
-    # metric with no data this period must report 0, not drop off the chart.
-    sums = (
-        select(AEDailyMetric.metric_id, func.sum(AEDailyMetric.value).label("total"))
-        .join(AEDailyUpdate, AEDailyUpdate.id == AEDailyMetric.ae_daily_update_id)
-        .where(*where)
-        .group_by(AEDailyMetric.metric_id)
-        .subquery()
-    )
-    totals = await db.execute(
-        select(
-            AEMetricDefinition.key, AEMetricDefinition.name,
-            func.coalesce(sums.c.total, 0).label("total"),
-        )
-        .select_from(AEMetricDefinition)
-        .join(sums, sums.c.metric_id == AEMetricDefinition.id, isouter=True)
-        .where(AEMetricDefinition.is_active.is_(True))
-        .order_by(AEMetricDefinition.sort_order)
-    )
-    per_member = await db.execute(
-        select(
-            Member.display_name.label("member"), AEMetricDefinition.key,
-            func.sum(AEDailyMetric.value).label("total"),
-        )
-        .select_from(AEDailyMetric)
-        .join(AEDailyUpdate, AEDailyUpdate.id == AEDailyMetric.ae_daily_update_id)
-        .join(AEMetricDefinition, AEMetricDefinition.id == AEDailyMetric.metric_id)
-        .join(Member, Member.id == AEDailyUpdate.member_id)
-        .where(*where)
-        .group_by(Member.display_name, AEMetricDefinition.key)
-    )
-    daily = await db.execute(
-        select(
-            AEDailyUpdate.entry_date.label("d"),
-            func.sum(AEDailyMetric.value).label("total"),
-        )
-        .select_from(AEDailyMetric)
-        .join(AEDailyUpdate, AEDailyUpdate.id == AEDailyMetric.ae_daily_update_id)
-        .where(*where)
-        .group_by(AEDailyUpdate.entry_date)
-    )
-    by_day = {r.d: r.total for r in daily}
-    return {
-        "totals": [{"key": r.key, "label": r.name, "total": int(r.total)} for r in totals],
-        "by_member": [{"member": r.member, "key": r.key, "total": int(r.total)}
-                      for r in per_member],
-        "trend": [{"date": d.isoformat(), "total": int(by_day.get(d, 0))}
-                  for d in _days(s.frm, s.to)],
     }

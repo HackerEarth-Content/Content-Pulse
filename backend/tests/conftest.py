@@ -4,12 +4,11 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
 from core.database import Session
-from core.orm import AEDailyUpdate, DailyEntry, Member, TaskType, User
+from core.orm import DailyEntry, Member, TaskType, User
 from core.users import current_user
 from main import app
 
 TEST_MEMBER = "PyTest Member"
-AE_MEMBER = "PyTest AE"
 ADMIN_MEMBER = "PyTest Admin"
 
 
@@ -59,20 +58,6 @@ async def member() -> int:
             db.add(m)
             await db.commit()
         await db.execute(delete(DailyEntry).where(DailyEntry.member_id == m.id))
-        await db.commit()
-        return m.id
-
-
-@pytest_asyncio.fixture
-async def ae_member() -> int:
-    """An AE-role member with no AE rows, so the upsert path starts clean."""
-    async with Session() as db:
-        m = await db.scalar(select(Member).where(Member.display_name == AE_MEMBER))
-        if m is None:
-            m = Member(display_name=AE_MEMBER, role="ae")
-            db.add(m)
-            await db.commit()
-        await db.execute(delete(AEDailyUpdate).where(AEDailyUpdate.member_id == m.id))
         await db.commit()
         return m.id
 

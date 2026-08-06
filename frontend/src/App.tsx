@@ -7,7 +7,6 @@ import { Banner, Skeleton } from "./components/ui";
 import { useAuth } from "./hooks/useAuth";
 import { usePeriod } from "./hooks/usePeriod";
 import { useTheme } from "./hooks/useTheme";
-import { AEDaily } from "./routes/AEDaily";
 import { Admin } from "./routes/Admin";
 import { Analytics } from "./routes/Analytics";
 import { ContentRequests } from "./routes/ContentRequests";
@@ -58,7 +57,6 @@ export default function App() {
         <Route path="/members" element={<Members range={range} />} />
         <Route path="/members/:id" element={<MemberDetail range={range} />} />
         <Route path="/admin" element={<Admin />} />
-        <Route path="/ae" element={<AEDaily range={range} me={user.member} />} />
         <Route path="/content-requests" element={<ContentRequests />} />
         <Route path="/plans/new" element={<PlanForm me={user.member} />} />
         <Route path="/updates/new" element={<UpdateForm me={user.member} />} />

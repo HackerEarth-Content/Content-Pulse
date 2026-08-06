@@ -99,11 +99,6 @@ class QuestionType(Lookup, Base):
     __tablename__ = "question_types"
 
 
-class AEMetricDefinition(Lookup, Base):
-    __tablename__ = "ae_metric_definitions"
-
-    key: Mapped[str] = mapped_column(unique=True)
-
 
 # ── members ───────────────────────────────────────────────────────────────────
 
@@ -112,7 +107,10 @@ class Member(Timestamps, Base):
     __tablename__ = "members"
     __table_args__ = (
         _enum("role", ROLES),
-        Index("uq_members_name_ci", func.lower(func.trim(text("display_name"))), unique=True),
+        # Spelled the way Postgres echoes it back, or every autogenerate
+        # proposes dropping and recreating this index for nothing.
+        Index("uq_members_name_ci",
+              text("lower(TRIM(BOTH FROM display_name))"), unique=True),
         Index("ix_members_active_role", "is_active", "role"),
     )
 
@@ -240,51 +238,6 @@ class EntryItemStatusEvent(Base):
         ForeignKey("user.user_id", ondelete="SET NULL")
     )
     changed_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
-
-
-# ── AE daily ──────────────────────────────────────────────────────────────────
-
-
-class AEDailyUpdate(Timestamps, Base):
-    __tablename__ = "ae_daily_updates"
-    __table_args__ = (
-        UniqueConstraint("member_id", "entry_date", name="uq_ae_member_date"),
-        Index("ix_ae_date", "entry_date"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="RESTRICT"))
-    entry_date: Mapped[date]
-    notes: Mapped[str] = mapped_column(Text)
-    created_by_user_id: Mapped[str | None] = mapped_column(
-        ForeignKey("user.user_id", ondelete="SET NULL")
-    )
-
-    member: Mapped[Member] = relationship(lazy="joined")
-    metrics: Mapped[list[AEDailyMetric]] = relationship(
-        back_populates="update", cascade="all, delete-orphan", lazy="selectin"
-    )
-
-
-class AEDailyMetric(Base):
-    """Long-form, so adding an AE metric is an insert, not a migration."""
-
-    __tablename__ = "ae_daily_metrics"
-    __table_args__ = (
-        UniqueConstraint("ae_daily_update_id", "metric_id", name="uq_ae_metric"),
-        CheckConstraint("value >= 0", name="ck_ae_value_positive"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    ae_daily_update_id: Mapped[int] = mapped_column(
-        ForeignKey("ae_daily_updates.id", ondelete="CASCADE")
-    )
-    metric_id: Mapped[int] = mapped_column(ForeignKey("ae_metric_definitions.id"))
-    value: Mapped[int] = mapped_column(default=0)
-
-    update: Mapped[AEDailyUpdate] = relationship(back_populates="metrics")
-    metric: Mapped[AEMetricDefinition] = relationship(lazy="joined")
-
 
 # ── integrations ──────────────────────────────────────────────────────────────
 

@@ -18,9 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import Session
 from core.orm import (
-    AEDailyMetric,
-    AEDailyUpdate,
-    AEMetricDefinition,
     DailyEntry,
     EntryItem,
     EntryItemStatusEvent,
@@ -51,20 +48,6 @@ QUESTION_TYPES = [
     "Multiple Choice", "Approximate", "Golf", "RegExp", "FileEval",
 ]
 
-# key -> label. Django kept these in views.AE_FIELDS; they're rows now.
-AE_METRICS = [
-    ("setter_enhancements", "Setter Enhancements"),
-    ("he_support_replies", "#he_support_v2 Replies / Resolutions"),
-    ("eng_assessment_replies", "#engineering_assessment Replies / Resolutions"),
-    ("facecode_replies", "#engineering_facecode Replies / Resolutions"),
-    ("data_requests_replies", "#data_requests Replies / Resolutions"),
-    ("redash_queries", "Redash Queries"),
-    ("bug_fixes", "Bug Fixes"),
-    ("deployments", "Deployments"),
-    ("utilities", "Utilities"),
-    ("bug_bounty_reviewed", "Bug Bounty Reviewed"),
-]
-
 
 async def _by_name(db: AsyncSession, model) -> dict[str, int]:
     rows = await db.execute(select(model.name, model.id))
@@ -80,15 +63,9 @@ async def seed_lookups(db: AsyncSession) -> None:
             if n not in existing
         )
 
-    existing_keys = {k for (k,) in await db.execute(select(AEMetricDefinition.key))}
-    db.add_all(
-        AEMetricDefinition(key=k, name=label, sort_order=i)
-        for i, (k, label) in enumerate(AE_METRICS)
-        if k not in existing_keys
-    )
     await db.flush()
-    print(f"lookups: {len(TASK_TYPES)} task types, {len(QUESTION_TYPES)} question "
-          f"types, {len(AE_METRICS)} AE metrics")
+    print(f"lookups: {len(TASK_TYPES)} task types, "
+          f"{len(QUESTION_TYPES)} question types")
 
 
 async def _lookup_id(db: AsyncSession, model, name: str | None, cache: dict) -> int | None:
@@ -216,24 +193,6 @@ async def import_sqlite(db: AsyncSession, path: str) -> None:
         if (new := old_item.get(r["plan_item_id"])) and (mine := old_item.get(r["id"])):
             (await db.get(EntryItem, mine)).plan_item_id = new
     print(f"items: {len(old_item)} new")
-
-    metrics = {k: id_ for k, id_ in await db.execute(select(AEMetricDefinition.key, AEMetricDefinition.id))}
-    ae_count = 0
-    for r in src.execute("SELECT * FROM tracker_aedailyupdate"):
-        member_id, entry_date = old_member[r["member_id"]], _as_date(r["entry_date"])
-        if await db.scalar(
-            select(AEDailyUpdate.id).where(
-                AEDailyUpdate.member_id == member_id, AEDailyUpdate.entry_date == entry_date
-            )
-        ):
-            continue
-        upd = AEDailyUpdate(member_id=member_id, entry_date=entry_date, notes=r["notes"] or "")
-        upd.metrics = [
-            AEDailyMetric(metric_id=metrics[k], value=r[k] or 0) for k, _ in AE_METRICS
-        ]
-        db.add(upd)
-        ae_count += 1
-    print(f"ae updates: {ae_count}")
 
     threads = 0
     for r in src.execute("SELECT * FROM tracker_slackdaythread"):
