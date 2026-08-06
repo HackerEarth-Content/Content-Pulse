@@ -30,6 +30,7 @@ class ItemIn(BaseModel):
     count: int | None = Field(default=None, gt=0)
     notes: str | None = None
     due_at: date | None = None
+    effort_minutes: int | None = Field(default=None, ge=0)
     status: str = Status
 
 
@@ -48,6 +49,8 @@ class PlanLineIn(BaseModel):
     count: int | None = Field(default=None, gt=0)
     notes: str = Field(min_length=1)
     due_at: date
+    # Minutes spent since the last update, not a running total.
+    effort_minutes: int | None = Field(default=None, ge=0)
 
 
 class UpdateIn(BaseModel):
@@ -64,6 +67,8 @@ class ItemPatch(BaseModel):
     count: int | None = Field(default=None, gt=0)
     notes: str | None = None
     due_at: date | None = None
+    # Absolute, unlike an update line — this edits one row rather than adding to it.
+    effort_minutes: int | None = Field(default=None, ge=0)
 
 
 # ── out ───────────────────────────────────────────────────────────────────────
@@ -79,6 +84,7 @@ class ItemOut(ORMModel):
     count: int | None
     notes: str | None
     due_at: date | None
+    effort_minutes: int | None
     status: str
     jira_issue_key: str | None
     jira_issue_url: str | None
@@ -89,7 +95,8 @@ class ItemOut(ORMModel):
         return cls(
             **{k: getattr(it, k) for k in
                ("id", "plan_item_id", "task_type_id", "customer", "count", "notes",
-                "due_at", "status", "jira_issue_key", "jira_issue_url", "jira_state")},
+                "due_at", "effort_minutes", "status", "jira_issue_key",
+                "jira_issue_url", "jira_state")},
             task_type=it.task_type.name,
             question_type=it.question_type.name if it.question_type else None,
         )

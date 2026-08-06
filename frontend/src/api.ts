@@ -152,7 +152,7 @@ export const api = {
   dueRisk: (p: Params) => get<DueRisk>("/analytics/due-risk", p),
   throughput: (p: Params) => get<{ date: string; closed: number }[]>("/analytics/throughput", p),
   workload: (p: Params) =>
-    get<{ member: string; date: string; tasks: number; volume: number }[]>(
+    get<{ member: string; date: string; tasks: number; volume: number; effort_minutes: number }[]>(
       "/analytics/workload",
       p
     ),

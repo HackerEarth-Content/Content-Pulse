@@ -107,3 +107,50 @@ async def test_search_and_filters(client, member, task_type):
     assert (await client.get("/api/entries", params=params | {"q": "nomatch"})).json()["total"] == 0
     assert (await client.get("/api/entries", params=params | {"kind": "plan"})).json()["total"] == 1
     assert (await client.get("/api/entries", params=params | {"kind": "update"})).json()["total"] == 0
+
+
+async def test_effort_accumulates_on_the_plan_row(client, member, task_type):
+    """Two updates against one planned task must total, not overwrite — and the
+    task itself must still count once."""
+    p = (await plan(client, member, task_type)).json()
+    item_id = p["items"][0]["id"]
+
+    for spent, status in ((120, "in_progress"), (180, "closed")):
+        await client.post("/api/entries/updates", json={
+            "member_id": member, "entry_date": DAY,
+            "plan_lines": [{"plan_item_id": item_id, "status": status,
+                            "notes": "worked", "due_at": DAY, "effort_minutes": spent}],
+        })
+
+    assert (await client.get(f"/api/entries/{p['id']}")).json()["items"][0][
+        "effort_minutes"
+    ] == 300
+
+    stats = (await client.get("/api/analytics/by-member", params={
+        "from": DAY, "to": DAY, "member_id": member})).json()[0]
+    assert stats["effort_minutes"] == 300, "mirrors must not be summed twice"
+    assert stats["tasks"] == 1
+
+
+async def test_unlogged_effort_stays_null(client, member, task_type):
+    p = (await plan(client, member, task_type)).json()
+    assert p["items"][0]["effort_minutes"] is None
+
+    dq = (await client.get("/api/analytics/data-quality", params={
+        "from": DAY, "to": DAY, "member_id": member})).json()
+    assert dq["missing"]["effort"] == 1
+
+
+async def test_status_dialog_sets_effort_absolutely(client, member, task_type):
+    p = (await plan(client, member, task_type)).json()
+    item_id = p["items"][0]["id"]
+    await client.patch(f"/api/entry-items/{item_id}", json={"effort_minutes": 90})
+    await client.patch(f"/api/entry-items/{item_id}", json={"effort_minutes": 45})
+    item = (await client.get(f"/api/entries/{p['id']}")).json()["items"][0]
+    assert item["effort_minutes"] == 45  # a correction, not another 90
+
+
+async def test_negative_effort_rejected(client, member, task_type):
+    r = await plan(client, member, task_type,
+                   items=[{"task_type_id": task_type, "effort_minutes": -5}])
+    assert r.status_code == 422

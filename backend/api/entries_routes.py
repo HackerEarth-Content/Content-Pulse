@@ -118,6 +118,7 @@ async def patch_item(item_id: int, patch: ItemPatch, background: BackgroundTasks
     item = await svc.patch_item(
         db, item_id, status_=patch.status, count=patch.count,
         notes=patch.notes, due_at=patch.due_at, user_id=user.id,
+        effort_minutes=patch.effort_minutes,
     )
     if patch.status and item.jira_issue_key:
         background.add_task(jira.push_status, item.id, item.status, patch.notes)

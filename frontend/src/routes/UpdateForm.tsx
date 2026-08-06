@@ -12,6 +12,7 @@ interface Line {
   count: string;
   notes: string;
   due_at: string;
+  effort_minutes: string;
 }
 
 interface Extra {
@@ -20,6 +21,7 @@ interface Extra {
   customer: string;
   count: string;
   notes: string;
+  effort_minutes: string;
 }
 
 const blankExtra = (): Extra => ({
@@ -28,6 +30,7 @@ const blankExtra = (): Extra => ({
   customer: "",
   count: "",
   notes: "",
+  effort_minutes: "",
 });
 
 export function UpdateForm({ me }: { me: CurrentUser["member"] }) {
@@ -71,6 +74,7 @@ export function UpdateForm({ me }: { me: CurrentUser["member"] }) {
             count: i.count?.toString() ?? "",
             notes: "",
             due_at: i.due_at ?? date,
+            effort_minutes: "",
           }))
         );
         setPlanState("ready");
@@ -109,6 +113,7 @@ export function UpdateForm({ me }: { me: CurrentUser["member"] }) {
           count: l.count ? Number(l.count) : null,
           notes: l.notes.trim(),
           due_at: l.due_at,
+          effort_minutes: l.effort_minutes ? Number(l.effort_minutes) : null,
         })),
         extra_items: readyExtras.map((e) => ({
           task_type_id: Number(e.task_type_id),
@@ -116,6 +121,7 @@ export function UpdateForm({ me }: { me: CurrentUser["member"] }) {
           customer: e.customer || null,
           count: e.count ? Number(e.count) : null,
           notes: e.notes || null,
+          effort_minutes: e.effort_minutes ? Number(e.effort_minutes) : null,
         })),
       });
       navigate(`/work-log?from=${entry.entry_date}&to=${entry.entry_date}`);
@@ -248,6 +254,20 @@ export function UpdateForm({ me }: { me: CurrentUser["member"] }) {
                 onChange={(e) => patchLine(i, "due_at", e.target.value)}
               />
             </div>
+            <div>
+              <label className="label" title="Minutes spent since the last update">
+                Effort (min)
+              </label>
+              <input
+                className="field"
+                type="number"
+                min={0}
+                step={5}
+                placeholder="30"
+                value={lines[i]?.effort_minutes ?? ""}
+                onChange={(e) => patchLine(i, "effort_minutes", e.target.value)}
+              />
+            </div>
             <div className="task-row-wide">
               <label className="label">Progress / blockers — required</label>
               <textarea
@@ -318,7 +338,18 @@ export function UpdateForm({ me }: { me: CurrentUser["member"] }) {
               onChange={(e) => patchExtra(i, "count", e.target.value)}
             />
           </div>
-          <div />
+          <div>
+            <label className="label">Effort (min)</label>
+            <input
+              className="field"
+              type="number"
+              min={0}
+              step={5}
+              placeholder="30"
+              value={row.effort_minutes}
+              onChange={(e) => patchExtra(i, "effort_minutes", e.target.value)}
+            />
+          </div>
           <div className="task-row-wide">
             <label className="label">Notes</label>
             <textarea

@@ -176,6 +176,9 @@ class EntryItem(Timestamps, Base):
         _enum("status", STATUSES),
         _enum("jira_state", JIRA_STATES),
         CheckConstraint("count IS NULL OR count > 0", name="ck_count_positive"),
+        CheckConstraint(
+            "effort_minutes IS NULL OR effort_minutes >= 0", name="ck_effort_non_negative"
+        ),
         Index("ix_items_entry", "entry_id"),
         Index("ix_items_plan_item", "plan_item_id"),
         Index("ix_items_status_due", "status", "due_at"),
@@ -202,6 +205,9 @@ class EntryItem(Timestamps, Base):
     due_at: Mapped[date | None]
     status: Mapped[str] = mapped_column(default="open")
     sort_order: Mapped[int] = mapped_column(default=0)
+    # Minutes spent. NULL means nobody logged it — distinct from 0, and every
+    # average must skip it rather than treating unlogged work as instant.
+    effort_minutes: Mapped[int | None]
 
     jira_issue_key: Mapped[str | None]
     jira_issue_url: Mapped[str | None]

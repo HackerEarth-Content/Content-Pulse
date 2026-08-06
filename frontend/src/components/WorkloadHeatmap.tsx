@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { mins } from "../format";
 import { bucketKey, bucketTick, type Bucket } from "../series";
 
 interface Row {
@@ -6,12 +7,13 @@ interface Row {
   date: string;
   tasks: number;
   volume: number;
+  effort_minutes: number;
 }
 
 /** Member × time density. Cell shade is the count relative to the busiest cell,
  * derived with color-mix so it tracks the accent and both themes. */
 export function WorkloadHeatmap({ rows, bucket }: { rows: Row[]; bucket: Bucket }) {
-  const [metric, setMetric] = useState<"tasks" | "volume">("tasks");
+  const [metric, setMetric] = useState<"tasks" | "volume" | "effort_minutes">("tasks");
   const cells = new Map<string, number>();
   const members = new Set<string>();
   const columns = new Set<string>();
@@ -31,14 +33,14 @@ export function WorkloadHeatmap({ rows, bucket }: { rows: Row[]; bucket: Bucket 
   return (
     <>
       <div className="period-group" style={{ width: "fit-content", marginBottom: 10 }}>
-        {(["tasks", "volume"] as const).map((m) => (
+        {(["tasks", "volume", "effort_minutes"] as const).map((m) => (
           <button
             key={m}
             className="period-btn"
             aria-pressed={metric === m}
             onClick={() => setMetric(m)}
           >
-            {m === "tasks" ? "Tasks" : "Items produced"}
+            {m === "tasks" ? "Tasks" : m === "volume" ? "Items produced" : "Effort"}
           </button>
         ))}
       </div>
@@ -76,13 +78,13 @@ export function WorkloadHeatmap({ rows, bucket }: { rows: Row[]; bucket: Bucket 
                             }
                           : undefined
                       }
-                      title={`${name} · ${bucketTick(c, bucket)} · ${n} ${metric === "tasks" ? "task" : "item"}${n === 1 ? "" : "s"}`}
+                      title={`${name} · ${bucketTick(c, bucket)} · ${metric === "effort_minutes" ? mins(n) : n + " " + (metric === "tasks" ? "task" : "item") + (n === 1 ? "" : "s")}`}
                     >
-                      {n || ""}
+                      {n ? (metric === "effort_minutes" ? mins(n) : n) : ""}
                     </td>
                   );
                 })}
-                <td className="num strong">{total}</td>
+                <td className="num strong">{metric === "effort_minutes" ? mins(total || null) : total}</td>
               </tr>
             );
           })}

@@ -3,7 +3,7 @@ import { api, type EntryFilters } from "../api";
 import { StatusDialog } from "../components/StatusDialog";
 import { Async, KindPill, SectionHeading, StatusPill } from "../components/ui";
 import type { Item } from "../types";
-import { num, statusLabel } from "../format";
+import { mins, num, statusLabel } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
 
@@ -142,6 +142,7 @@ export function WorkLog({ range }: { range: Range }) {
                       <th>Question type</th>
                       <th>Customer</th>
                       <th className="num">Count</th>
+                      <th className="num">Effort</th>
                       <th>Status</th>
                       <th>Due</th>
                       <th>Jira</th>
@@ -158,7 +159,7 @@ export function WorkLog({ range }: { range: Range }) {
                               <td>
                                 <KindPill kind={entry.kind} />
                               </td>
-                              <td colSpan={7} className="muted">
+                              <td colSpan={8} className="muted">
                                 No tasks logged
                               </td>
                               <td className="cell-notes">{entry.raw_text ?? "—"}</td>
@@ -175,6 +176,7 @@ export function WorkLog({ range }: { range: Range }) {
                               <td className="muted">{item.question_type ?? "—"}</td>
                               <td>{item.customer ?? "—"}</td>
                               <td className="num">{num(item.count)}</td>
+                              <td className="num">{mins(item.effort_minutes)}</td>
                               <td>
                                 {entry.kind === "update" && item.plan_item_id === null ? (
                                   <StatusPill status={item.status} />

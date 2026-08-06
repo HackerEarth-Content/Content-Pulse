@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { Async, BarList, Card, SectionHeading } from "../components/ui";
-import { num, pct } from "../format";
+import { mins, num, pct } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
 
@@ -33,6 +33,7 @@ export function Members({ range }: { range: Range }) {
                   <th>Email</th>
                   <th className="num">Tasks</th>
                   <th className="num">Items</th>
+                  <th className="num">Effort</th>
                   <th className="num">Open</th>
                   <th className="num">Blocked</th>
                   <th className="num">Completion</th>
@@ -58,6 +59,7 @@ export function Members({ range }: { range: Range }) {
                       </td>
                       <td className="num">{num(s?.tasks ?? 0)}</td>
                       <td className="num">{num(s?.volume ?? 0)}</td>
+                      <td className="num">{mins(s?.effort_minutes || null)}</td>
                       <td className="num">{num(s?.open ?? 0)}</td>
                       <td className="num">{num(s?.blocked ?? 0)}</td>
                       <td className="num">{pct(s?.completion_rate)}</td>

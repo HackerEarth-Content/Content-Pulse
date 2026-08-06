@@ -34,6 +34,7 @@ export interface Item {
   count: number | null;
   notes: string | null;
   due_at: string | null;
+  effort_minutes: number | null;
   status: Status;
   jira_issue_key: string | null;
   jira_issue_url: string | null;
@@ -65,6 +66,7 @@ export interface Summary {
   members: number;
   tasks: number;
   volume: number;
+  effort_minutes: number;
   plans: number;
   updates: number;
   open: number;
@@ -78,6 +80,7 @@ export interface TrendPoint {
   date: string;
   tasks: number;
   volume: number;
+  effort_minutes: number;
   closed: number;
   plans: number;
   updates: number;
@@ -88,6 +91,7 @@ export interface MemberStat {
   member: string;
   tasks: number;
   volume: number;
+  effort_minutes: number;
   open: number;
   in_progress: number;
   blocked: number;
@@ -99,6 +103,7 @@ export interface TaskTypeStat {
   task_type: string;
   tasks: number;
   volume: number;
+  effort_minutes: number;
   open: number;
   in_progress: number;
   blocked: number;
@@ -109,6 +114,7 @@ export interface CustomerStat {
   customer: string;
   tasks: number;
   volume: number;
+  effort_minutes: number;
   outstanding: number;
 }
 

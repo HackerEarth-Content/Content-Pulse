@@ -12,7 +12,7 @@ import {
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { Async, BarList, Card, SectionHeading, StatTile, StatusPill } from "../components/ui";
-import { hours, num, pct } from "../format";
+import { hours, mins, num, pct } from "../format";
 import { bucketFor, bucketNoun, bucketTick, groupSeries } from "../series";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
@@ -54,6 +54,12 @@ export function Overview({ range }: { range: Range }) {
             />
             <StatTile label="In progress" value={num(s.in_progress)} sub={`${s.open} still open`} accent="var(--accent-yellow)" />
             <StatTile label="Blocked" value={num(s.blocked)} accent="var(--accent-red)" />
+            <StatTile
+              label="Effort logged"
+              value={mins(s.effort_minutes || null)}
+              sub="time recorded on tasks"
+              accent="var(--accent-orange)"
+            />
             <StatTile label="Plans / updates" value={`${s.plans} / ${s.updates}`} sub="entries filed" />
           </div>
         )}

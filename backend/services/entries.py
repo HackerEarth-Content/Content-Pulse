@@ -122,6 +122,10 @@ async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -
         if line.count is not None:
             plan_item.count = line.count
         plan_item.due_at = line.due_at
+        # Effort accrues on the plan row, because analytics counts plan rows and
+        # skips the mirrors. 2h Monday + 3h Tuesday on one task is 5h, not 3h.
+        if line.effort_minutes is not None:
+            plan_item.effort_minutes = (plan_item.effort_minutes or 0) + line.effort_minutes
 
         mirror = EntryItem(
             entry_id=entry.id, plan_item_id=plan_item.id, sort_order=order,
@@ -129,6 +133,7 @@ async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -
             question_type_id=plan_item.question_type_id,
             customer=plan_item.customer, count=line.count, notes=line.notes,
             due_at=line.due_at, status=line.status,
+            effort_minutes=line.effort_minutes,
             jira_issue_key=plan_item.jira_issue_key,
             jira_issue_url=plan_item.jira_issue_url,
         )
@@ -152,6 +157,7 @@ async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -
 async def patch_item(
     db: AsyncSession, item_id: int, *, status_: str | None, count: int | None,
     notes: str | None, due_at: date | None, user_id: str | None,
+    effort_minutes: int | None = None,
 ) -> EntryItem:
     item = await db.get(EntryItem, item_id)
     if item is None:
@@ -179,6 +185,8 @@ async def patch_item(
         item.notes = notes
     if due_at is not None:
         item.due_at = due_at
+    if effort_minutes is not None:
+        item.effort_minutes = effort_minutes
     await db.commit()
     return await db.scalar(select(EntryItem).where(EntryItem.id == item_id))
 

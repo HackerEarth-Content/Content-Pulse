@@ -13,7 +13,7 @@ import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { StatusDialog } from "../components/StatusDialog";
 import { Async, Card, KindPill, SectionHeading, StatTile, StatusPill } from "../components/ui";
-import { hours, num, pct, statusLabel } from "../format";
+import { hours, mins, num, pct, statusLabel } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
 import type { Item } from "../types";
@@ -57,6 +57,11 @@ export function MemberDetail({ range }: { range: Range }) {
       <div className="stat-row">
         <StatTile label="Tasks" value={num(stat?.tasks ?? 0)} accent="var(--accent-blue)" />
         <StatTile label="Items produced" value={num(stat?.volume ?? 0)} accent="var(--accent-indigo)" />
+        <StatTile
+          label="Effort logged"
+          value={mins(stat?.effort_minutes || null)}
+          accent="var(--accent-orange)"
+        />
         <StatTile label="Completion" value={pct(stat?.completion_rate)} accent="var(--accent-aqua)" />
         <StatTile label="Open" value={num(stat?.open ?? 0)} />
         <StatTile label="Blocked" value={num(stat?.blocked ?? 0)} accent="var(--accent-red)" />
@@ -139,6 +144,7 @@ export function MemberDetail({ range }: { range: Range }) {
                       <th>Work type</th>
                       <th className="num">Tasks</th>
                       <th className="num">Items</th>
+                      <th className="num">Effort</th>
                       <th className="num">Open</th>
                       <th className="num">Done</th>
                     </tr>
@@ -149,6 +155,7 @@ export function MemberDetail({ range }: { range: Range }) {
                         <td className="strong">{r.task_type}</td>
                         <td className="num">{r.tasks}</td>
                         <td className="num">{r.volume || "—"}</td>
+                        <td className="num">{mins(r.effort_minutes || null)}</td>
                         <td className="num">{r.open + r.in_progress + r.blocked || "—"}</td>
                         <td className="num">{r.closed || "—"}</td>
                       </tr>
@@ -157,6 +164,9 @@ export function MemberDetail({ range }: { range: Range }) {
                       <td className="strong">Total</td>
                       <td className="num strong">{rows.reduce((s, r) => s + r.tasks, 0)}</td>
                       <td className="num strong">{rows.reduce((s, r) => s + r.volume, 0)}</td>
+                      <td className="num strong">
+                        {mins(rows.reduce((s, r) => s + r.effort_minutes, 0) || null)}
+                      </td>
                       <td className="num strong">
                         {rows.reduce((s, r) => s + r.open + r.in_progress + r.blocked, 0)}
                       </td>
@@ -193,6 +203,7 @@ export function MemberDetail({ range }: { range: Range }) {
                     <th>Work type</th>
                     <th>Customer</th>
                     <th className="num">Count</th>
+                    <th className="num">Effort</th>
                     <th>Status</th>
                     <th>Due</th>
                     <th>Notes</th>
@@ -209,6 +220,7 @@ export function MemberDetail({ range }: { range: Range }) {
                         <td>{item.task_type}</td>
                         <td className="muted">{item.customer ?? "—"}</td>
                         <td className="num">{num(item.count)}</td>
+                        <td className="num">{mins(item.effort_minutes)}</td>
                         <td>
                           {entry.kind === "update" && item.plan_item_id === null ? (
                             <StatusPill status={item.status} />

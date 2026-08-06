@@ -78,6 +78,12 @@ def _from_tasks(s: Scope, *cols) -> Select:
     return stmt
 
 
+def _effort():
+    """Total minutes logged. SUM skips NULLs, so unlogged work contributes
+    nothing rather than counting as zero-effort."""
+    return func.coalesce(func.sum(EntryItem.effort_minutes), 0).label("effort_minutes")
+
+
 def _status_cols() -> list:
     return [
         func.count().filter(EntryItem.status == st).label(st) for st in STATUSES
@@ -96,6 +102,7 @@ async def summary(db: AsyncSession, s: Scope) -> dict:
         s,
         func.count().label("tasks"),
         func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+        _effort(),
         func.count(distinct(DailyEntry.member_id)).label("members"),
         *_status_cols(),
     ))).one()
@@ -113,6 +120,7 @@ async def summary(db: AsyncSession, s: Scope) -> dict:
         "members": row.members,
         "tasks": row.tasks,
         "volume": int(row.volume),
+        "effort_minutes": int(row.effort_minutes),
         "plans": entries.plans,
         "updates": entries.updates,
         **{st: getattr(row, st) for st in STATUSES},
@@ -128,6 +136,7 @@ async def trend(db: AsyncSession, s: Scope) -> list[dict]:
             DailyEntry.entry_date.label("d"),
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
             func.count().filter(EntryItem.status == "closed").label("closed"),
         ).group_by(DailyEntry.entry_date))
     }
@@ -145,6 +154,7 @@ async def trend(db: AsyncSession, s: Scope) -> list[dict]:
             "date": d.isoformat(),
             "tasks": getattr(task_rows.get(d), "tasks", 0),
             "volume": int(getattr(task_rows.get(d), "volume", 0)),
+            "effort_minutes": int(getattr(task_rows.get(d), "effort_minutes", 0)),
             "closed": getattr(task_rows.get(d), "closed", 0),
             "plans": getattr(entry_rows.get(d), "plans", 0),
             "updates": getattr(entry_rows.get(d), "updates", 0),
@@ -164,6 +174,7 @@ async def by_member(db: AsyncSession, s: Scope) -> list[dict]:
             Member.display_name.label("member"),
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
             *_status_cols(),
         )
         .join(Member, Member.id == DailyEntry.member_id)
@@ -174,6 +185,7 @@ async def by_member(db: AsyncSession, s: Scope) -> list[dict]:
         {
             "member_id": r.member_id, "member": r.member,
             "tasks": r.tasks, "volume": int(r.volume),
+            "effort_minutes": int(r.effort_minutes),
             **{st: getattr(r, st) for st in STATUSES},
             "completion_rate": round(r.closed / r.tasks, 4) if r.tasks else None,
         }
@@ -188,6 +200,7 @@ async def by_task_type(db: AsyncSession, s: Scope) -> list[dict]:
             TaskType.name.label("task_type"),
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
             *_status_cols(),
         )
         .join(TaskType, TaskType.id == EntryItem.task_type_id)
@@ -196,6 +209,7 @@ async def by_task_type(db: AsyncSession, s: Scope) -> list[dict]:
     )
     return [
         {"task_type": r.task_type, "tasks": r.tasks, "volume": int(r.volume),
+         "effort_minutes": int(r.effort_minutes),
          **{st: getattr(r, st) for st in STATUSES}}
         for r in rows
     ]
@@ -225,6 +239,7 @@ async def by_customer(db: AsyncSession, s: Scope, limit: int = 20) -> list[dict]
             func.trim(EntryItem.customer).label("customer"),
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
             func.count().filter(EntryItem.status != "closed").label("outstanding"),
         )
         .where(func.trim(func.coalesce(EntryItem.customer, "")) != "")
@@ -233,6 +248,7 @@ async def by_customer(db: AsyncSession, s: Scope, limit: int = 20) -> list[dict]
         .limit(limit)
     )
     return [{"customer": r.customer, "tasks": r.tasks, "volume": int(r.volume),
+             "effort_minutes": int(r.effort_minutes),
              "outstanding": r.outstanding} for r in rows]
 
 
@@ -415,12 +431,14 @@ async def workload(db: AsyncSession, s: Scope) -> list[dict]:
             DailyEntry.entry_date.label("d"),
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
         )
         .join(Member, Member.id == DailyEntry.member_id)
         .group_by(Member.display_name, DailyEntry.entry_date)
     )
     return [{"member": r.member, "date": r.d.isoformat(), "tasks": r.tasks,
-             "volume": int(r.volume)} for r in rows]
+             "volume": int(r.volume), "effort_minutes": int(r.effort_minutes)}
+            for r in rows]
 
 
 async def open_items(db: AsyncSession, s: Scope, today: date, limit: int = 200) -> list[dict]:
@@ -462,6 +480,7 @@ async def data_quality(db: AsyncSession, s: Scope) -> dict:
         .label("no_customer"),
         func.count().filter(EntryItem.question_type_id.is_(None)).label("no_question_type"),
         func.count().filter(EntryItem.due_at.is_(None)).label("no_due_date"),
+        func.count().filter(EntryItem.effort_minutes.is_(None)).label("no_effort"),
     ))).one()
 
     # Plans nobody ever reported against — the loudest quality signal here.
@@ -482,6 +501,7 @@ async def data_quality(db: AsyncSession, s: Scope) -> dict:
         "missing": {
             "notes": row.no_notes, "count": row.no_count, "customer": row.no_customer,
             "question_type": row.no_question_type, "due_date": row.no_due_date,
+            "effort": row.no_effort,
         },
         "plans_with_unreported_tasks": silent or 0,
         "tasks_on_retired_task_types": inactive_types or 0,
