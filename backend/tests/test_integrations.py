@@ -24,6 +24,10 @@ def creds(monkeypatch):
     monkeypatch.setattr(settings, "JIRA_BASE_URL", "https://jira.test")
     monkeypatch.setattr(settings, "SLACK_BOT_TOKEN", "xoxb-test")
     monkeypatch.setattr(settings, "INTAKE_TOKEN", "s3cret")
+    # These tests exercise the write paths against a MockTransport, so they opt
+    # in deliberately. Every other test leaves the guard on.
+    monkeypatch.setattr(settings, "JIRA_WRITES_ENABLED", True)
+    monkeypatch.setattr(settings, "SLACK_WRITES_ENABLED", True)
 
 
 # ── Jira ──────────────────────────────────────────────────────────────────────
@@ -211,3 +215,22 @@ async def test_intake_rejects_an_unknown_task_type(client, member):
         headers={"X-Intake-Token": "s3cret"},
     )
     assert r.status_code == 422 and r.json()["detail"]["code"] == "unknown_task_type"
+
+
+async def test_writes_are_off_by_default(client, member, task_type, monkeypatch):
+    """The guard that stops a test run minting tickets in a live project."""
+    monkeypatch.setattr(settings, "JIRA_WRITES_ENABLED", False)
+    plan = (await client.post("/api/entries/plans", json={
+        "member_id": member, "entry_date": DAY, "items": [{"task_type_id": task_type}],
+    })).json()
+
+    called = []
+    monkeypatch.setattr(jira, "_client", transport(
+        lambda r: called.append(r) or httpx.Response(201, json={"key": "TCE-NOPE"})))
+    await jira.push_item(plan["items"][0]["id"])
+
+    assert not called, "no HTTP request may leave the process when writes are off"
+    async with Session() as db:
+        item = await db.get(EntryItem, plan["items"][0]["id"])
+        assert item.jira_issue_key is None
+        assert item.jira_state == "none"

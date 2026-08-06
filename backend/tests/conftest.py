@@ -10,11 +10,17 @@ from main import app
 
 TEST_MEMBER = "PyTest Member"
 AE_MEMBER = "PyTest AE"
+ADMIN_MEMBER = "PyTest Admin"
 
 
 @pytest_asyncio.fixture(scope="session")
 async def fake_user():
-    """A real row — created_by_user_id is a FK, so a detached object won't do."""
+    """A real row — created_by_user_id is a FK, so a detached object won't do.
+
+    Linked to an admin member: most tests file work on behalf of other members,
+    which RBAC only permits for leads. Authorization itself is covered in
+    tests/test_rbac.py with deliberately unprivileged users.
+    """
     async with Session() as db:
         user = await db.get(User, "test-user")
         if user is None:
@@ -22,6 +28,14 @@ async def fake_user():
                         hashed_password="", is_verified=True)
             db.add(user)
             await db.commit()
+
+        admin = await db.scalar(select(Member).where(Member.display_name == ADMIN_MEMBER))
+        if admin is None:
+            admin = Member(display_name=ADMIN_MEMBER, email="pytest@example.com",
+                           role="admin")
+            db.add(admin)
+        admin.role, admin.user_id, admin.is_active = "admin", user.id, True
+        await db.commit()
         return user
 
 

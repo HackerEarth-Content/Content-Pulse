@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
-from core.deps import ADMINS, require_member
+from core.deps import ADMINS, require_role
 from core.orm import DailyEntry, Member, QuestionType, TaskType
 from core.users import current_user
 from schemas.entries import (
@@ -18,13 +18,9 @@ from services.entries import err
 
 router = APIRouter(prefix="/api", tags=["members"], dependencies=[Depends(current_user)])
 
-# ponytail: admin writes are gated on sign-in, not role, because no member row
-# has an email yet so nobody resolves to a member — role gating would 403
-# everyone including the person who needs to set the emails. ALLOWED_EMAILS is
-# the real gate today. Swap to `Depends(require_member(*ADMINS))` once members
-# are linked to Google accounts.
-admin_only = Depends(current_user)
-_ = require_member, ADMINS
+# Real role gating. SUPERADMIN_EMAILS short-circuits it inside require_role, so
+# the screen used to grant roles is never locked behind having one.
+admin_only = Depends(require_role(*ADMINS))
 
 
 @router.get("/members", response_model=list[MemberOut])

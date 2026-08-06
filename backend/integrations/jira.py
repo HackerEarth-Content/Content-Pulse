@@ -49,7 +49,13 @@ DEFAULTS: dict[str, Any] = {
 
 
 class JiraDisabled(Exception):
-    """No credentials configured — callers treat this as skip, not failure."""
+    """No credentials, or writes are switched off. Callers treat this as skip."""
+
+
+def _writes_allowed() -> None:
+    """Guard on every mutating call. Reads never go through this."""
+    if not settings.JIRA_WRITES_ENABLED:
+        raise JiraDisabled("JIRA_WRITES_ENABLED is off — no issue was created or moved")
 
 
 async def config(db) -> dict[str, Any]:
@@ -109,6 +115,7 @@ def _describe(entry: DailyEntry, item: EntryItem) -> str:
 
 async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str]:
     cfg = await config(db)
+    _writes_allowed()
     fields = {
         "project": {"key": cfg["project_key"]},
         "summary": (f"{cfg['summary_prefix']} {item.task_type.name} · "
@@ -127,13 +134,26 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
     return key, f"{settings.JIRA_BASE_URL}/browse/{key}"
 
 
-async def _done_fields(c: httpx.AsyncClient, cfg: dict, key: str, due_at: date | None) -> dict:
-    """Carry the issue's existing values back through the Done transition, with
-    neutral defaults, so a validator never blocks the status change."""
+async def _done_fields(
+    c: httpx.AsyncClient, cfg: dict, key: str, due_at: date | None,
+    effort_minutes: int | None = None,
+) -> dict:
+    """Carry the issue's existing values back through the Done transition, so a
+    validator never blocks the status change.
+
+    Refuses to guess. If the read fails we raise rather than fall back to zeroes:
+    Effort Logged is the team's entire time dataset, and a transient 429 must
+    never be the reason someone's recorded hours become 0.
+    """
     f = cfg["done_fields"]
     ids = ",".join(v for k, v in f.items() if k != "question_type_fallback_id")
     r = await c.get(f"/rest/api/3/issue/{key}", params={"fields": ids})
-    cur = r.json().get("fields", {}) if r.status_code < 400 else {}
+    if r.status_code >= 400:
+        raise RuntimeError(
+            f"cannot read {key} before transitioning to Done ({_explain(r)}); "
+            "refusing to write default values over existing fields"
+        )
+    cur = r.json().get("fields", {})
 
     out: dict[str, Any] = {}
     if (tt := cur.get(f["task_type"])) and tt.get("id"):
@@ -147,8 +167,16 @@ async def _done_fields(c: httpx.AsyncClient, cfg: dict, key: str, due_at: date |
     else:
         out[f["question_type"]] = [{"id": f["question_type_fallback_id"]}]
 
-    for name in ("question_count", "test_count", "effort_logged"):
+    for name in ("question_count", "test_count"):
         out[f[name]] = cur.get(f[name]) or 0
+
+    # Our minutes win when we have them; otherwise keep whatever Jira holds,
+    # including a genuine 0. Never invent a value.
+    existing_effort = cur.get(f["effort_logged"])
+    if effort_minutes is not None:
+        out[f["effort_logged"]] = effort_minutes
+    elif existing_effort is not None:
+        out[f["effort_logged"]] = existing_effort
     if due := (due_at.isoformat() if due_at else cur.get(f["due_at"])):
         out[f["due_at"]] = str(due)[:10]
     return out
@@ -166,8 +194,9 @@ def _pick(transitions: list[dict], want: set[str]) -> dict | None:
 
 
 async def transition(db, key: str, status: str, *, comment: str | None = None,
-                     due_at: date | None = None) -> None:
+                     due_at: date | None = None, effort_minutes: int | None = None) -> None:
     cfg = await config(db)
+    _writes_allowed()
     want = {n.lower() for n in cfg["status_names"].get(status, [])}
 
     async with _client() as c:
@@ -195,7 +224,7 @@ async def transition(db, key: str, status: str, *, comment: str | None = None,
 
         payload: dict[str, Any] = {"transition": {"id": chosen["id"]}}
         if status == "closed":
-            payload["fields"] = await _done_fields(c, cfg, key, due_at)
+            payload["fields"] = await _done_fields(c, cfg, key, due_at, effort_minutes)
         elif due_at:
             for fk, fv in (chosen.get("fields") or {}).items():
                 if "due" in str((fv or {}).get("name", "")).lower():
@@ -230,7 +259,8 @@ async def push_item(item_id: int) -> None:
             item.jira_issue_key, item.jira_issue_url = key, url
             item.jira_state, item.jira_error = "ok", None
             if item.status != "open":
-                await transition(db, key, item.status, comment=item.notes, due_at=item.due_at)
+                await transition(db, key, item.status, comment=item.notes,
+                                 due_at=item.due_at, effort_minutes=item.effort_minutes)
         except JiraDisabled as e:
             item.jira_state, item.jira_error = "none", str(e)
         except Exception as e:
@@ -240,12 +270,14 @@ async def push_item(item_id: int) -> None:
 
 
 async def push_status(item_id: int, status: str, note: str | None = None) -> None:
+    """Moves the Jira issue and syncs our effort onto it."""
     async with Session() as db:
         item = await db.get(EntryItem, item_id)
         if item is None or not item.jira_issue_key:
             return
         try:
-            await transition(db, item.jira_issue_key, status, comment=note, due_at=item.due_at)
+            await transition(db, item.jira_issue_key, status, comment=note,
+                             due_at=item.due_at, effort_minutes=item.effort_minutes)
             item.jira_state, item.jira_error = "ok", None
         except JiraDisabled:
             return

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.analytics_routes import scope
 from core.database import get_session
 from core.dates import resolve_range
+from core.deps import Viewer, get_viewer
 from core.users import current_user
 from services import analytics as an
 from services import export
@@ -34,9 +35,12 @@ async def _filters(
     task_type_id: int | None = None,
     customer: str | None = None,
     q: str | None = None,
+    viewer: Viewer = Depends(get_viewer),
 ) -> dict:
+    """Mirrors the work-log scoping — an export must never be the back door
+    around what the screen enforces."""
     start, end = resolve_range(period, frm, to)
-    return {"frm": start, "to": end, "member_id": member_id, "kind": kind,
+    return {"frm": start, "to": end, "member_id": viewer.scope(member_id), "kind": kind,
             "status_": status, "task_type_id": task_type_id,
             "customer": customer, "q": q}
 
@@ -59,9 +63,10 @@ async def ae_daily_xlsx(
     frm: date | None = Query(None, alias="from"),
     to: date | None = None,
     db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
 ):
     start, end = resolve_range(period, frm, to)
-    content = await export.ae_daily_xlsx(db, start, end)
+    content = await export.ae_daily_xlsx(db, start, end, viewer.scope(None))
     return _attachment(content, f"ae-daily-{start:%d%b%Y}_{end:%d%b%Y}.xlsx", XLSX)
 
 

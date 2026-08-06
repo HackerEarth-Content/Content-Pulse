@@ -3,7 +3,7 @@ import "./theme.css";
 import "./App.css";
 import { Header } from "./components/Header";
 import { PeriodPicker } from "./components/PeriodPicker";
-import { Skeleton } from "./components/ui";
+import { Banner, Skeleton } from "./components/ui";
 import { useAuth } from "./hooks/useAuth";
 import { usePeriod } from "./hooks/usePeriod";
 import { useTheme } from "./hooks/useTheme";
@@ -43,6 +43,13 @@ export default function App() {
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
         <PeriodPicker range={range} />
       </div>
+
+      {!user.member ? (
+        <Banner tone="warn">
+          Your account isn't linked to a team member yet, so you can read but not
+          log work. An admin can link it on the Admin screen.
+        </Banner>
+      ) : null}
 
       <Routes>
         <Route path="/" element={<Overview range={range} />} />

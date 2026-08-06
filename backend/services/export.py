@@ -130,10 +130,11 @@ async def work_log_csv(db: AsyncSession, **filters) -> str:
 # ── AE daily ──────────────────────────────────────────────────────────────────
 
 
-async def ae_daily_xlsx(db: AsyncSession, frm: date, to: date) -> bytes:
+async def ae_daily_xlsx(db: AsyncSession, frm: date, to: date,
+                        member_id: int | None = None) -> bytes:
     """Metrics down the left, one column block per date across the top — the
     layout the team already reads, ported from the Django export."""
-    updates = await ae_svc.list_range(db, frm, to)
+    updates = await ae_svc.list_range(db, frm, to, member_id)
     metrics = await ae_svc.metric_defs(db)
     members = sorted({u.member.display_name for u in updates})
     dates = sorted({u.entry_date for u in updates})

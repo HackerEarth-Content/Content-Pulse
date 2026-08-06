@@ -6,9 +6,9 @@ const LINKS = [
   { to: "/work-log", label: "Work log" },
   { to: "/analytics", label: "Analytics" },
   { to: "/members", label: "Members" },
-  { to: "/ae", label: "AE daily" },
+  { to: "/ae", label: "AE daily", roles: ["ae", "manager", "admin"] },
   { to: "/content-requests", label: "Requests" },
-  { to: "/admin", label: "Admin" },
+  { to: "/admin", label: "Admin", roles: ["admin"] },
 ];
 
 /** Logo swaps with the theme — the dark mark reads on light surfaces and the
@@ -48,7 +48,9 @@ export function Header({
       <BrandLockup theme={theme} />
 
       <nav className="nav">
-        {LINKS.map((l) => (
+        {/* Hiding a link is convenience, not security — every route is gated
+            server-side too. */}
+        {LINKS.filter((l) => !l.roles || (user.member && l.roles.includes(user.member.role))).map((l) => (
           <NavLink
             key={l.to}
             to={l.to}

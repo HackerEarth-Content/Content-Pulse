@@ -30,6 +30,8 @@ class SlackDisabled(Exception):
 async def _call(method: str, payload: dict) -> dict:
     if not settings.SLACK_BOT_TOKEN:
         raise SlackDisabled("SLACK_BOT_TOKEN not set")
+    if not settings.SLACK_WRITES_ENABLED:
+        raise SlackDisabled("SLACK_WRITES_ENABLED is off — nothing was posted")
     async with httpx.AsyncClient(timeout=15) as c:
         r = await c.post(
             f"{API}/{method}", json=payload,

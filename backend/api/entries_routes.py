@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
 from core.dates import resolve_range
+from core.deps import Viewer, get_viewer
 from core.orm import DailyEntry, EntryItem, EntryItemStatusEvent, User
 from core.users import current_user
 from integrations import jira, slack
@@ -37,29 +38,33 @@ async def list_entries(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
 ):
     frm, to = resolve_range(period, frm, to)
     rows, total = await svc.list_entries(
-        db, frm=frm, to=to, member_id=member_id, kind=kind, status_=status,
+        db, frm=frm, to=to, member_id=viewer.scope(member_id), kind=kind, status_=status,
         task_type_id=task_type_id, customer=customer, q=q, page=page, page_size=page_size,
     )
     return Page(items=[EntryOut.of(r) for r in rows], total=total, page=page, page_size=page_size)
 
 
 @router.get("/entries/plan", response_model=EntryOut)
-async def get_plan(member_id: int, on: date, db: AsyncSession = Depends(get_session)):
+async def get_plan(member_id: int, on: date, db: AsyncSession = Depends(get_session),
+                   viewer: Viewer = Depends(get_viewer)):
     """Prefills the update form. 404 `no_plan` is expected, not an error — the
     UI offers 'log as extra work' instead."""
-    plan = await svc.get_plan(db, member_id, on)
+    plan = await svc.get_plan(db, viewer.scope(member_id) or member_id, on)
     if plan is None:
         raise svc.err(404, "no_plan", "No plan for this member and date.")
     return EntryOut.of(plan)
 
 
 @router.get("/entries/{entry_id}", response_model=EntryOut)
-async def get_entry(entry_id: int, db: AsyncSession = Depends(get_session)):
+async def get_entry(entry_id: int, db: AsyncSession = Depends(get_session),
+                    viewer: Viewer = Depends(get_viewer)):
     entry = await db.scalar(svc._loaded(select(DailyEntry).where(DailyEntry.id == entry_id)))
-    if entry is None:
+    # 404 rather than 403 for someone else's entry — a 403 confirms it exists.
+    if entry is None or not viewer.may_write_for(entry.member_id):
         raise svc.err(404, "not_found", "No such entry.")
     return EntryOut.of(entry)
 
@@ -67,7 +72,9 @@ async def get_entry(entry_id: int, db: AsyncSession = Depends(get_session)):
 @router.post("/entries/plans", response_model=EntryOut, status_code=201)
 async def create_plan(data: PlanIn, background: BackgroundTasks,
                       db: AsyncSession = Depends(get_session),
-                      user: User = Depends(current_user)):
+                      user: User = Depends(current_user),
+                      viewer: Viewer = Depends(get_viewer)):
+    data.member_id = viewer.writer_id(data.member_id)
     entry = await svc.create_plan(db, data, user.id)
     await _dispatch(db, background, entry)
     return EntryOut.of(entry)
@@ -76,7 +83,9 @@ async def create_plan(data: PlanIn, background: BackgroundTasks,
 @router.post("/entries/updates", response_model=EntryOut, status_code=201)
 async def create_update(data: UpdateIn, background: BackgroundTasks,
                         db: AsyncSession = Depends(get_session),
-                        user: User = Depends(current_user)):
+                        user: User = Depends(current_user),
+                        viewer: Viewer = Depends(get_viewer)):
+    data.member_id = viewer.writer_id(data.member_id)
     entry = await svc.create_update(db, data, user.id)
     await _dispatch(db, background, entry)
     return EntryOut.of(entry)
@@ -114,7 +123,9 @@ async def retry_jira(item_id: int, background: BackgroundTasks):
 @router.patch("/entry-items/{item_id}", response_model=ItemOut)
 async def patch_item(item_id: int, patch: ItemPatch, background: BackgroundTasks,
                      db: AsyncSession = Depends(get_session),
-                     user: User = Depends(current_user)):
+                     user: User = Depends(current_user),
+                     viewer: Viewer = Depends(get_viewer)):
+    await _owned(db, viewer, item_id)
     item = await svc.patch_item(
         db, item_id, status_=patch.status, count=patch.count,
         notes=patch.notes, due_at=patch.due_at, user_id=user.id,
@@ -126,7 +137,9 @@ async def patch_item(item_id: int, patch: ItemPatch, background: BackgroundTasks
 
 
 @router.get("/entry-items/{item_id}/history", response_model=list[StatusEventOut])
-async def item_history(item_id: int, db: AsyncSession = Depends(get_session)):
+async def item_history(item_id: int, db: AsyncSession = Depends(get_session),
+                       viewer: Viewer = Depends(get_viewer)):
+    await _owned(db, viewer, item_id)
     rows = await db.scalars(
         select(EntryItemStatusEvent)
         .where(EntryItemStatusEvent.entry_item_id == item_id)
@@ -135,12 +148,22 @@ async def item_history(item_id: int, db: AsyncSession = Depends(get_session)):
     return list(rows)
 
 
+async def _owned(db: AsyncSession, viewer: Viewer, item_id: int) -> EntryItem:
+    """404, not 403 — refusing loudly would confirm the row exists."""
+    item = await db.get(EntryItem, item_id)
+    entry = await db.get(DailyEntry, item.entry_id) if item else None
+    if entry is None or not viewer.may_write_for(entry.member_id):
+        raise svc.err(404, "not_found", "No such item.")
+    return item
+
+
 @router.delete("/entries/{entry_id}", status_code=204)
-async def delete_entry(entry_id: int, db: AsyncSession = Depends(get_session)):
+async def delete_entry(entry_id: int, db: AsyncSession = Depends(get_session),
+                       viewer: Viewer = Depends(get_viewer)):
     """Items cascade. Any Jira issues stay — deleting a log row shouldn't
     silently delete someone's ticket."""
     entry = await db.get(DailyEntry, entry_id)
-    if entry is None:
+    if entry is None or not viewer.may_write_for(entry.member_id):
         raise svc.err(404, "not_found", "No such entry.")
     await db.delete(entry)
     await db.commit()
