@@ -191,6 +191,49 @@ async def patch_item(
     return await db.scalar(select(EntryItem).where(EntryItem.id == item_id))
 
 
+async def today_status(db: AsyncSession, on: date) -> dict:
+    """Who has filed a plan today, and who has followed it with an update.
+
+    The point of a plan/update tracker is the gap between the two, so this
+    reports the people, not just the counts — a number nobody can act on is
+    worse than a name they can chase.
+    """
+    planned = {
+        m: (mid, e) for mid, m, e in await db.execute(
+            select(DailyEntry.member_id, Member.display_name, DailyEntry.id)
+            .join(Member, Member.id == DailyEntry.member_id)
+            .where(DailyEntry.entry_date == on, DailyEntry.kind == "plan",
+                   DailyEntry.source != "jira")
+        )
+    }
+    updated = {
+        m for (m,) in await db.execute(
+            select(Member.display_name)
+            .select_from(DailyEntry)
+            .join(Member, Member.id == DailyEntry.member_id)
+            .where(DailyEntry.entry_date == on, DailyEntry.kind == "update")
+        )
+    }
+    active = {
+        m: mid for mid, m in await db.execute(
+            select(Member.id, Member.display_name)
+            .where(Member.is_active.is_(True), Member.role.in_(("content", "ae", "manager")))
+        )
+    }
+
+    done = sorted(n for n in planned if n in updated)
+    pending = sorted(n for n in planned if n not in updated)
+    no_plan = sorted(n for n in active if n not in planned)
+    return {
+        "date": on.isoformat(),
+        "planned": len(planned),
+        "updated": len(done),
+        "awaiting_update": [{"member_id": planned[n][0], "member": n} for n in pending],
+        "no_plan_yet": [{"member_id": active[n], "member": n} for n in no_plan],
+        "team_size": len(active),
+    }
+
+
 async def list_items(
     db: AsyncSession, *, frm: date, to: date, member_id: int | None = None,
     kind: str | None = None, status_: str | None = None, task_type_id: int | None = None,

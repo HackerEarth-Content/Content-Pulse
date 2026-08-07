@@ -965,3 +965,71 @@ td.heat {
   color: var(--ink);
   font-weight: 600;
 }
+
+/* ── today strip ─────────────────────────────────────────────────────────── */
+
+.today-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 11px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.today-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+}
+/* A halo rather than an outline — reads as "live" without shouting. */
+.today-dot--done {
+  background: var(--status-good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-good) 20%, transparent);
+}
+.today-dot--planned {
+  background: var(--status-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-warning) 20%, transparent);
+}
+.today-dot--todo {
+  background: var(--status-serious);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-serious) 20%, transparent);
+}
+.today-dot--none {
+  background: var(--status-neutral);
+}
+.today-mine strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.today-team {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-left: auto;
+  color: var(--ink-3);
+}
+.today-stat b {
+  color: var(--ink);
+  font-weight: 600;
+  margin-right: 3px;
+}
+.today-stat--warn b {
+  color: var(--status-warning);
+}
+.today-cta {
+  text-decoration: none;
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  .today-team {
+    margin-left: 0;
+  }
+}

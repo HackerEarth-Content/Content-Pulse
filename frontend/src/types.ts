@@ -54,6 +54,15 @@ export interface Entry {
   items: Item[];
 }
 
+export interface TodayStatus {
+  date: string;
+  planned: number;
+  updated: number;
+  awaiting_update: { member_id: number; member: string }[];
+  no_plan_yet: { member_id: number; member: string }[];
+  team_size: number;
+}
+
 export interface WorkLogRow {
   id: number;
   entry_id: number;

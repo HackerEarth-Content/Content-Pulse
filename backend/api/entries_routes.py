@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
-from core.dates import resolve_range
+from core.dates import resolve_range, today
 from core.deps import Viewer, get_viewer
 from core.orm import DailyEntry, EntryItem, EntryItemStatusEvent, User
 from core.users import current_user
@@ -47,6 +47,12 @@ async def list_entries(
         task_type_id=task_type_id, customer=customer, q=q, page=page, page_size=page_size,
     )
     return Page(items=[EntryOut.of(r) for r in rows], total=total, page=page, page_size=page_size)
+
+
+@router.get("/today")
+async def today_status(db: AsyncSession = Depends(get_session)):
+    """The strip at the top of every page: today's plan/update state."""
+    return await svc.today_status(db, today())
 
 
 @router.get("/work-log", response_model=Page[WorkLogRow])

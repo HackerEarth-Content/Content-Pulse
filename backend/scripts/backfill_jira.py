@@ -63,6 +63,10 @@ ALIASES = {
 # Present in Jira, wanted in ContentOps, no row yet.
 CREATE_MEMBERS = ["Arpit Gupta", "Nishu Kumari", "Sreejith PV"]
 
+# Jira lets an issue sit unassigned. Dropping those loses real effort from every
+# total, so they land here and stay visible as work nobody owns.
+UNASSIGNED = "Unassigned"
+
 # Jira's status vocabulary -> ours.
 STATUS_MAP = {
     "to do": "open", "open": "open", "backlog": "open",
@@ -134,7 +138,7 @@ async def resolve_people(db, names: set[str], create_missing: bool) -> dict[str,
             db.add(MemberAlias(alias=alias, member_id=member_id))
             aliases[alias.lower()] = member_id
 
-    for name in CREATE_MEMBERS:
+    for name in [*CREATE_MEMBERS, UNASSIGNED]:
         if name.strip().lower() not in by_name:
             m = Member(display_name=name, role="content")
             db.add(m)
@@ -182,9 +186,8 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
 
     async with Session() as db:
         names = {
-            (i["fields"].get("assignee") or {}).get("displayName")
+            (i["fields"].get("assignee") or {}).get("displayName") or UNASSIGNED
             for i in issues
-            if (i["fields"].get("assignee") or {}).get("displayName")
         }
         people = await resolve_people(db, names, create_missing)
 
@@ -210,7 +213,14 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
         for issue in issues:
             f = issue["fields"]
             key = issue["key"]
+            jira_status = _val(f.get("status")) or "To Do"
+            status = STATUS_MAP.get(jira_status.strip().lower(), "open")
+
             who = (f.get("assignee") or {}).get("displayName")
+            if who is None:
+                # Unassigned work still happened; park it on a placeholder member
+                # rather than dropping it silently from every total.
+                who = UNASSIGNED
             if who not in people:
                 stats["skipped_no_member"] += 1
                 continue
@@ -222,8 +232,14 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
                         select(EntryItem).where(EntryItem.jira_issue_key == key)
                     )
                     if item is not None:
+                        eff = f.get("customfield_10526")
+                        item.effort_minutes = int(eff) if eff is not None else None
+                        item.effort_suspect = bool(eff and int(eff) > SUSPECT_OVER)
                         item.request_type = _val(f.get("customfield_10240"))
-                        item.external_issue_type = f["issuetype"]["name"]
+                        item.external_issue_type = f["issuetype"]["name"].strip()
+                        item.external_status = jira_status
+                        item.status = status
+                        item.customer = _val(f.get("customfield_10225")) or None
                         stats["refreshed"] += 1
                 else:
                     stats["already_present"] += 1
@@ -231,8 +247,6 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
 
             member_id = people[who]
             on = _dt(f["created"]).date()
-            jira_status = _val(f.get("status")) or "To Do"
-            status = STATUS_MAP.get(jira_status.strip().lower(), "open")
             effort = f.get("customfield_10526")
             minutes = int(effort) if effort is not None else None
 

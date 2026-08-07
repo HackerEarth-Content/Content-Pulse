@@ -20,6 +20,7 @@ import type {
   Summary,
   SyncStatus,
   TaskTypeStat,
+  TodayStatus,
   TrendPoint,
   WorkLogRow,
 } from "./types";
@@ -125,6 +126,7 @@ export const api = {
   patchLookup: (kind: string, id: number, body: unknown) =>
     send<Lookup>("PATCH", `/meta/lookups/${kind}/${id}`, body),
 
+  today: () => get<TodayStatus>("/today"),
   workLog: (f: EntryFilters) => get<Page<WorkLogRow>>("/work-log", f),
   entries: (f: EntryFilters) => get<Page<Entry>>("/entries", f),
   entry: (id: number) => get<Entry>(`/entries/${id}`),

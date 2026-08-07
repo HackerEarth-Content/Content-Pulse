@@ -78,13 +78,6 @@ export function Header({
 
       <span className="topbar-spacer" />
 
-      <NavLink to="/plans/new" className="btn btn-secondary" style={{ textDecoration: "none" }}>
-        + Plan
-      </NavLink>
-      <NavLink to="/updates/new" className="btn btn-primary" style={{ textDecoration: "none" }}>
-        + Update
-      </NavLink>
-
       <button
         className="section-action"
         onClick={onToggleTheme}
