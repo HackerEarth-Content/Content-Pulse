@@ -7,9 +7,15 @@ import type { Lookup } from "../types";
 
 type LookupKind = "task-types" | "question-types";
 
-function LookupEditor({ kind, title, sub }: { kind: LookupKind; title: string; sub: string }) {
-  const list = useApi(() => api.lookups(kind, true), [kind]);
-  const [name, setName] = useState("");
+/** The values currently in use. They come from Jira — the backfill creates any
+ * it meets — so there is nothing to add here by hand. Retiring one takes it off
+ * this list and out of the forms; the tickets already using it are untouched. */
+function LookupList({ kind, title, sub }: { kind: LookupKind; title: string; sub: string }) {
+  const active = useApi(() => api.lookups(kind, false), [kind]);
+  // Only to say how many are hidden — retired values are never listed.
+  const all = useApi(() => api.lookups(kind, true), [kind]);
+  const list = active;
+  const retired = (all.data?.length ?? 0) - (active.data?.length ?? 0);
   const [error, setError] = useState<ApiError | null>(null);
 
   async function run(fn: () => Promise<unknown>) {
@@ -29,40 +35,17 @@ function LookupEditor({ kind, title, sub }: { kind: LookupKind; title: string; s
     <Card title={title} sub={sub}>
       {error ? <Banner tone="error">{error.message}</Banner> : null}
 
-      <div className="filter-bar" style={{ marginBottom: 8 }}>
-        <input
-          className="field"
-          placeholder="Add a value…"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && name.trim()) {
-              run(() => api.createLookup(kind, { name: name.trim() }));
-              setName("");
-            }
-          }}
-        />
-        <button
-          className="btn btn-secondary"
-          disabled={!name.trim()}
-          onClick={() => {
-            run(() => api.createLookup(kind, { name: name.trim() }));
-            setName("");
-          }}
-        >
-          Add
-        </button>
-      </div>
-
-      <Async loading={list.loading} error={list.error} data={list.data} empty={{ title: "None yet" }}>
+      <Async loading={list.loading} error={list.error} data={list.data}
+             empty={{ title: "None in use yet" }}>
         {(rows) => (
           <div>
             {rows.map((row) => (
               <div className="admin-row" key={row.id}>
-                <span className={row.is_active ? "" : "retired"}>{row.name}</span>
-                <span className="muted">{row.is_active ? "" : "retired"}</span>
-                <button className="section-action" onClick={() => retire(row)}>
-                  {row.is_active ? "Retire" : "Restore"}
+                <span>{row.name}</span>
+                <span />
+                <button className="section-action" onClick={() => retire(row)}
+                        title="Take this off the list and out of the forms">
+                  Retire
                 </button>
               </div>
             ))}
@@ -70,7 +53,10 @@ function LookupEditor({ kind, title, sub }: { kind: LookupKind; title: string; s
         )}
       </Async>
       <p className="hint">
-        Retiring hides a value from forms but leaves every task already using it intact.
+        {list.data?.length ?? 0} in use, synced from Jira as the backfill meets them.
+        {retired > 0
+          ? ` ${retired} retired and hidden — their tickets still read correctly.`
+          : ""}
       </p>
     </Card>
   );
@@ -392,12 +378,10 @@ export function Admin() {
       <SectionHeading title="Admin" color="var(--accent-orange)" />
       <MemberEditor />
       <div className="grid cols-2" style={{ marginTop: 12 }}>
-        <LookupEditor kind="task-types" title="Work types" sub="offered on plan and update forms" />
-        <LookupEditor
-          kind="question-types"
-          title="Question types"
-          sub="optional tag on each task"
-        />
+        <LookupList kind="task-types" title="Work types"
+                    sub="synced from Jira · offered on the plan and update forms" />
+        <LookupList kind="question-types" title="Question types"
+                    sub="synced from Jira · optional tag on each ticket" />
       </div>
       <div style={{ marginTop: 12 }}>
         <Integrations />

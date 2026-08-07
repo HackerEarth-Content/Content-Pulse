@@ -1,14 +1,27 @@
 import { NavLink } from "react-router-dom";
 import type { CurrentUser } from "../types";
 
-const LINKS = [
-  { to: "/", label: "Overview", end: true },
-  { to: "/work-log", label: "Work log" },
-  { to: "/analytics", label: "Analytics" },
-  { to: "/members", label: "Members" },
-  { to: "/requests", label: "Requests" },
-  { to: "/content-requests", label: "Jira board" },
-  { to: "/admin", label: "Admin", roles: ["admin"] },
+interface NavItem {
+  to: string;
+  label: string;
+  title: string;
+  end?: boolean;
+  roles?: string[];
+}
+
+/** Labelled by the question each screen answers, in the order you'd ask them:
+ * how are we doing, what exactly happened, who did it, what was asked of us,
+ * what does it mean. */
+const LINKS: NavItem[] = [
+  { to: "/", label: "Overview", end: true, title: "Headline numbers for the period" },
+  { to: "/work-log", label: "All tickets", title: "Every ticket, filterable" },
+  { to: "/members", label: "People", title: "Per-person workload and effort" },
+  { to: "/requests", label: "Request streams",
+    title: "Requests, assessments, programs and technical writing" },
+  { to: "/analytics", label: "Insights",
+    title: "Delivery, timing, customers and data quality" },
+  { to: "/admin", label: "Settings", roles: ["admin"],
+    title: "People, work types and integrations" },
 ];
 
 /** Logo swaps with the theme — the dark mark reads on light surfaces and the
@@ -55,6 +68,7 @@ export function Header({
             key={l.to}
             to={l.to}
             end={l.end}
+            title={l.title}
             className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
           >
             {l.label}

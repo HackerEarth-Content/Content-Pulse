@@ -125,6 +125,45 @@ class EntryOut(ORMModel):
         )
 
 
+class WorkLogRow(ORMModel):
+    """One ticket, with just enough of its entry to make sense standing alone."""
+
+    id: int
+    entry_id: int
+    entry_date: date
+    kind: str
+    member_id: int
+    member: str
+    task_type: str
+    question_type: str | None
+    customer: str | None
+    count: int | None
+    effort_minutes: int | None
+    notes: str | None
+    due_at: date | None
+    status: str
+    pipeline: str
+    external_issue_type: str | None
+    request_type: str | None
+    jira_issue_key: str | None
+    jira_issue_url: str | None
+    jira_state: str
+    plan_item_id: int | None
+
+    @classmethod
+    def of(cls, item, entry) -> WorkLogRow:
+        return cls(
+            **{k: getattr(item, k) for k in
+               ("id", "entry_id", "customer", "count", "effort_minutes", "notes",
+                "due_at", "status", "pipeline", "external_issue_type", "request_type",
+                "jira_issue_key", "jira_issue_url", "jira_state", "plan_item_id")},
+            entry_date=entry.entry_date, kind=entry.kind,
+            member_id=entry.member_id, member=entry.member.display_name,
+            task_type=item.task_type.name,
+            question_type=item.question_type.name if item.question_type else None,
+        )
+
+
 class StatusEventOut(ORMModel):
     from_status: str | None
     to_status: str

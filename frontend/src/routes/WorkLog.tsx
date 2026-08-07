@@ -1,13 +1,41 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type EntryFilters } from "../api";
 import { StatusDialog } from "../components/StatusDialog";
-import { Async, KindPill, SectionHeading, StatusPill } from "../components/ui";
-import type { Item } from "../types";
+import { Async, SectionHeading, StatusPill } from "../components/ui";
 import { mins, num, statusLabel } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
+import type { Item, WorkLogRow } from "../types";
 
 const PAGE_SIZE = 50;
+
+const STREAMS = [
+  { value: "content_task", label: "Content Tasks" },
+  { value: "content_request", label: "Content Requests" },
+  { value: "hc_request", label: "HC Request" },
+  { value: "ht_request", label: "HT Request" },
+  { value: "hc_ht_feasibility", label: "HC/HT Feasibility" },
+  { value: "technical_writing", label: "Technical Writing" },
+];
+
+/** The dialog edits an Item; a work-log row is the same record flattened. */
+const asItem = (r: WorkLogRow): Item => ({
+  id: r.id,
+  plan_item_id: r.plan_item_id,
+  task_type_id: 0,
+  task_type: r.task_type,
+  question_type: r.question_type,
+  customer: r.customer,
+  count: r.count,
+  notes: r.notes,
+  due_at: r.due_at,
+  effort_minutes: r.effort_minutes,
+  status: r.status,
+  jira_issue_key: r.jira_issue_key,
+  jira_issue_url: r.jira_issue_url,
+  jira_state: r.jira_state,
+});
 
 export function WorkLog({ range }: { range: Range }) {
   const [filters, setFilters] = useState<EntryFilters>({});
@@ -15,16 +43,24 @@ export function WorkLog({ range }: { range: Range }) {
   const [busy, setBusy] = useState(false);
   const [moving, setMoving] = useState<Item | null>(null);
 
-  const query: EntryFilters = { from: range.from, to: range.to, ...filters, page, page_size: PAGE_SIZE };
-  const key = JSON.stringify(query);
-  const entries = useApi(() => api.entries(query), [key]);
+  const query: EntryFilters = {
+    from: range.from, to: range.to, ...filters, page, page_size: PAGE_SIZE,
+  };
+  const rows = useApi(() => api.workLog(query), [JSON.stringify(query)]);
   const members = useApi(() => api.members(), []);
   const taskTypes = useApi(() => api.taskTypes(), []);
 
   const set = (patch: EntryFilters) => {
     setPage(1);
-    setFilters((f) => ({ ...f, ...patch }));
+    setFilters((f) => {
+      const next = { ...f, ...patch };
+      for (const k of Object.keys(next) as (keyof EntryFilters)[]) {
+        if (next[k] === "" || next[k] === undefined) delete next[k];
+      }
+      return next;
+    });
   };
+  const active = Object.keys(filters).length;
 
   async function exportAs(format: "xlsx" | "csv") {
     setBusy(true);
@@ -35,7 +71,7 @@ export function WorkLog({ range }: { range: Range }) {
     }
   }
 
-  const pages = entries.data ? Math.ceil(entries.data.total / PAGE_SIZE) : 1;
+  const pages = rows.data ? Math.max(1, Math.ceil(rows.data.total / PAGE_SIZE)) : 1;
 
   return (
     <>
@@ -56,77 +92,57 @@ export function WorkLog({ range }: { range: Range }) {
       <div className="filter-bar">
         <input
           className="field"
-          placeholder="Search notes, customer, work type…"
+          placeholder="Search notes, customer, work type, TCE-…"
           defaultValue={filters.q ?? ""}
           onKeyDown={(e) => e.key === "Enter" && set({ q: e.currentTarget.value })}
           onBlur={(e) => set({ q: e.currentTarget.value })}
           aria-label="Search"
         />
-        <select
-          className="field"
-          value={filters.member_id ?? ""}
-          onChange={(e) => set({ member_id: e.target.value ? Number(e.target.value) : undefined })}
-          aria-label="Member"
-        >
-          <option value="">All members</option>
+        <select className="field" value={filters.member_id ?? ""} aria-label="Member"
+                onChange={(e) => set({ member_id: e.target.value ? Number(e.target.value) : undefined })}>
+          <option value="">Everyone</option>
           {(members.data ?? []).map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.display_name}
-            </option>
+            <option key={m.id} value={m.id}>{m.display_name}</option>
           ))}
         </select>
-        <select
-          className="field"
-          value={filters.kind ?? ""}
-          onChange={(e) => set({ kind: e.target.value || undefined })}
-          aria-label="Kind"
-        >
-          <option value="">Plans & updates</option>
-          <option value="plan">Plans</option>
-          <option value="update">Updates</option>
+        <select className="field" value={filters.pipeline ?? ""} aria-label="Stream"
+                onChange={(e) => set({ pipeline: e.target.value || undefined })}>
+          <option value="">All streams</option>
+          {STREAMS.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
         </select>
-        <select
-          className="field"
-          value={filters.status ?? ""}
-          onChange={(e) => set({ status: e.target.value || undefined })}
-          aria-label="Status"
-        >
+        <select className="field" value={filters.status ?? ""} aria-label="Status"
+                onChange={(e) => set({ status: e.target.value || undefined })}>
           <option value="">Any status</option>
           <option value="open">Open</option>
           <option value="in_progress">In progress</option>
           <option value="blocked">Blocked</option>
           <option value="closed">Done</option>
         </select>
-        <select
-          className="field"
-          value={filters.task_type_id ?? ""}
-          onChange={(e) => set({ task_type_id: e.target.value ? Number(e.target.value) : undefined })}
-          aria-label="Work type"
-        >
+        <select className="field" value={filters.task_type_id ?? ""} aria-label="Work type"
+                onChange={(e) => set({ task_type_id: e.target.value ? Number(e.target.value) : undefined })}>
           <option value="">Any work type</option>
           {(taskTypes.data ?? []).map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
+            <option key={t.id} value={t.id}>{t.name}</option>
           ))}
         </select>
-        {Object.values(filters).some(Boolean) ? (
+        <input className="field" placeholder="Customer" defaultValue={filters.customer ?? ""}
+               aria-label="Customer"
+               onKeyDown={(e) => e.key === "Enter" && set({ customer: e.currentTarget.value })}
+               onBlur={(e) => set({ customer: e.currentTarget.value })} />
+        {active ? (
           <button className="section-action" onClick={() => (setFilters({}), setPage(1))}>
-            Clear
+            Clear {active} filter{active === 1 ? "" : "s"}
           </button>
         ) : null}
       </div>
 
-      <Async
-        loading={entries.loading}
-        error={entries.error}
-        data={entries.data}
-        empty={{ title: "No entries", hint: "Try a wider date range or clear the filters." }}
-      >
+      <Async loading={rows.loading} error={rows.error} data={rows.data}>
         {(pageData) =>
           pageData.items.length === 0 ? (
             <div className="empty">
-              <span className="empty-title">No entries match</span>
+              <span className="empty-title">Nothing matches</span>
               Try a wider date range or clear the filters.
             </div>
           ) : (
@@ -137,11 +153,10 @@ export function WorkLog({ range }: { range: Range }) {
                     <tr>
                       <th>Member</th>
                       <th>Date</th>
-                      <th>Kind</th>
+                      <th>Stream</th>
                       <th>Work type</th>
-                      <th>Question type</th>
                       <th>Customer</th>
-                      <th className="num">Count</th>
+                      <th className="num">Items</th>
                       <th className="num">Effort</th>
                       <th>Status</th>
                       <th>Due</th>
@@ -150,93 +165,61 @@ export function WorkLog({ range }: { range: Range }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {pageData.items.flatMap((entry) =>
-                      entry.items.length === 0
-                        ? [
-                            <tr key={`e${entry.id}`}>
-                              <td className="strong">{entry.member}</td>
-                              <td className="mono">{entry.entry_date}</td>
-                              <td>
-                                <KindPill kind={entry.kind} />
-                              </td>
-                              <td colSpan={8} className="muted">
-                                No tasks logged
-                              </td>
-                              <td className="cell-notes">{entry.raw_text ?? "—"}</td>
-                            </tr>,
-                          ]
-                        : entry.items.map((item) => (
-                            <tr key={item.id}>
-                              <td className="strong">{entry.member}</td>
-                              <td className="mono">{entry.entry_date}</td>
-                              <td>
-                                <KindPill kind={entry.kind} />
-                              </td>
-                              <td>{item.task_type}</td>
-                              <td className="muted">{item.question_type ?? "—"}</td>
-                              <td>{item.customer ?? "—"}</td>
-                              <td className="num">{num(item.count)}</td>
-                              <td className="num">{mins(item.effort_minutes)}</td>
-                              <td>
-                                {entry.kind === "update" && item.plan_item_id === null ? (
-                                  <StatusPill status={item.status} />
-                                ) : (
-                                  <button
-                                    className={`pill pill-${item.status} pill-button`}
-                                    onClick={() => setMoving(item)}
-                                    title="Move status"
-                                  >
-                                    {statusLabel(item.status)}
-                                  </button>
-                                )}
-                              </td>
-                              <td className="mono muted">{item.due_at ?? "—"}</td>
-                              <td>
-                                {item.jira_issue_key ? (
-                                  <a
-                                    className="tag"
-                                    href={item.jira_issue_url ?? "#"}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                  >
-                                    {item.jira_issue_key}
-                                  </a>
-                                ) : item.jira_state === "pending" ? (
-                                  <span className="pill pill-muted">syncing…</span>
-                                ) : item.jira_state === "failed" ? (
-                                  <span className="pill pill-blocked">failed</span>
-                                ) : (
-                                  <span className="muted">—</span>
-                                )}
-                              </td>
-                              <td className="cell-notes">{item.notes ?? "—"}</td>
-                            </tr>
-                          ))
-                    )}
+                    {pageData.items.map((r) => (
+                      <tr key={r.id}>
+                        <td className="strong">
+                          <Link className="tag" to={`/members/${r.member_id}`}>{r.member}</Link>
+                        </td>
+                        <td className="mono">{r.entry_date}</td>
+                        <td>
+                          <span className="pill pill-muted">
+                            {r.external_issue_type ?? (r.kind === "plan" ? "Plan" : "Update")}
+                          </span>
+                        </td>
+                        <td>{r.task_type}</td>
+                        <td className="muted">{r.customer ?? "—"}</td>
+                        <td className="num">{num(r.count)}</td>
+                        <td className="num">{mins(r.effort_minutes)}</td>
+                        <td>
+                          {r.kind === "update" && r.plan_item_id === null ? (
+                            <StatusPill status={r.status} />
+                          ) : (
+                            <button className={`pill pill-${r.status} pill-button`}
+                                    onClick={() => setMoving(asItem(r))} title="Move status">
+                              {statusLabel(r.status)}
+                            </button>
+                          )}
+                        </td>
+                        <td className="mono muted">{r.due_at ?? "—"}</td>
+                        <td>
+                          {r.jira_issue_key ? (
+                            <a className="tag" href={r.jira_issue_url ?? "#"} target="_blank"
+                               rel="noreferrer">{r.jira_issue_key}</a>
+                          ) : r.jira_state === "pending" ? (
+                            <span className="pill pill-muted">syncing…</span>
+                          ) : r.jira_state === "failed" ? (
+                            <span className="pill pill-blocked">failed</span>
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
+                        <td className="cell-notes">{r.notes ?? "—"}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
 
               <div className="btn-row">
                 <span className="muted">
-                  {pageData.total} {pageData.total === 1 ? "entry" : "entries"} · page {page} of{" "}
-                  {pages}
+                  {pageData.total.toLocaleString()}{" "}
+                  {pageData.total === 1 ? "ticket" : "tickets"} · page {page} of {pages}
                 </span>
                 <span className="topbar-spacer" />
-                <button
-                  className="section-action"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  ← Previous
-                </button>
-                <button
-                  className="section-action"
-                  disabled={page >= pages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next →
-                </button>
+                <button className="section-action" disabled={page <= 1}
+                        onClick={() => setPage((p) => p - 1)}>← Previous</button>
+                <button className="section-action" disabled={page >= pages}
+                        onClick={() => setPage((p) => p + 1)}>Next →</button>
               </div>
             </>
           )
@@ -244,7 +227,7 @@ export function WorkLog({ range }: { range: Range }) {
       </Async>
 
       {moving ? (
-        <StatusDialog item={moving} onClose={() => setMoving(null)} onSaved={entries.reload} />
+        <StatusDialog item={moving} onClose={() => setMoving(null)} onSaved={rows.reload} />
       ) : null}
     </>
   );

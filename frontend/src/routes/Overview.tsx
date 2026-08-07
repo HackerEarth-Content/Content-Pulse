@@ -11,13 +11,16 @@ import {
 } from "recharts";
 import { Link } from "react-router-dom";
 import { api } from "../api";
-import { Async, BarList, Card, SectionHeading, StatTile, StatusPill } from "../components/ui";
+import { AXIS as CHART_AXIS, TOOLTIP } from "../charts";
+import { Donut } from "../components/Donut";
+import { RankedBars } from "../components/RankedBars";
+import { Async, Card, SectionHeading, StatTile, StatusPill } from "../components/ui";
 import { hours, mins, num, pct } from "../format";
 import { bucketFor, bucketNoun, bucketTick, groupSeries } from "../series";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
 
-const AXIS = { stroke: "var(--ink-3)", fontSize: 11 };
+const AXIS = CHART_AXIS;
 
 export function Overview({ range }: { range: Range }) {
   const p = { from: range.from, to: range.to };
@@ -28,6 +31,7 @@ export function Overview({ range }: { range: Range }) {
   const due = useApi(() => api.dueRisk(p), [range.from, range.to]);
   const cycle = useApi(() => api.cycleTime(p), [range.from, range.to]);
   const open = useApi(() => api.openItems({ ...p, limit: 12 }), [range.from, range.to]);
+  const areas = useApi(() => api.byArea(p), [range.from, range.to]);
 
   // A quarter is ~92 daily points — roll up so the axis stays readable.
   const bucket = bucketFor(range.from, range.to);
@@ -38,6 +42,17 @@ export function Overview({ range }: { range: Range }) {
       <SectionHeading title="This period" />
       <Async loading={summary.loading} error={summary.error} data={summary.data}>
         {(s) => (
+          <>
+          <p className="insight">
+            <strong>{num(s.tasks)}</strong> tickets and{" "}
+            <strong>{mins(s.effort_minutes || null)}</strong> logged by{" "}
+            <strong>{s.members}</strong> {s.members === 1 ? "person" : "people"}.{" "}
+            {s.tasks
+              ? `${mins(Math.round(s.effort_minutes / s.tasks))} per ticket on average, `
+              : ""}
+            {pct(s.completion_rate)} closed
+            {s.blocked ? `, ${s.blocked} blocked` : ""}.
+          </p>
           <div className="stat-row">
             <StatTile label="Tasks" value={num(s.tasks)} sub={`logged by ${s.members} ${s.members === 1 ? "person" : "people"}`} accent="var(--accent-blue)" />
             <StatTile
@@ -62,8 +77,45 @@ export function Overview({ range }: { range: Range }) {
             />
             <StatTile label="Plans / updates" value={`${s.plans} / ${s.updates}`} sub="entries filed" />
           </div>
+          </>
         )}
       </Async>
+
+      <SectionHeading title="Where the effort goes" color="var(--accent-magenta)" />
+      <div className="grid cols-2">
+        <Card title="Task work vs requests" sub="share of hours">
+          <Async loading={areas.loading} error={areas.error} data={areas.data}>
+            {(list) => {
+              const tasks = list.find((a) => a.area === "content_task");
+              const requests = list.filter(
+                (a) => !["content_task", "tce_subtask"].includes(a.area));
+              const reqEffort = requests.reduce((s2, a) => s2 + a.effort_minutes, 0);
+              return (
+                <Donut
+                  slices={[
+                    { key: "content_task", label: "Content Tasks",
+                      value: tasks?.effort_minutes ?? 0 },
+                    { key: "requests", label: "Requests & Programs", value: reqEffort },
+                  ]}
+                  totalLabel="total effort"
+                  format={(n) => mins(n)}
+                />
+              );
+            }}
+          </Async>
+        </Card>
+        <Card title="Busiest areas" sub="hours logged">
+          <Async loading={areas.loading} error={areas.error} data={areas.data}>
+            {(list) => (
+              <RankedBars
+                items={list.map((a) => ({ key: a.area, label: a.label,
+                                          value: a.effort_minutes, sub: `${a.tasks} tickets` }))}
+                format={(n) => mins(n)}
+              />
+            )}
+          </Async>
+        </Card>
+      </div>
 
       <SectionHeading title="Activity" color="var(--accent-indigo)" />
       <Card sub={`per ${bucketNoun(bucket)}`}>
@@ -83,12 +135,7 @@ export function Overview({ range }: { range: Range }) {
                 />
                 <YAxis tickLine={false} axisLine={false} {...AXIS} allowDecimals={false} />
                 <Tooltip
-                  contentStyle={{
-                    background: "var(--surface)",
-                    border: "1px solid var(--line)",
-                    borderRadius: 8,
-                    fontSize: 12,
-                  }}
+                  contentStyle={TOOLTIP}
                   labelFormatter={(d) => bucketTick(String(d), bucket)}
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -108,7 +155,7 @@ export function Overview({ range }: { range: Range }) {
       </Card>
 
       <div className="grid cols-2" style={{ marginTop: 12 }}>
-        <Card title="By member" sub="tasks in this range">
+        <Card title="By member" sub="hours in this range">
           <Async
             loading={members.loading}
             error={members.error}
@@ -116,12 +163,18 @@ export function Overview({ range }: { range: Range }) {
             empty={{ title: "No activity", hint: "Nobody filed anything in this range." }}
           >
             {(rows) => (
-              <BarList items={rows.slice(0, 8).map((r) => ({ label: r.member, value: r.tasks }))} />
+              <RankedBars
+                items={rows.slice(0, 8).map((r) => ({
+                  key: String(r.member_id), label: r.member,
+                  value: r.effort_minutes, sub: `${r.tasks} tickets`,
+                }))}
+                format={(n) => mins(n)}
+              />
             )}
           </Async>
         </Card>
 
-        <Card title="By work type" sub="tasks in this range">
+        <Card title="By work type" sub="hours in this range">
           <Async
             loading={types.loading}
             error={types.error}
@@ -129,10 +182,12 @@ export function Overview({ range }: { range: Range }) {
             empty={{ title: "No work types yet" }}
           >
             {(rows) => (
-              <BarList
-                items={rows
-                  .slice(0, 8)
-                  .map((r) => ({ label: r.task_type, value: r.tasks, color: "var(--accent-indigo)" }))}
+              <RankedBars
+                items={rows.slice(0, 8).map((r) => ({
+                  key: r.task_type, label: r.task_type,
+                  value: r.effort_minutes, sub: `${r.tasks} tickets`,
+                }))}
+                format={(n) => mins(n)}
               />
             )}
           </Async>

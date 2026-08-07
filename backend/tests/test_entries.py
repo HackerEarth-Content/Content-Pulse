@@ -154,3 +154,38 @@ async def test_negative_effort_rejected(client, member, task_type):
     r = await plan(client, member, task_type,
                    items=[{"task_type_id": task_type, "effort_minutes": -5}])
     assert r.status_code == 422
+
+
+async def test_work_log_filters_the_rows_it_returns(client, member, task_type):
+    """The screen shows one row per ticket, so filtering and paging happen on
+    tickets. Filtering by entry meant `status=closed` returned entries holding
+    one closed ticket and still rendered their open ones."""
+    p = (await plan(client, member, task_type, items=[
+        {"task_type_id": task_type, "notes": "first"},
+        {"task_type_id": task_type, "notes": "second"},
+    ])).json()
+    await client.patch(f"/api/entry-items/{p['items'][0]['id']}", json={"status": "closed"})
+
+    params = {"from": DAY, "to": DAY, "member_id": member}
+    all_rows = (await client.get("/api/work-log", params=params)).json()
+    assert all_rows["total"] == 2, "one row per ticket, not per day"
+
+    closed = (await client.get("/api/work-log", params=params | {"status": "closed"})).json()
+    assert closed["total"] == 1
+    assert all(r["status"] == "closed" for r in closed["items"]), \
+        "every returned row must match the filter"
+
+    # the statuses partition the set exactly
+    counts = {}
+    for st in ("open", "in_progress", "blocked", "closed"):
+        counts[st] = (await client.get("/api/work-log", params=params | {"status": st})).json()["total"]
+    assert sum(counts.values()) == all_rows["total"]
+
+
+async def test_work_log_search_covers_the_jira_key(client, member, task_type):
+    p = (await plan(client, member, task_type,
+                    items=[{"task_type_id": task_type, "notes": "findme-zz"}])).json()
+    params = {"from": DAY, "to": DAY, "member_id": member}
+    assert (await client.get("/api/work-log", params=params | {"q": "findme-zz"})).json()["total"] == 1
+    assert (await client.get("/api/work-log", params=params | {"q": "nope"})).json()["total"] == 0
+    assert p["items"][0]["id"]

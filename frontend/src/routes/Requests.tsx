@@ -1,33 +1,37 @@
 import { useState } from "react";
-import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { api } from "../api";
-import { Async, BarList, Card, SectionHeading, StatTile } from "../components/ui";
+import { CATEGORICAL } from "../charts";
+import { Donut } from "../components/Donut";
+import { RankedBars } from "../components/RankedBars";
+import { Async, Card, SectionHeading, StatTile } from "../components/ui";
 import { mins, num, pct } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
 
-/** Content Tasks is the day-to-day stream and owns Overview, Work log and
- * Analytics. This screen is the request pipelines. */
+/** Content Tasks owns Overview, Work log and Analytics. This screen is the
+ * request pipelines. `tce_subtask` is a Jira housekeeping type with no effort. */
 const EXCLUDED = new Set(["content_task", "tce_subtask"]);
 
-const AREA_COLOURS: Record<string, string> = {
-  content_request: "var(--accent-blue)",
-  content_assessment: "var(--accent-indigo)",
-  ht_request: "var(--accent-aqua)",
-  hc_ht_feasibility: "var(--accent-yellow)",
-  hc_request: "var(--accent-orange)",
-  technical_writing: "var(--accent-magenta)",
-};
-const colourFor = (area: string) => AREA_COLOURS[area] ?? "var(--ink-3)";
+/** The top-level bifurcation, at three parts so the colours survive an
+ * all-pairs contrast check. Everything else is a ranked bar. */
+const GROUPS: { key: string; label: string; areas: string[] }[] = [
+  { key: "requests", label: "Content Requests", areas: ["content_request"] },
+  { key: "assessments", label: "Content Assessments", areas: ["content_assessment"] },
+  {
+    key: "programs",
+    label: "Programs & Writing",
+    areas: ["hc_request", "ht_request", "hc_ht_feasibility", "technical_writing"],
+  },
+];
 
 export function Requests({ range }: { range: Range }) {
   const p = { from: range.from, to: range.to };
   const deps = [range.from, range.to];
   const areas = useApi(() => api.byArea(p), deps);
-  const [active, setActive] = useState<string | null>(null);
+  const [area, setArea] = useState<string | null>(null);
 
   const rows = (areas.data ?? []).filter((a) => !EXCLUDED.has(a.area));
-  const current = active ?? rows[0]?.area ?? null;
+  const current = area ?? rows[0]?.area ?? null;
 
   return (
     <>
@@ -40,90 +44,78 @@ export function Requests({ range }: { range: Range }) {
         empty={{ title: "No request work in this range" }}
       >
         {(list) => {
-          const tickets = list.reduce((s, r) => s + r.tasks, 0);
           const effort = list.reduce((s, r) => s + r.effort_minutes, 0);
+          const tickets = list.reduce((s, r) => s + r.tasks, 0);
+          const grouped = GROUPS.map((g, i) => ({
+            key: g.key,
+            label: g.label,
+            colour: CATEGORICAL[i],
+            value: list
+              .filter((a) => g.areas.includes(a.area))
+              .reduce((s, a) => s + a.effort_minutes, 0),
+            tickets: list
+              .filter((a) => g.areas.includes(a.area))
+              .reduce((s, a) => s + a.tasks, 0),
+          })).filter((g) => g.value > 0 || g.tickets > 0);
+
+          const top = [...grouped].sort((a, b) => b.value - a.value)[0];
+          const busiest = [...list].sort((a, b) => b.effort_minutes - a.effort_minutes)[0];
+
           return (
             <>
+              <p className="insight">
+                <strong>{mins(effort)}</strong> across <strong>{tickets}</strong> request
+                tickets.
+                {top ? (
+                  <>
+                    {" "}
+                    <strong>{top.label}</strong> takes {pct(top.value / (effort || 1))} of it,
+                  </>
+                ) : null}
+                {busiest ? (
+                  <>
+                    {" "}
+                    and <strong>{busiest.label}</strong> is the single busiest area at{" "}
+                    {mins(busiest.effort_minutes)} over {busiest.tasks} tickets
+                    {busiest.tasks
+                      ? ` — ${mins(Math.round(busiest.effort_minutes / busiest.tasks))} each`
+                      : ""}
+                    .
+                  </>
+                ) : null}
+              </p>
+
               <div className="grid cols-2">
-                <Card title="Split by area" sub="share of hours logged">
-                  <ResponsiveContainer width="100%" height={260}>
-                    <PieChart>
-                      <Pie
-                        data={list.map((a) => ({
-                          name: a.label,
-                          value: a.effort_minutes,
-                          area: a.area,
-                        }))}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={58}
-                        outerRadius={96}
-                        paddingAngle={2}
-                        onClick={(d: { area?: string }) => d.area && setActive(d.area)}
-                      >
-                        {list.map((a) => (
-                          <Cell key={a.area} fill={colourFor(a.area)} stroke="var(--surface)" />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(v: number) => mins(v)}
-                        contentStyle={{
-                          background: "var(--surface)",
-                          border: "1px solid var(--line)",
-                          borderRadius: 8,
-                          fontSize: 12,
-                        }}
-                      />
-                      <Legend wrapperStyle={{ fontSize: 11 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                <Card title="The three streams" sub="share of hours logged">
+                  <Donut
+                    slices={grouped.map((g) => ({
+                      key: g.key,
+                      label: g.label,
+                      value: g.value,
+                      colour: g.colour,
+                    }))}
+                    total={effort}
+                    totalLabel="total effort"
+                    format={(n) => mins(n)}
+                  />
                 </Card>
 
-                <Card title="Areas" sub="click one to drill in">
-                  <div className="table-scroll" style={{ border: 0, boxShadow: "none" }}>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Area</th>
-                          <th className="num">Tickets</th>
-                          <th className="num">Effort</th>
-                          <th className="num">Share</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {list.map((a) => (
-                          <tr
-                            key={a.area}
-                            onClick={() => setActive(a.area)}
-                            style={{
-                              cursor: "pointer",
-                              background:
-                                current === a.area
-                                  ? `color-mix(in srgb, ${colourFor(a.area)} 10%, transparent)`
-                                  : undefined,
-                            }}
-                          >
-                            <td className="strong">
-                              <span
-                                className="area-dot"
-                                style={{ background: colourFor(a.area) }}
-                              />
-                              {a.label}
-                            </td>
-                            <td className="num">{a.tasks}</td>
-                            <td className="num">{mins(a.effort_minutes || null)}</td>
-                            <td className="num">{pct(a.effort_minutes / (effort || 1))}</td>
-                          </tr>
-                        ))}
-                        <tr>
-                          <td className="strong">All requests</td>
-                          <td className="num strong">{tickets}</td>
-                          <td className="num strong">{mins(effort || null)}</td>
-                          <td className="num strong">100%</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                <Card title="Every area" sub="hours — click one to drill in">
+                  <RankedBars
+                    items={list.map((a) => ({
+                      key: a.area,
+                      label: a.label,
+                      value: a.effort_minutes,
+                      sub: `${a.tasks} tickets`,
+                    }))}
+                    format={(n) => mins(n)}
+                    onSelect={setArea}
+                    selected={current}
+                  />
+                  <p className="hint">
+                    Ranked rather than coloured: six brand hues can't stay distinguishable
+                    for colourblind readers, so the label carries identity here.
+                  </p>
                 </Card>
               </div>
 
@@ -148,65 +140,65 @@ function Area({ area, range }: { area: string; range: Range }) {
 
   return (
     <>
-      <SectionHeading title="This area" color="var(--accent-indigo)" />
+      <SectionHeading title="Inside this area" color="var(--accent-indigo)" />
       <Async loading={summary.loading} error={summary.error} data={summary.data}>
         {(s) => (
-          <div className="stat-row">
-            <StatTile label="Tickets" value={num(s.tasks)} accent="var(--accent-blue)" />
-            <StatTile
-              label="Effort logged"
-              value={mins(s.effort_minutes || null)}
-              accent="var(--accent-orange)"
-            />
-            <StatTile label="Done" value={pct(s.completion_rate)} sub={`${s.closed} of ${s.tasks}`}
-                      accent="var(--accent-aqua)" />
-            <StatTile label="Still open" value={num(s.open + s.in_progress + s.blocked)} />
-            <StatTile label="People" value={num(s.members)} />
-          </div>
+          <>
+            <p className="insight">
+              <strong>{s.tasks}</strong> tickets, <strong>{mins(s.effort_minutes || null)}</strong>{" "}
+              logged by <strong>{s.members}</strong>{" "}
+              {s.members === 1 ? "person" : "people"}.{" "}
+              {s.tasks
+                ? `That's ${mins(Math.round(s.effort_minutes / s.tasks))} per ticket, `
+                : ""}
+              {pct(s.completion_rate)} done.
+            </p>
+            <div className="stat-row">
+              <StatTile label="Tickets" value={num(s.tasks)} accent="var(--accent-aqua)" />
+              <StatTile
+                label="Effort logged"
+                value={mins(s.effort_minutes || null)}
+                accent="var(--accent-orange)"
+              />
+              <StatTile label="Done" value={pct(s.completion_rate)} sub={`${s.closed} closed`} />
+              <StatTile label="Still open" value={num(s.open + s.in_progress + s.blocked)} />
+              <StatTile label="People" value={num(s.members)} />
+            </div>
+          </>
         )}
       </Async>
 
       <div className="grid cols-2" style={{ marginTop: 12 }}>
-        <Card title="Who worked on it">
+        <Card title="Who worked on it" sub="hours in this area">
           <Async loading={members.loading} error={members.error} data={members.data}
                  empty={{ title: "Nobody logged work here" }}>
             {(list) => (
-              <div className="table-scroll" style={{ border: 0, boxShadow: "none" }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Member</th>
-                      <th className="num">Tickets</th>
-                      <th className="num">Effort</th>
-                      <th className="num">Done</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {list.map((r) => (
-                      <tr key={r.member_id}>
-                        <td className="strong">{r.member}</td>
-                        <td className="num">{r.tasks}</td>
-                        <td className="num">{mins(r.effort_minutes || null)}</td>
-                        <td className="num">{pct(r.completion_rate)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <RankedBars
+                items={list.map((r) => ({
+                  key: String(r.member_id),
+                  label: r.member,
+                  value: r.effort_minutes,
+                  sub: `${r.tasks} tickets`,
+                }))}
+                format={(n) => mins(n)}
+              />
             )}
           </Async>
         </Card>
 
-        <Card title="Request types" sub="what was actually asked for">
-          <Async loading={requestTypes.loading} error={requestTypes.error} data={requestTypes.data}
-                 empty={{ title: "Jira records no request type for this area" }}>
+        <Card title="What was asked for" sub="Jira request types">
+          <Async loading={requestTypes.loading} error={requestTypes.error}
+                 data={requestTypes.data}
+                 empty={{ title: "Jira records no request type here" }}>
             {(list) => (
-              <BarList
+              <RankedBars
                 items={list.map((r) => ({
+                  key: r.request_type,
                   label: r.request_type,
-                  value: Math.round(r.effort_minutes / 60),
-                  color: "var(--accent-indigo)",
+                  value: r.effort_minutes,
+                  sub: `${r.tasks} tickets`,
                 }))}
+                format={(n) => mins(n)}
               />
             )}
           </Async>
@@ -216,19 +208,22 @@ function Area({ area, range }: { area: string; range: Range }) {
       <div className="grid cols-2" style={{ marginTop: 12 }}>
         <Card title="Customers" sub="Jira records this on Content Requests only">
           <Async loading={customers.loading} error={customers.error} data={customers.data}
-                 empty={{ title: "No customer recorded" }}>
+                 empty={{ title: "No customer recorded",
+                          hint: "Only Content Requests carry a customer in Jira." }}>
             {(list) => (
-              <BarList
+              <RankedBars
                 items={list.slice(0, 10).map((c) => ({
+                  key: c.customer,
                   label: c.customer,
-                  value: Math.round(c.effort_minutes / 60),
-                  color: "var(--accent-magenta)",
+                  value: c.effort_minutes,
+                  sub: `${c.tasks} tickets`,
                 }))}
+                format={(n) => mins(n)}
               />
             )}
           </Async>
         </Card>
-        <Card title="Aging" sub="open tickets by age">
+        <Card title="Aging" sub="open tickets by days since logged">
           <Async loading={aging.loading} error={aging.error} data={aging.data}>
             {(a) => (
               <div className="stat-row">

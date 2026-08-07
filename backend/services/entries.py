@@ -191,6 +191,65 @@ async def patch_item(
     return await db.scalar(select(EntryItem).where(EntryItem.id == item_id))
 
 
+async def list_items(
+    db: AsyncSession, *, frm: date, to: date, member_id: int | None = None,
+    kind: str | None = None, status_: str | None = None, task_type_id: int | None = None,
+    customer: str | None = None, pipeline: str | None = None, q: str | None = None,
+    page: int = 1, page_size: int = 50,
+) -> tuple[list, int]:
+    """The work log, one row per ticket.
+
+    Filtering and paging happen on items, not entries. Doing it per entry meant
+    `status=closed` returned every entry containing one closed ticket — and
+    still rendered its open ones — while the total counted days rather than
+    rows. A backfilled day holds a dozen tickets, so the two were far apart.
+    """
+    if frm > to:
+        raise err(422, "bad_range", "`from` is after `to`.")
+
+    where = [DailyEntry.entry_date.between(frm, to)]
+    if member_id:
+        where.append(DailyEntry.member_id == member_id)
+    if kind:
+        where.append(DailyEntry.kind == kind)
+    if status_:
+        where.append(EntryItem.status == status_)
+    if task_type_id:
+        where.append(EntryItem.task_type_id == task_type_id)
+    if pipeline:
+        where.append(EntryItem.pipeline == pipeline)
+    if customer:
+        where.append(EntryItem.customer.ilike(f"%{customer}%"))
+    if q:
+        like = f"%{q}%"
+        where.append(or_(
+            EntryItem.notes.ilike(like),
+            EntryItem.customer.ilike(like),
+            EntryItem.jira_issue_key.ilike(like),
+            TaskType.name.ilike(like),
+            DailyEntry.raw_text.ilike(like),
+        ))
+
+    base = (
+        select(EntryItem, DailyEntry)
+        .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+        .join(TaskType, TaskType.id == EntryItem.task_type_id)
+        .where(*where)
+    )
+    total = await db.scalar(
+        select(func.count())
+        .select_from(EntryItem)
+        .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+        .join(TaskType, TaskType.id == EntryItem.task_type_id)
+        .where(*where)
+    )
+    rows = await db.execute(
+        base.order_by(DailyEntry.entry_date.desc(), EntryItem.id.desc())
+        .limit(page_size).offset((page - 1) * page_size)
+    )
+    return list(rows), total or 0
+
+
 async def list_entries(
     db: AsyncSession, *, frm: date, to: date, member_id: int | None = None,
     kind: str | None = None, status_: str | None = None, task_type_id: int | None = None,

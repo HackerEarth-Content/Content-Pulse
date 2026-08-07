@@ -12,12 +12,15 @@ import {
 import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { StatusDialog } from "../components/StatusDialog";
-import { Async, BarList, Card, KindPill, SectionHeading, StatTile, StatusPill } from "../components/ui";
+import { Async, Card, SectionHeading, StatTile, StatusPill } from "../components/ui";
 import { hours, mins, num, pct, statusLabel } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
 import type { Item } from "../types";
 import { bucketFor, bucketNoun, bucketTick, groupSeries } from "../series";
+import { TOOLTIP } from "../charts";
+import { Donut } from "../components/Donut";
+import { RankedBars } from "../components/RankedBars";
 import { useState } from "react";
 
 export function MemberDetail({ range }: { range: Range }) {
@@ -32,7 +35,7 @@ export function MemberDetail({ range }: { range: Range }) {
   const adherence = useApi(() => api.adherence(p), deps);
   const cycle = useApi(() => api.cycleTime(p), deps);
   const types = useApi(() => api.byTaskType(p), deps);
-  const entries = useApi(() => api.entries({ ...p, page_size: 100 }), deps);
+  const entries = useApi(() => api.workLog({ ...p, page_size: 100 }), deps);
   const trend = useApi(() => api.trend(p), deps);
 
   // Same day/week/month rule as everywhere else, so a quarter reads as ~14
@@ -77,47 +80,73 @@ export function MemberDetail({ range }: { range: Range }) {
               <StatTile label="Customers" value={num(pr.by_customer.length)} />
             </div>
 
+            <p className="insight">
+              {pr.by_pipeline.length ? (
+                <>
+                  Mostly <strong>{[...pr.by_pipeline].sort((a, b) =>
+                    b.effort_minutes - a.effort_minutes)[0].label}</strong>
+                  {" "}— {pct([...pr.by_pipeline].sort((a, b) =>
+                    b.effort_minutes - a.effort_minutes)[0].effort_minutes /
+                    (pr.totals.effort_minutes || 1))} of their hours.
+                </>
+              ) : (
+                <>Nothing logged in this range.</>
+              )}
+              {pr.totals.tasks
+                ? ` ${mins(Math.round(pr.totals.effort_minutes / pr.totals.tasks))} per ticket.`
+                : ""}
+              {pr.by_customer.length
+                ? ` Worked for ${pr.by_customer.length} customers.`
+                : " No customer recorded — Jira only captures it on Content Requests."}
+            </p>
+
             <SectionHeading title="Where the time went" color="var(--accent-magenta)" />
             <div className="grid cols-2">
-              <Card title="By stream" sub="tickets and hours per pipeline">
-                {pr.by_pipeline.length === 0 ? (
-                  <div className="empty">Nothing logged in this range.</div>
+              <Card title="By stream" sub="share of their hours">
+                <Donut
+                  slices={pr.by_pipeline.map((s) => ({
+                    key: s.pipeline, label: s.label, value: s.effort_minutes,
+                  }))}
+                  totalLabel="their effort"
+                  format={(n) => mins(n)}
+                />
+              </Card>
+              <Card title="Work areas" sub="hours by type of work">
+                {pr.by_task_type.length === 0 ? (
+                  <div className="empty">Nothing categorised yet.</div>
                 ) : (
-                  <div className="table-scroll" style={{ border: 0, boxShadow: "none" }}>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Stream</th>
-                          <th className="num">Tickets</th>
-                          <th className="num">Effort</th>
-                          <th className="num">Share</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pr.by_pipeline.map((s) => (
-                          <tr key={s.pipeline}>
-                            <td className="strong">{s.label}</td>
-                            <td className="num">{s.tasks}</td>
-                            <td className="num">{mins(s.effort_minutes || null)}</td>
-                            <td className="num">
-                              {pct(s.effort_minutes / (pr.totals.effort_minutes || 1))}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <RankedBars
+                    items={pr.by_task_type.slice(0, 9).map((r) => ({
+                      key: r.task_type, label: r.task_type,
+                      value: r.effort_minutes, sub: `${r.tasks} tickets`,
+                    }))}
+                    format={(n) => mins(n)}
+                  />
                 )}
               </Card>
+            </div>
+
+            <div className="grid cols-2" style={{ marginTop: 12 }}>
               <Card title="Customers" sub="Content Requests only — Jira records it nowhere else">
                 {pr.by_customer.length === 0 ? (
                   <div className="empty">No customer recorded against their work.</div>
                 ) : (
-                  <BarList
-                    items={pr.by_customer.slice(0, 8).map((cst) => ({
-                      label: cst.customer,
-                      value: Math.round(cst.effort_minutes / 60),
-                      color: "var(--accent-magenta)",
+                  <RankedBars
+                    items={pr.by_customer.slice(0, 9).map((c) => ({
+                      key: c.customer, label: c.customer,
+                      value: c.effort_minutes, sub: `${c.tasks} tickets`,
+                    }))}
+                    format={(n) => mins(n)}
+                  />
+                )}
+              </Card>
+              <Card title="Question types" sub="what they build">
+                {pr.by_question_type.length === 0 ? (
+                  <div className="empty">Nothing tagged.</div>
+                ) : (
+                  <RankedBars
+                    items={pr.by_question_type.map((q) => ({
+                      key: q.question_type, label: q.question_type, value: q.tasks,
                     }))}
                   />
                 )}
@@ -171,12 +200,7 @@ export function MemberDetail({ range }: { range: Range }) {
                   fontSize={11}
                 />
                 <Tooltip
-                  contentStyle={{
-                    background: "var(--surface)",
-                    border: "1px solid var(--line)",
-                    borderRadius: 8,
-                    fontSize: 12,
-                  }}
+                  contentStyle={TOOLTIP}
                   labelFormatter={(d) => bucketTick(String(d), bucket)}
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -274,7 +298,7 @@ export function MemberDetail({ range }: { range: Range }) {
                 <thead>
                   <tr>
                     <th>Date</th>
-                    <th>Kind</th>
+                    <th>Stream</th>
                     <th>Work type</th>
                     <th>Customer</th>
                     <th className="num">Count</th>
@@ -285,35 +309,35 @@ export function MemberDetail({ range }: { range: Range }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {page.items.flatMap((entry) =>
-                    entry.items.map((item) => (
-                      <tr key={item.id}>
-                        <td className="mono strong">{entry.entry_date}</td>
-                        <td>
-                          <KindPill kind={entry.kind} />
-                        </td>
-                        <td>{item.task_type}</td>
-                        <td className="muted">{item.customer ?? "—"}</td>
-                        <td className="num">{num(item.count)}</td>
-                        <td className="num">{mins(item.effort_minutes)}</td>
-                        <td>
-                          {entry.kind === "update" && item.plan_item_id === null ? (
-                            <StatusPill status={item.status} />
-                          ) : (
-                            <button
-                              className={`pill pill-${item.status} pill-button`}
-                              onClick={() => setMoving(item)}
-                              title="Move status"
-                            >
-                              {statusLabel(item.status)}
-                            </button>
-                          )}
-                        </td>
-                        <td className="mono muted">{item.due_at ?? "—"}</td>
-                        <td className="cell-notes">{item.notes ?? "—"}</td>
-                      </tr>
-                    ))
-                  )}
+                  {page.items.map((r) => (
+                    <tr key={r.id}>
+                      <td className="mono strong">{r.entry_date}</td>
+                      <td>
+                        <span className="pill pill-muted">
+                          {r.external_issue_type ?? (r.kind === "plan" ? "Plan" : "Update")}
+                        </span>
+                      </td>
+                      <td>{r.task_type}</td>
+                      <td className="muted">{r.customer ?? "—"}</td>
+                      <td className="num">{num(r.count)}</td>
+                      <td className="num">{mins(r.effort_minutes)}</td>
+                      <td>
+                        {r.kind === "update" && r.plan_item_id === null ? (
+                          <StatusPill status={r.status} />
+                        ) : (
+                          <button
+                            className={`pill pill-${r.status} pill-button`}
+                            onClick={() => setMoving({ ...r, task_type_id: 0 })}
+                            title="Move status"
+                          >
+                            {statusLabel(r.status)}
+                          </button>
+                        )}
+                      </td>
+                      <td className="mono muted">{r.due_at ?? "—"}</td>
+                      <td className="cell-notes">{r.notes ?? "—"}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

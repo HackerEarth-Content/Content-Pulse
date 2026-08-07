@@ -59,6 +59,7 @@ export default function App() {
         <Route path="/members/:id" element={<MemberDetail range={range} />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/requests" element={<Requests range={range} />} />
+        {/* Raw Jira board mirror. Off the nav — /requests supersedes it. */}
         <Route path="/content-requests" element={<ContentRequests />} />
         <Route path="/plans/new" element={<PlanForm me={user.member} />} />
         <Route path="/updates/new" element={<UpdateForm me={user.member} />} />

@@ -18,6 +18,7 @@ from schemas.entries import (
     PlanIn,
     StatusEventOut,
     UpdateIn,
+    WorkLogRow,
 )
 from services import entries as svc
 
@@ -46,6 +47,34 @@ async def list_entries(
         task_type_id=task_type_id, customer=customer, q=q, page=page, page_size=page_size,
     )
     return Page(items=[EntryOut.of(r) for r in rows], total=total, page=page, page_size=page_size)
+
+
+@router.get("/work-log", response_model=Page[WorkLogRow])
+async def work_log(
+    period: str | None = None,
+    frm: date | None = Query(None, alias="from"),
+    to: date | None = None,
+    member_id: int | None = None,
+    kind: str | None = Query(None, pattern="^(plan|update)$"),
+    status: str | None = Query(None, pattern="^(open|in_progress|blocked|closed)$"),
+    task_type_id: int | None = None,
+    pipeline: str | None = None,
+    customer: str | None = None,
+    q: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
+):
+    """One row per ticket — what the work-log screen actually shows."""
+    frm, to = resolve_range(period, frm, to)
+    rows, total = await svc.list_items(
+        db, frm=frm, to=to, member_id=viewer.scope(member_id), kind=kind, status_=status,
+        task_type_id=task_type_id, pipeline=pipeline, customer=customer, q=q,
+        page=page, page_size=page_size,
+    )
+    return Page(items=[WorkLogRow.of(i, e) for i, e in rows],
+                total=total, page=page, page_size=page_size)
 
 
 @router.get("/entries/plan", response_model=EntryOut)

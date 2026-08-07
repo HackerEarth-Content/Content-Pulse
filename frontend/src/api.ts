@@ -21,6 +21,7 @@ import type {
   SyncStatus,
   TaskTypeStat,
   TrendPoint,
+  WorkLogRow,
 } from "./types";
 
 /** Errors carry the backend's `{code, detail}` so callers can branch on
@@ -93,6 +94,7 @@ async function download(path: string, params: Params, filename: string): Promise
 }
 
 export interface EntryFilters extends Params {
+  pipeline?: string;
   from?: string;
   to?: string;
   member_id?: number;
@@ -123,6 +125,7 @@ export const api = {
   patchLookup: (kind: string, id: number, body: unknown) =>
     send<Lookup>("PATCH", `/meta/lookups/${kind}/${id}`, body),
 
+  workLog: (f: EntryFilters) => get<Page<WorkLogRow>>("/work-log", f),
   entries: (f: EntryFilters) => get<Page<Entry>>("/entries", f),
   entry: (id: number) => get<Entry>(`/entries/${id}`),
   planFor: (member_id: number, on: string) => get<Entry>("/entries/plan", { member_id, on }),

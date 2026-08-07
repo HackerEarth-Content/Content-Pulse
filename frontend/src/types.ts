@@ -54,6 +54,30 @@ export interface Entry {
   items: Item[];
 }
 
+export interface WorkLogRow {
+  id: number;
+  entry_id: number;
+  entry_date: string;
+  kind: Kind;
+  member_id: number;
+  member: string;
+  task_type: string;
+  question_type: string | null;
+  customer: string | null;
+  count: number | null;
+  effort_minutes: number | null;
+  notes: string | null;
+  due_at: string | null;
+  status: Status;
+  pipeline: string;
+  external_issue_type: string | null;
+  request_type: string | null;
+  jira_issue_key: string | null;
+  jira_issue_url: string | null;
+  jira_state: "none" | "pending" | "ok" | "failed";
+  plan_item_id: number | null;
+}
+
 export interface Page<T> {
   items: T[];
   total: number;
