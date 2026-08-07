@@ -1,8 +1,6 @@
 import type {
-  AEDay,
-  AEMetricDef,
-  AEMetrics,
   Adherence,
+  AreaStat,
   Aging,
   ContentRequest,
   CurrentUser,
@@ -13,14 +11,17 @@ import type {
   Entry,
   Lookup,
   Member,
+  MemberProfile,
   MemberStat,
   OpenItem,
   Page,
+  PipelineStat,
   Status,
   Summary,
   SyncStatus,
   TaskTypeStat,
   TrendPoint,
+  WorkLogRow,
 } from "./types";
 
 /** Errors carry the backend's `{code, detail}` so callers can branch on
@@ -93,6 +94,7 @@ async function download(path: string, params: Params, filename: string): Promise
 }
 
 export interface EntryFilters extends Params {
+  pipeline?: string;
   from?: string;
   to?: string;
   member_id?: number;
@@ -110,8 +112,11 @@ export const api = {
   logout: () => send<void>("POST", "/auth/logout"),
 
   members: (params?: Params) => get<Member[]>("/members", params),
+  memberProfile: (id: number, p: Params) => get<MemberProfile>(`/members/${id}/profile`, p),
   createMember: (body: unknown) => send<Member>("POST", "/members", body),
   patchMember: (id: number, body: unknown) => send<Member>("PATCH", `/members/${id}`, body),
+  removeMember: (id: number) =>
+    send<{ deleted: boolean; entries: number; detail: string }>("DELETE", `/members/${id}`),
   taskTypes: () => get<Lookup[]>("/meta/lookups/task-types"),
   questionTypes: () => get<Lookup[]>("/meta/lookups/question-types"),
   lookups: (kind: string, includeInactive = false) =>
@@ -120,6 +125,7 @@ export const api = {
   patchLookup: (kind: string, id: number, body: unknown) =>
     send<Lookup>("PATCH", `/meta/lookups/${kind}/${id}`, body),
 
+  workLog: (f: EntryFilters) => get<Page<WorkLogRow>>("/work-log", f),
   entries: (f: EntryFilters) => get<Page<Entry>>("/entries", f),
   entry: (id: number) => get<Entry>(`/entries/${id}`),
   planFor: (member_id: number, on: string) => get<Entry>("/entries/plan", { member_id, on }),
@@ -138,12 +144,15 @@ export const api = {
   summary: (p: Params) => get<Summary>("/analytics/summary", p),
   trend: (p: Params) => get<TrendPoint[]>("/analytics/trend", p),
   byMember: (p: Params) => get<MemberStat[]>("/analytics/by-member", p),
+  byArea: (p: Params) => get<AreaStat[]>("/analytics/by-area", p),
+  byRequestType: (p: Params) =>
+    get<{ request_type: string; tasks: number; effort_minutes: number }[]>(
+      "/analytics/by-request-type", p),
+  byPipeline: (p: Params) => get<PipelineStat[]>("/analytics/by-pipeline", p),
   byTaskType: (p: Params) => get<TaskTypeStat[]>("/analytics/by-task-type", p),
   byQuestionType: (p: Params) =>
     get<{ question_type: string; tasks: number; volume: number }[]>("/analytics/by-question-type", p),
   byCustomer: (p: Params) => get<CustomerStat[]>("/analytics/by-customer", p),
-  statusDistribution: (p: Params) =>
-    get<{ status: Status; tasks: number }[]>("/analytics/status-distribution", p),
   statusFlow: (p: Params) =>
     get<{ from: Status; to: Status; count: number }[]>("/analytics/status-flow", p),
   cycleTime: (p: Params) => get<CycleTime>("/analytics/cycle-time", p),
@@ -151,13 +160,13 @@ export const api = {
   aging: (p: Params) => get<Aging>("/analytics/aging", p),
   dueRisk: (p: Params) => get<DueRisk>("/analytics/due-risk", p),
   throughput: (p: Params) => get<{ date: string; closed: number }[]>("/analytics/throughput", p),
+  workload: (p: Params) =>
+    get<{ member: string; date: string; tasks: number; volume: number; effort_minutes: number }[]>(
+      "/analytics/workload",
+      p
+    ),
   openItems: (p: Params) => get<OpenItem[]>("/analytics/open-items", p),
   dataQuality: (p: Params) => get<DataQuality>("/analytics/data-quality", p),
-  aeAnalytics: (p: Params) => get<AEMetrics>("/analytics/ae-metrics", p),
-
-  aeMetrics: () => get<AEMetricDef[]>("/ae/metrics"),
-  aeDaily: (p: Params) => get<{ range: { from: string; to: string }; items: AEDay[] }>("/ae/daily", p),
-  aeUpsert: (body: unknown) => send<AEDay>("PUT", "/ae/daily", body),
 
   contentRequests: (p: Params) => get<Page<ContentRequest>>("/content-requests", p),
   contentRequestFilters: () =>
@@ -186,8 +195,6 @@ export const api = {
   exportWorkLog: (f: EntryFilters, format: "xlsx" | "csv") =>
     download(`/exports/work-log.${format}`, f, `work-log-${f.from}_${f.to}.${format}`),
   exportAnalytics: (p: Params) =>
-    download("/exports/analytics.xlsx", p, `analytics-${p.from}_${p.to}.xlsx`),
-  exportAeDaily: (p: Params) => download("/exports/ae-daily.xlsx", p, "ae-daily.xlsx"),
-  exportContentRequests: (p: Params) =>
+    download("/exports/analytics.xlsx", p, `analytics-${p.from}_${p.to}.xlsx`),  exportContentRequests: (p: Params) =>
     download("/exports/content-requests.xlsx", p, "content-requests.xlsx"),
 };

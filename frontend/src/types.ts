@@ -34,6 +34,7 @@ export interface Item {
   count: number | null;
   notes: string | null;
   due_at: string | null;
+  effort_minutes: number | null;
   status: Status;
   jira_issue_key: string | null;
   jira_issue_url: string | null;
@@ -53,6 +54,30 @@ export interface Entry {
   items: Item[];
 }
 
+export interface WorkLogRow {
+  id: number;
+  entry_id: number;
+  entry_date: string;
+  kind: Kind;
+  member_id: number;
+  member: string;
+  task_type: string;
+  question_type: string | null;
+  customer: string | null;
+  count: number | null;
+  effort_minutes: number | null;
+  notes: string | null;
+  due_at: string | null;
+  status: Status;
+  pipeline: string;
+  external_issue_type: string | null;
+  request_type: string | null;
+  jira_issue_key: string | null;
+  jira_issue_url: string | null;
+  jira_state: "none" | "pending" | "ok" | "failed";
+  plan_item_id: number | null;
+}
+
 export interface Page<T> {
   items: T[];
   total: number;
@@ -65,6 +90,7 @@ export interface Summary {
   members: number;
   tasks: number;
   volume: number;
+  effort_minutes: number;
   plans: number;
   updates: number;
   open: number;
@@ -78,6 +104,7 @@ export interface TrendPoint {
   date: string;
   tasks: number;
   volume: number;
+  effort_minutes: number;
   closed: number;
   plans: number;
   updates: number;
@@ -88,6 +115,7 @@ export interface MemberStat {
   member: string;
   tasks: number;
   volume: number;
+  effort_minutes: number;
   open: number;
   in_progress: number;
   blocked: number;
@@ -95,10 +123,39 @@ export interface MemberStat {
   completion_rate: number | null;
 }
 
+export interface AreaStat {
+  area: string;
+  label: string;
+  tasks: number;
+  volume: number;
+  effort_minutes: number;
+  members: number;
+  customers: number;
+  open: number;
+  in_progress: number;
+  blocked: number;
+  closed: number;
+}
+
+export interface PipelineStat {
+  pipeline: string;
+  label: string;
+  tasks: number;
+  volume: number;
+  effort_minutes: number;
+  members: number;
+  customers: number;
+  open: number;
+  in_progress: number;
+  blocked: number;
+  closed: number;
+}
+
 export interface TaskTypeStat {
   task_type: string;
   tasks: number;
   volume: number;
+  effort_minutes: number;
   open: number;
   in_progress: number;
   blocked: number;
@@ -109,7 +166,22 @@ export interface CustomerStat {
   customer: string;
   tasks: number;
   volume: number;
+  effort_minutes: number;
   outstanding: number;
+}
+
+export interface MemberProfile {
+  member: { id: number; display_name: string; role: string; email: string | null };
+  range: { from: string; to: string };
+  totals: Summary;
+  share_of_team: { tasks: number | null; effort: number | null };
+  by_pipeline: PipelineStat[];
+  by_task_type: TaskTypeStat[];
+  by_question_type: { question_type: string; tasks: number; volume: number }[];
+  by_customer: CustomerStat[];
+  cycle_time: CycleTime;
+  adherence: Adherence | null;
+  trend: TrendPoint[];
 }
 
 export interface Adherence {
@@ -161,28 +233,6 @@ export interface DataQuality {
   missing: Record<string, number>;
   plans_with_unreported_tasks: number;
   tasks_on_retired_task_types: number;
-}
-
-export interface AEMetricDef {
-  key: string;
-  label: string;
-  sort_order: number;
-}
-
-export interface AEDay {
-  id: number;
-  member_id: number;
-  member: string;
-  entry_date: string;
-  notes: string;
-  updated_at: string;
-  metrics: Record<string, number>;
-}
-
-export interface AEMetrics {
-  totals: { key: string; label: string; total: number }[];
-  by_member: { member: string; key: string; total: number }[];
-  trend: { date: string; total: number }[];
 }
 
 export interface ContentRequest {

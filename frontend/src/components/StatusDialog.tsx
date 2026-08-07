@@ -21,6 +21,7 @@ export function StatusDialog({
   const [status, setStatus] = useState<Status>(item.status);
   const [notes, setNotes] = useState("");
   const [dueAt, setDueAt] = useState(item.due_at ?? "");
+  const [effort, setEffort] = useState(item.effort_minutes?.toString() ?? "");
   const [error, setError] = useState<ApiError | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -37,6 +38,7 @@ export function StatusDialog({
         status,
         notes: notes.trim() || null,
         due_at: dueAt || null,
+        effort_minutes: effort === "" ? null : Number(effort),
       });
       onSaved();
       onClose();
@@ -88,6 +90,19 @@ export function StatusDialog({
         onChange={(e) => setDueAt(e.target.value)}
       />
 
+      <label className="label" style={{ marginTop: 12 }} htmlFor="dlg-effort">
+        Effort (min) — total for this task, not an addition
+      </label>
+      <input
+        id="dlg-effort"
+        className="field"
+        type="number"
+        min={0}
+        step={5}
+        value={effort}
+        onChange={(e) => setEffort(e.target.value)}
+      />
+
       <label className="label" style={{ marginTop: 12 }} htmlFor="dlg-note">
         Comment
       </label>
@@ -110,7 +125,7 @@ export function StatusDialog({
         </button>
         <button
           className="btn btn-primary"
-          disabled={saving || status === item.status}
+          disabled={saving || (status === item.status && effort === (item.effort_minutes?.toString() ?? ""))}
           onClick={save}
         >
           {saving ? "Saving…" : "Move"}

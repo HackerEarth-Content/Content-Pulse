@@ -21,6 +21,16 @@ export function hours(h: number | null | undefined): string {
   return `${(h / 24).toFixed(1)}d`;
 }
 
+/** Minutes as people say them: 45m, 1h 30m, 2h. Null is "—", never "0m" —
+ * unlogged effort is not zero effort. */
+export function mins(m: number | null | undefined): string {
+  if (m === null || m === undefined) return "—";
+  if (m === 0) return "0m";
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return h ? (rest ? `${h}h ${rest}m` : `${h}h`) : `${rest}m`;
+}
+
 export function shortDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
   return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });

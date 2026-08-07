@@ -151,10 +151,10 @@ export function Card({
 }) {
   return (
     <div className="card">
-      {title ? (
+      {title || sub || action ? (
         <div className="card-head">
           <div>
-            <div className="card-title">{title}</div>
+            {title ? <div className="card-title">{title}</div> : null}
             {sub ? <div className="card-sub">{sub}</div> : null}
           </div>
           {action}

@@ -15,7 +15,7 @@ from fastapi_users.authentication import (
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi.responses import RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from core.config import settings
 from core.database import get_session
@@ -25,12 +25,44 @@ IS_PROD = settings.ENVIRONMENT == "production"
 
 
 class OAuthNotAllowedError(Exception):
-    """Authenticated with Google, but not on ALLOWED_EMAILS."""
+    """Authenticated with Google, but nobody here recognises the address."""
 
 
-def _is_allowed(email: str) -> bool:
-    allowed = {e.strip().lower() for e in settings.ALLOWED_EMAILS.split(",") if e.strip()}
-    return not allowed or email.strip().lower() in allowed
+async def _claim_member(session, user, email: str) -> None:
+    """Link this account to its members row, and make super-admins admins.
+
+    Super-admins come from env, so they resolve even with no row — a bad edit to
+    the members table can never lock every administrator out.
+    """
+    lowered = email.strip().lower()
+    member = await session.scalar(
+        select(Member).where(
+            or_(Member.user_id == user.id, func.lower(Member.email) == lowered)
+        )
+    )
+    if member is None and lowered in settings.superadmins:
+        member = Member(display_name=email.split("@")[0], email=lowered, role="admin")
+        session.add(member)
+
+    if member is None:
+        return
+    member.user_id = user.id
+    if lowered in settings.superadmins:
+        member.role = "admin"
+        member.is_active = True
+    await session.commit()
+
+
+async def _may_sign_in(session, email: str) -> bool:
+    """The members table is the allowlist. Adding a person is a row, not a deploy."""
+    lowered = email.strip().lower()
+    if lowered in settings.superadmins:
+        return True
+    return bool(await session.scalar(
+        select(Member.id).where(
+            func.lower(Member.email) == lowered, Member.is_active.is_(True)
+        )
+    ))
 
 
 google_oauth_client = GoogleOAuth2(settings.GOOGLE_CLIENT_ID, settings.GOOGLE_CLIENT_SECRET)
@@ -45,7 +77,8 @@ class UserManager(BaseUserManager[User, str]):
 
     async def oauth_callback(self, oauth_name: str, access_token: str, account_id: str,
                              account_email: str, *args, **kwargs) -> User:
-        if not _is_allowed(account_email):
+        session = self.user_db.session
+        if not await _may_sign_in(session, account_email):
             raise OAuthNotAllowedError(account_email)
 
         user = await super().oauth_callback(
@@ -54,16 +87,9 @@ class UserManager(BaseUserManager[User, str]):
         if not user.name:
             user = await self.user_db.update(user, {"name": account_email.split("@")[0]})
 
-        # Claim the members row with this email, if one is waiting. Matching on
-        # email, not display_name — the Django app compared name to username,
-        # which broke the moment someone's name had a space in it.
-        session = self.user_db.session
-        member = await session.scalar(
-            select(Member).where(func.lower(Member.email) == account_email.lower())
-        )
-        if member and member.user_id != user.id:
-            member.user_id = user.id
-            await session.commit()
+        # Match on email, not display_name — the Django app compared name to
+        # username, which broke the moment someone's name had a space in it.
+        await _claim_member(session, user, account_email)
         return user
 
 

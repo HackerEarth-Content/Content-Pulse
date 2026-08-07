@@ -4,7 +4,7 @@ import { ApiError, api } from "../api";
 import { Banner, Card, SectionHeading, Skeleton, StatusPill } from "../components/ui";
 import { today } from "../format";
 import { useApi } from "../hooks/useApi";
-import type { Entry, Status } from "../types";
+import type { CurrentUser, Entry, Status } from "../types";
 
 interface Line {
   plan_item_id: number;
@@ -12,6 +12,7 @@ interface Line {
   count: string;
   notes: string;
   due_at: string;
+  effort_minutes: string;
 }
 
 interface Extra {
@@ -20,6 +21,7 @@ interface Extra {
   customer: string;
   count: string;
   notes: string;
+  effort_minutes: string;
 }
 
 const blankExtra = (): Extra => ({
@@ -28,15 +30,19 @@ const blankExtra = (): Extra => ({
   customer: "",
   count: "",
   notes: "",
+  effort_minutes: "",
 });
 
-export function UpdateForm() {
+export function UpdateForm({ me }: { me: CurrentUser["member"] }) {
   const navigate = useNavigate();
   const members = useApi(() => api.members(), []);
   const taskTypes = useApi(() => api.taskTypes(), []);
   const questionTypes = useApi(() => api.questionTypes(), []);
 
-  const [memberId, setMemberId] = useState("");
+  // Managers and admins file on anyone's behalf; everyone else files as
+  // themselves, so the field becomes a label rather than a choice.
+  const canFileForOthers = !me || me.role === "admin" || me.role === "manager";
+  const [memberId, setMemberId] = useState(me ? String(me.id) : "");
   const [date, setDate] = useState(today());
   const [plan, setPlan] = useState<Entry | null>(null);
   const [planState, setPlanState] = useState<"idle" | "loading" | "none" | "ready">("idle");
@@ -68,6 +74,7 @@ export function UpdateForm() {
             count: i.count?.toString() ?? "",
             notes: "",
             due_at: i.due_at ?? date,
+            effort_minutes: "",
           }))
         );
         setPlanState("ready");
@@ -106,6 +113,7 @@ export function UpdateForm() {
           count: l.count ? Number(l.count) : null,
           notes: l.notes.trim(),
           due_at: l.due_at,
+          effort_minutes: l.effort_minutes ? Number(l.effort_minutes) : null,
         })),
         extra_items: readyExtras.map((e) => ({
           task_type_id: Number(e.task_type_id),
@@ -113,6 +121,7 @@ export function UpdateForm() {
           customer: e.customer || null,
           count: e.count ? Number(e.count) : null,
           notes: e.notes || null,
+          effort_minutes: e.effort_minutes ? Number(e.effort_minutes) : null,
         })),
       });
       navigate(`/work-log?from=${entry.entry_date}&to=${entry.entry_date}`);
@@ -138,21 +147,28 @@ export function UpdateForm() {
         <div className="field-row">
           <div>
             <label className="label" htmlFor="member">
-              Member
+              {canFileForOthers ? "Member" : "Filing as"}
             </label>
-            <select
-              id="member"
-              className="field"
-              value={memberId}
-              onChange={(e) => setMemberId(e.target.value)}
-            >
-              <option value="">Select a member…</option>
-              {(members.data ?? []).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.display_name}
-                </option>
-              ))}
-            </select>
+            {canFileForOthers ? (
+              <select
+                id="member"
+                className="field"
+                value={memberId}
+                onChange={(e) => setMemberId(e.target.value)}
+              >
+                <option value="">Select a member…</option>
+                {(members.data ?? []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="field field-static">
+                <strong>{me!.display_name}</strong>
+                <span className="pill pill-muted">{me!.role}</span>
+              </div>
+            )}
           </div>
           <div>
             <label className="label" htmlFor="date">
@@ -218,7 +234,9 @@ export function UpdateForm() {
               </select>
             </div>
             <div>
-              <label className="label">Count</label>
+              <label className="label" title="How many items this task produces — questions, docs, reviews">
+              Count
+            </label>
               <input
                 className="field"
                 type="number"
@@ -234,6 +252,20 @@ export function UpdateForm() {
                 type="date"
                 value={lines[i]?.due_at ?? date}
                 onChange={(e) => patchLine(i, "due_at", e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label" title="Minutes spent since the last update">
+                Effort (min)
+              </label>
+              <input
+                className="field"
+                type="number"
+                min={0}
+                step={5}
+                placeholder="30"
+                value={lines[i]?.effort_minutes ?? ""}
+                onChange={(e) => patchLine(i, "effort_minutes", e.target.value)}
               />
             </div>
             <div className="task-row-wide">
@@ -295,7 +327,9 @@ export function UpdateForm() {
             />
           </div>
           <div>
-            <label className="label">Count</label>
+            <label className="label" title="How many items this task produces — questions, docs, reviews">
+              Count
+            </label>
             <input
               className="field"
               type="number"
@@ -304,7 +338,18 @@ export function UpdateForm() {
               onChange={(e) => patchExtra(i, "count", e.target.value)}
             />
           </div>
-          <div />
+          <div>
+            <label className="label">Effort (min)</label>
+            <input
+              className="field"
+              type="number"
+              min={0}
+              step={5}
+              placeholder="30"
+              value={row.effort_minutes}
+              onChange={(e) => patchExtra(i, "effort_minutes", e.target.value)}
+            />
+          </div>
           <div className="task-row-wide">
             <label className="label">Notes</label>
             <textarea

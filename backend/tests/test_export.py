@@ -48,9 +48,11 @@ async def test_work_log_xlsx_is_a_real_workbook(client, logged, member):
     ws = load_workbook(io.BytesIO(r.content)).active
     header = [c.value for c in ws[1]]
     assert header[:4] == ["Date", "Kind", "Member", "Task Type"]
+    assert "Effort (min)" in header
     row = [c.value for c in ws[2]]
+    notes = header.index("Notes")
     assert row[0] == DAY and row[6] == 4 and row[5] == "Acme"
-    assert row[10] == "'=cmd|calc", "notes must be neutralised in the cell"
+    assert row[notes] == "'=cmd|calc", "notes must be neutralised in the cell"
 
 
 async def test_work_log_csv_quotes_formulas_too(client, logged, member):
@@ -59,24 +61,8 @@ async def test_work_log_csv_quotes_formulas_too(client, logged, member):
     assert r.status_code == 200
     rows = list(csv.reader(io.StringIO(r.text)))
     assert rows[0][0] == "Date"
-    assert rows[1][10] == "'=cmd|calc"
-
-
-async def test_ae_daily_xlsx_lays_out_dates_over_members(client, ae_member):
-    await client.put("/api/ae/daily", json={
-        "member_id": ae_member, "entry_date": DAY, "notes": "steady",
-        "metrics": {"bug_fixes": 7},
-    })
-    r = await client.get("/api/exports/ae-daily.xlsx", params={"from": DAY, "to": DAY})
-    assert r.status_code == 200
-
-    ws = load_workbook(io.BytesIO(r.content)).active
-    assert ws.cell(row=1, column=1).value == "Metric"
-    assert ws.cell(row=1, column=2).value == DAY        # date band
-    assert ws.cell(row=2, column=2).value == "PyTest AE"  # member under it
-    labels = [ws.cell(row=r_, column=1).value for r_ in range(3, 14)]
-    assert "Bug Fixes" in labels and labels[-1] == "Notes"
-    assert ws.cell(row=3 + labels.index("Bug Fixes"), column=2).value == 7
+    notes = rows[0].index("Notes")
+    assert rows[1][notes] == "'=cmd|calc"
 
 
 async def test_analytics_workbook_has_a_sheet_per_breakdown(client, logged, member):

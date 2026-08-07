@@ -19,10 +19,9 @@ from sqlalchemy import Select, and_, case, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.orm import (
+    AREA_LABELS,
+    ASSESSMENT_REQUEST_TYPES,
     STATUSES,
-    AEDailyMetric,
-    AEDailyUpdate,
-    AEMetricDefinition,
     DailyEntry,
     EntryItem,
     EntryItemStatusEvent,
@@ -38,6 +37,8 @@ class Scope:
     to: date
     member_id: int | None = None
     task_type_id: int | None = None
+    pipeline: str | None = None
+    area: str | None = None
 
 
 def _entry_where(s: Scope) -> list:
@@ -47,35 +48,55 @@ def _entry_where(s: Scope) -> list:
     return where
 
 
+def _item_where(s: Scope) -> list:
+    """Every filter that narrows the task set. One list, used by both query
+    builders — they drifted apart once already and an `area` filter silently
+    applied to only one of them."""
+    where = [
+        *_entry_where(s),
+        or_(DailyEntry.kind == "plan", EntryItem.plan_item_id.is_(None)),
+    ]
+    if s.task_type_id:
+        where.append(EntryItem.task_type_id == s.task_type_id)
+    if s.pipeline:
+        where.append(EntryItem.pipeline == s.pipeline)
+
+    assessments = sorted(ASSESSMENT_REQUEST_TYPES)
+    if s.area == "content_assessment":
+        where += [EntryItem.pipeline == "content_request",
+                  EntryItem.request_type.in_(assessments)]
+    elif s.area == "content_request":
+        where += [EntryItem.pipeline == "content_request",
+                  or_(EntryItem.request_type.is_(None),
+                      EntryItem.request_type.notin_(assessments))]
+    elif s.area:
+        where.append(EntryItem.pipeline == s.area)
+    return where
+
+
 def tasks(s: Scope) -> Select:
     """Items joined to their entry, mirrors excluded. Base of most queries."""
-    stmt = (
+    return (
         select(EntryItem, DailyEntry)
         .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
-        .where(
-            *_entry_where(s),
-            or_(DailyEntry.kind == "plan", EntryItem.plan_item_id.is_(None)),
-        )
+        .where(*_item_where(s))
     )
-    if s.task_type_id:
-        stmt = stmt.where(EntryItem.task_type_id == s.task_type_id)
-    return stmt
 
 
 def _from_tasks(s: Scope, *cols) -> Select:
     """Same join and filters as tasks(), but selecting arbitrary columns."""
-    stmt = (
+    return (
         select(*cols)
         .select_from(EntryItem)
         .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
-        .where(
-            *_entry_where(s),
-            or_(DailyEntry.kind == "plan", EntryItem.plan_item_id.is_(None)),
-        )
+        .where(*_item_where(s))
     )
-    if s.task_type_id:
-        stmt = stmt.where(EntryItem.task_type_id == s.task_type_id)
-    return stmt
+
+
+def _effort():
+    """Total minutes logged. SUM skips NULLs, so unlogged work contributes
+    nothing rather than counting as zero-effort."""
+    return func.coalesce(func.sum(EntryItem.effort_minutes), 0).label("effort_minutes")
 
 
 def _status_cols() -> list:
@@ -96,6 +117,7 @@ async def summary(db: AsyncSession, s: Scope) -> dict:
         s,
         func.count().label("tasks"),
         func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+        _effort(),
         func.count(distinct(DailyEntry.member_id)).label("members"),
         *_status_cols(),
     ))).one()
@@ -113,6 +135,7 @@ async def summary(db: AsyncSession, s: Scope) -> dict:
         "members": row.members,
         "tasks": row.tasks,
         "volume": int(row.volume),
+        "effort_minutes": int(row.effort_minutes),
         "plans": entries.plans,
         "updates": entries.updates,
         **{st: getattr(row, st) for st in STATUSES},
@@ -128,6 +151,7 @@ async def trend(db: AsyncSession, s: Scope) -> list[dict]:
             DailyEntry.entry_date.label("d"),
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
             func.count().filter(EntryItem.status == "closed").label("closed"),
         ).group_by(DailyEntry.entry_date))
     }
@@ -145,6 +169,7 @@ async def trend(db: AsyncSession, s: Scope) -> list[dict]:
             "date": d.isoformat(),
             "tasks": getattr(task_rows.get(d), "tasks", 0),
             "volume": int(getattr(task_rows.get(d), "volume", 0)),
+            "effort_minutes": int(getattr(task_rows.get(d), "effort_minutes", 0)),
             "closed": getattr(task_rows.get(d), "closed", 0),
             "plans": getattr(entry_rows.get(d), "plans", 0),
             "updates": getattr(entry_rows.get(d), "updates", 0),
@@ -164,6 +189,7 @@ async def by_member(db: AsyncSession, s: Scope) -> list[dict]:
             Member.display_name.label("member"),
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
             *_status_cols(),
         )
         .join(Member, Member.id == DailyEntry.member_id)
@@ -174,8 +200,98 @@ async def by_member(db: AsyncSession, s: Scope) -> list[dict]:
         {
             "member_id": r.member_id, "member": r.member,
             "tasks": r.tasks, "volume": int(r.volume),
+            "effort_minutes": int(r.effort_minutes),
             **{st: getattr(r, st) for st in STATUSES},
             "completion_rate": round(r.closed / r.tasks, 4) if r.tasks else None,
+        }
+        for r in rows
+    ]
+
+
+def _area_col():
+    """Assessment work is a Request *type* inside Content Requests, not its own
+    issue type, so the reporting areas don't line up 1:1 with pipelines."""
+    assessments = ", ".join(f"'{v}'" for v in sorted(ASSESSMENT_REQUEST_TYPES))
+    return case(
+        (
+            and_(EntryItem.pipeline == "content_request",
+                 EntryItem.request_type.in_(sorted(ASSESSMENT_REQUEST_TYPES))),
+            "content_assessment",
+        ),
+        else_=EntryItem.pipeline,
+    ).label("area")
+
+
+async def by_area(db: AsyncSession, s: Scope) -> list[dict]:
+    """The Requests screen's split: Content Requests, Content Assessments,
+    HC/HT and Technical Writing, each with its own effort."""
+    area = _area_col()
+    rows = await db.execute(
+        _from_tasks(
+            s, area,
+            func.count().label("tasks"),
+            func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
+            func.count(distinct(DailyEntry.member_id)).label("members"),
+            func.count(distinct(EntryItem.customer)).label("customers"),
+            *_status_cols(),
+        ).group_by(area).order_by(func.count().desc())
+    )
+    return [
+        {
+            "area": r.area,
+            "label": AREA_LABELS.get(r.area, r.area.replace("_", " ").title()),
+            "tasks": r.tasks, "volume": int(r.volume),
+            "effort_minutes": int(r.effort_minutes),
+            "members": r.members, "customers": r.customers,
+            **{st: getattr(r, st) for st in STATUSES},
+        }
+        for r in rows
+    ]
+
+
+async def by_request_type(db: AsyncSession, s: Scope) -> list[dict]:
+    """Inside Content Requests: what kind of request was it?"""
+    rows = await db.execute(
+        _from_tasks(
+            s, EntryItem.request_type,
+            func.count().label("tasks"), _effort(),
+        )
+        .where(EntryItem.request_type.isnot(None))
+        .group_by(EntryItem.request_type)
+        .order_by(func.count().desc())
+    )
+    return [{"request_type": r.request_type, "tasks": r.tasks,
+             "effort_minutes": int(r.effort_minutes)} for r in rows]
+
+
+async def by_pipeline(db: AsyncSession, s: Scope) -> list[dict]:
+    """The streams of work: Content Tasks, Content Requests, HC/HT, Technical
+    writing. `external_issue_type` is carried through so the UI can label each
+    with Jira's own words rather than our slug."""
+    rows = await db.execute(
+        _from_tasks(
+            s,
+            EntryItem.pipeline,
+            func.max(EntryItem.external_issue_type).label("label"),
+            func.count().label("tasks"),
+            func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
+            func.count(distinct(DailyEntry.member_id)).label("members"),
+            func.count(distinct(EntryItem.customer)).label("customers"),
+            *_status_cols(),
+        )
+        .group_by(EntryItem.pipeline)
+        .order_by(func.count().desc())
+    )
+    return [
+        {
+            "pipeline": r.pipeline,
+            "label": r.label or r.pipeline.replace("_", " ").title(),
+            "tasks": r.tasks, "volume": int(r.volume),
+            "effort_minutes": int(r.effort_minutes),
+            "members": r.members, "customers": r.customers,
+            **{st: getattr(r, st) for st in STATUSES},
         }
         for r in rows
     ]
@@ -188,6 +304,7 @@ async def by_task_type(db: AsyncSession, s: Scope) -> list[dict]:
             TaskType.name.label("task_type"),
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
             *_status_cols(),
         )
         .join(TaskType, TaskType.id == EntryItem.task_type_id)
@@ -196,6 +313,7 @@ async def by_task_type(db: AsyncSession, s: Scope) -> list[dict]:
     )
     return [
         {"task_type": r.task_type, "tasks": r.tasks, "volume": int(r.volume),
+         "effort_minutes": int(r.effort_minutes),
          **{st: getattr(r, st) for st in STATUSES}}
         for r in rows
     ]
@@ -225,6 +343,7 @@ async def by_customer(db: AsyncSession, s: Scope, limit: int = 20) -> list[dict]
             func.trim(EntryItem.customer).label("customer"),
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
             func.count().filter(EntryItem.status != "closed").label("outstanding"),
         )
         .where(func.trim(func.coalesce(EntryItem.customer, "")) != "")
@@ -233,16 +352,9 @@ async def by_customer(db: AsyncSession, s: Scope, limit: int = 20) -> list[dict]
         .limit(limit)
     )
     return [{"customer": r.customer, "tasks": r.tasks, "volume": int(r.volume),
+             "effort_minutes": int(r.effort_minutes),
              "outstanding": r.outstanding} for r in rows]
 
-
-async def status_distribution(db: AsyncSession, s: Scope) -> list[dict]:
-    rows = await db.execute(
-        _from_tasks(s, EntryItem.status, func.count().label("tasks"))
-        .group_by(EntryItem.status)
-    )
-    counts = {r.status: r.tasks for r in rows}
-    return [{"status": st, "tasks": counts.get(st, 0)} for st in STATUSES]
 
 
 # ── flow, timing, adherence ───────────────────────────────────────────────────
@@ -423,12 +535,14 @@ async def workload(db: AsyncSession, s: Scope) -> list[dict]:
             DailyEntry.entry_date.label("d"),
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+            _effort(),
         )
         .join(Member, Member.id == DailyEntry.member_id)
         .group_by(Member.display_name, DailyEntry.entry_date)
     )
     return [{"member": r.member, "date": r.d.isoformat(), "tasks": r.tasks,
-             "volume": int(r.volume)} for r in rows]
+             "volume": int(r.volume), "effort_minutes": int(r.effort_minutes)}
+            for r in rows]
 
 
 async def open_items(db: AsyncSession, s: Scope, today: date, limit: int = 200) -> list[dict]:
@@ -470,6 +584,7 @@ async def data_quality(db: AsyncSession, s: Scope) -> dict:
         .label("no_customer"),
         func.count().filter(EntryItem.question_type_id.is_(None)).label("no_question_type"),
         func.count().filter(EntryItem.due_at.is_(None)).label("no_due_date"),
+        func.count().filter(EntryItem.effort_minutes.is_(None)).label("no_effort"),
     ))).one()
 
     # Plans nobody ever reported against — the loudest quality signal here.
@@ -490,66 +605,8 @@ async def data_quality(db: AsyncSession, s: Scope) -> dict:
         "missing": {
             "notes": row.no_notes, "count": row.no_count, "customer": row.no_customer,
             "question_type": row.no_question_type, "due_date": row.no_due_date,
+            "effort": row.no_effort,
         },
         "plans_with_unreported_tasks": silent or 0,
         "tasks_on_retired_task_types": inactive_types or 0,
-    }
-
-
-# ── AE metrics ────────────────────────────────────────────────────────────────
-
-
-async def ae_metrics(db: AsyncSession, s: Scope) -> dict:
-    where = [AEDailyUpdate.entry_date.between(s.frm, s.to)]
-    if s.member_id:
-        where.append(AEDailyUpdate.member_id == s.member_id)
-
-    # Aggregate in range first, then LEFT JOIN the definitions onto it — a
-    # metric with no data this period must report 0, not drop off the chart.
-    sums = (
-        select(AEDailyMetric.metric_id, func.sum(AEDailyMetric.value).label("total"))
-        .join(AEDailyUpdate, AEDailyUpdate.id == AEDailyMetric.ae_daily_update_id)
-        .where(*where)
-        .group_by(AEDailyMetric.metric_id)
-        .subquery()
-    )
-    totals = await db.execute(
-        select(
-            AEMetricDefinition.key, AEMetricDefinition.name,
-            func.coalesce(sums.c.total, 0).label("total"),
-        )
-        .select_from(AEMetricDefinition)
-        .join(sums, sums.c.metric_id == AEMetricDefinition.id, isouter=True)
-        .where(AEMetricDefinition.is_active.is_(True))
-        .order_by(AEMetricDefinition.sort_order)
-    )
-    per_member = await db.execute(
-        select(
-            Member.display_name.label("member"), AEMetricDefinition.key,
-            func.sum(AEDailyMetric.value).label("total"),
-        )
-        .select_from(AEDailyMetric)
-        .join(AEDailyUpdate, AEDailyUpdate.id == AEDailyMetric.ae_daily_update_id)
-        .join(AEMetricDefinition, AEMetricDefinition.id == AEDailyMetric.metric_id)
-        .join(Member, Member.id == AEDailyUpdate.member_id)
-        .where(*where)
-        .group_by(Member.display_name, AEMetricDefinition.key)
-    )
-    daily = await db.execute(
-        select(
-            AEDailyUpdate.entry_date.label("d"),
-            func.sum(AEDailyMetric.value).label("total"),
-        )
-        .select_from(AEDailyMetric)
-        .join(AEDailyUpdate, AEDailyUpdate.id == AEDailyMetric.ae_daily_update_id)
-        .where(*where)
-        .group_by(AEDailyUpdate.entry_date)
-    )
-    by_day = {r.d: r.total for r in daily}
-    return {
-        "totals": [{"key": r.key, "label": r.name, "total": int(r.total)} for r in totals],
-        "by_member": [{"member": r.member, "key": r.key, "total": int(r.total)}
-                      for r in per_member],
-        "trend": [{"date": d.isoformat(), "total": int(by_day.get(d, 0))}
-                  for d in _days(s.frm, s.to)],
     }

@@ -1,5 +1,5 @@
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 :root {
   color-scheme: light dark;
@@ -42,8 +42,8 @@
 
   --radius: 12px;
   --radius-sm: 8px;
-  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", "Cascadia Code", monospace;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -141,7 +141,10 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.45;
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01";
 }
 
 :focus-visible {

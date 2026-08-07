@@ -3,14 +3,14 @@ import "./theme.css";
 import "./App.css";
 import { Header } from "./components/Header";
 import { PeriodPicker } from "./components/PeriodPicker";
-import { Skeleton } from "./components/ui";
+import { Banner, Skeleton } from "./components/ui";
 import { useAuth } from "./hooks/useAuth";
 import { usePeriod } from "./hooks/usePeriod";
 import { useTheme } from "./hooks/useTheme";
-import { AEDaily } from "./routes/AEDaily";
 import { Admin } from "./routes/Admin";
 import { Analytics } from "./routes/Analytics";
 import { ContentRequests } from "./routes/ContentRequests";
+import { Requests } from "./routes/Requests";
 import { Login } from "./routes/Login";
 import { MemberDetail } from "./routes/MemberDetail";
 import { Members } from "./routes/Members";
@@ -44,6 +44,13 @@ export default function App() {
         <PeriodPicker range={range} />
       </div>
 
+      {!user.member ? (
+        <Banner tone="warn">
+          Your account isn't linked to a team member yet, so you can read but not
+          log work. An admin can link it on the Admin screen.
+        </Banner>
+      ) : null}
+
       <Routes>
         <Route path="/" element={<Overview range={range} />} />
         <Route path="/work-log" element={<WorkLog range={range} />} />
@@ -51,10 +58,11 @@ export default function App() {
         <Route path="/members" element={<Members range={range} />} />
         <Route path="/members/:id" element={<MemberDetail range={range} />} />
         <Route path="/admin" element={<Admin />} />
-        <Route path="/ae" element={<AEDaily range={range} />} />
+        <Route path="/requests" element={<Requests range={range} />} />
+        {/* Raw Jira board mirror. Off the nav — /requests supersedes it. */}
         <Route path="/content-requests" element={<ContentRequests />} />
-        <Route path="/plans/new" element={<PlanForm />} />
-        <Route path="/updates/new" element={<UpdateForm />} />
+        <Route path="/plans/new" element={<PlanForm me={user.member} />} />
+        <Route path="/updates/new" element={<UpdateForm me={user.member} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
