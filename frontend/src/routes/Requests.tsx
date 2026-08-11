@@ -3,6 +3,7 @@ import { api } from "../api";
 import { CATEGORICAL } from "../charts";
 import { Donut } from "../components/Donut";
 import { RankedBars } from "../components/RankedBars";
+import { StreamSplit } from "../components/StreamSplit";
 import { Async, Card, SectionHeading, StatTile } from "../components/ui";
 import { mins, num, pct } from "../format";
 import { useApi } from "../hooks/useApi";
@@ -28,6 +29,7 @@ export function Requests({ range }: { range: Range }) {
   const p = { from: range.from, to: range.to };
   const deps = [range.from, range.to];
   const areas = useApi(() => api.byArea(p), deps);
+  const byMember = useApi(() => api.areaByMember(p), deps);
   const [area, setArea] = useState<string | null>(null);
 
   const rows = (areas.data ?? []).filter((a) => !EXCLUDED.has(a.area));
@@ -123,6 +125,13 @@ export function Requests({ range }: { range: Range }) {
             </>
           );
         }}
+      </Async>
+
+      {/* The split the totals above can't show: within each stream, who the
+          effort actually belongs to. */}
+      <SectionHeading title="Who spent the time" color="var(--accent-indigo)" />
+      <Async loading={byMember.loading} error={byMember.error} data={byMember.data}>
+        {(streams) => <StreamSplit streams={streams.filter((s) => !EXCLUDED.has(s.area))} />}
       </Async>
     </>
   );

@@ -41,6 +41,11 @@ class Scope:
     area: str | None = None
 
 
+# Below this, a ticket was filed after the work finished rather than tracked
+# through it — see cycle_time().
+RETROACTIVE_MINUTES = 2
+
+
 def _entry_where(s: Scope) -> list:
     where = [DailyEntry.entry_date.between(s.frm, s.to)]
     if s.member_id:
@@ -250,6 +255,171 @@ async def by_area(db: AsyncSession, s: Scope) -> list[dict]:
     ]
 
 
+def _label(area: str) -> str:
+    return AREA_LABELS.get(area, area.replace("_", " ").title())
+
+
+async def area_by_member(db: AsyncSession, s: Scope) -> list[dict]:
+    """Who spent their time in which stream.
+
+    `by_area` answers how much went into Content Requests; this answers who put
+    it there. The Requests screen showed a stream's total with no way to see
+    that one person carried it — which is the question actually being asked when
+    a stream looks busy.
+    """
+    area = _area_col()
+    rows = await db.execute(
+        _from_tasks(
+            s, area,
+            Member.display_name.label("member"),
+            DailyEntry.member_id.label("member_id"),
+            func.count().label("tasks"),
+            _effort(),
+            func.count().filter(EntryItem.status == "closed").label("closed"),
+        )
+        .join(Member, Member.id == DailyEntry.member_id)
+        .group_by(area, Member.display_name, DailyEntry.member_id)
+        .order_by(area, func.coalesce(func.sum(EntryItem.effort_minutes), 0).desc())
+    )
+    grouped: dict[str, dict] = {}
+    for r in rows:
+        bucket = grouped.setdefault(
+            r.area, {"area": r.area, "label": _label(r.area),
+                     "tasks": 0, "effort_minutes": 0, "members": []}
+        )
+        bucket["tasks"] += r.tasks
+        bucket["effort_minutes"] += int(r.effort_minutes)
+        bucket["members"].append({
+            "member_id": r.member_id, "member": r.member, "tasks": r.tasks,
+            "effort_minutes": int(r.effort_minutes), "closed": r.closed,
+        })
+    # Share is computed after the totals are known, so it always sums to 1.
+    for bucket in grouped.values():
+        total = bucket["effort_minutes"]
+        for m in bucket["members"]:
+            m["share_of_area"] = round(m["effort_minutes"] / total, 4) if total else None
+    return sorted(grouped.values(), key=lambda b: -b["effort_minutes"])
+
+
+async def effort_breakdown(db: AsyncSession, s: Scope) -> dict:
+    """Where a total of logged minutes actually went.
+
+    This is what a headline "40h" needs behind it. Every dimension is summed
+    from the same `effort_minutes` the headline uses, so the parts reconcile
+    with the whole rather than approximating it — and the individual tickets are
+    listed, because a breakdown you can't trace to a ticket is just a smaller
+    number to disbelieve.
+    """
+    area = _area_col()
+
+    async def split(col, extra=None):
+        rows = await db.execute(
+            _from_tasks(s, col.label("key"), func.count().label("tasks"), _effort())
+            .where(EntryItem.effort_minutes.isnot(None))
+            .group_by(col)
+            .order_by(func.coalesce(func.sum(EntryItem.effort_minutes), 0).desc())
+            .limit(25)
+            if extra is None else extra
+        )
+        return [{"key": r.key, "label": r.key, "tasks": r.tasks,
+                 "effort_minutes": int(r.effort_minutes)} for r in rows]
+
+    total = (await db.execute(
+        _from_tasks(s, _effort(), func.count().label("tasks"),
+                    func.count().filter(EntryItem.effort_minutes.is_(None)).label("unlogged"),
+                    func.count().filter(EntryItem.effort_suspect).label("suspect"))
+    )).one()
+
+    by_area_rows = await split(area)
+    for row in by_area_rows:
+        row["label"] = _label(row["key"])
+
+    tickets = await db.execute(
+        _from_tasks(
+            s,
+            EntryItem.id.label("id"),
+            EntryItem.notes.label("notes"),
+            EntryItem.effort_minutes.label("effort_minutes"),
+            EntryItem.effort_suspect.label("suspect"),
+            EntryItem.jira_issue_key.label("jira_issue_key"),
+            EntryItem.jira_issue_url.label("jira_issue_url"),
+            EntryItem.customer.label("customer"),
+            EntryItem.status.label("status"),
+            DailyEntry.entry_date.label("entry_date"),
+            Member.display_name.label("member"),
+            area,
+        )
+        .join(Member, Member.id == DailyEntry.member_id)
+        .where(EntryItem.effort_minutes.isnot(None), EntryItem.effort_minutes > 0)
+        .order_by(EntryItem.effort_minutes.desc())
+        .limit(50)
+    )
+    return {
+        "effort_minutes": int(total.effort_minutes),
+        "tasks": total.tasks,
+        # Both caveats travel with the number rather than sitting on another
+        # screen: 12% of tickets carry no effort at all.
+        "tasks_without_effort": total.unlogged,
+        "tasks_with_suspect_effort": total.suspect,
+        "by_area": by_area_rows,
+        "by_task_type": await split(TaskType.name, extra=(
+            _from_tasks(s, TaskType.name.label("key"), func.count().label("tasks"), _effort())
+            .join(TaskType, TaskType.id == EntryItem.task_type_id)
+            .where(EntryItem.effort_minutes.isnot(None))
+            .group_by(TaskType.name)
+            .order_by(func.coalesce(func.sum(EntryItem.effort_minutes), 0).desc())
+            .limit(25)
+        )),
+        "by_customer": await split(
+            func.coalesce(EntryItem.customer, "(no customer)")),
+        "by_member": await split(Member.display_name, extra=(
+            _from_tasks(s, Member.display_name.label("key"), func.count().label("tasks"), _effort())
+            .join(Member, Member.id == DailyEntry.member_id)
+            .where(EntryItem.effort_minutes.isnot(None))
+            .group_by(Member.display_name)
+            .order_by(func.coalesce(func.sum(EntryItem.effort_minutes), 0).desc())
+            .limit(25)
+        )),
+        "top_tickets": [
+            {"id": r.id, "notes": r.notes, "effort_minutes": r.effort_minutes,
+             "suspect": r.suspect, "jira_issue_key": r.jira_issue_key,
+             "jira_issue_url": r.jira_issue_url, "customer": r.customer,
+             "status": r.status, "entry_date": r.entry_date.isoformat(),
+             "member": r.member, "area": r.area, "area_label": _label(r.area)}
+            for r in tickets
+        ],
+    }
+
+
+async def quality_mix(db: AsyncSession, s: Scope) -> dict:
+    """Priority and SLA, straight from Jira. Both were being fetched and thrown
+    away until the fields were captured."""
+    async def group(col):
+        rows = await db.execute(
+            _from_tasks(s, col.label("key"), func.count().label("tasks"), _effort())
+            .group_by(col).order_by(func.count().desc())
+        )
+        return [{"key": r.key or "(none)", "tasks": r.tasks,
+                 "effort_minutes": int(r.effort_minutes)} for r in rows]
+
+    sla = (await db.execute(
+        _from_tasks(
+            s,
+            func.count().filter(EntryItem.sla_met.is_(True)).label("met"),
+            func.count().filter(EntryItem.sla_met.is_(False)).label("missed"),
+        )
+    )).one()
+    return {
+        "by_priority": await group(EntryItem.priority),
+        "sla_met": sla.met,
+        "sla_missed": sla.missed,
+        # Jira only evaluates an SLA on about half the issues, so a bare
+        # "met" count would read as a pass rate over everything.
+        "sla_rate": round(sla.met / (sla.met + sla.missed), 4)
+        if (sla.met + sla.missed) else None,
+    }
+
+
 async def by_request_type(db: AsyncSession, s: Scope) -> list[dict]:
     """Inside Content Requests: what kind of request was it?"""
     rows = await db.execute(
@@ -394,39 +564,75 @@ def _closed_at():
 
 
 async def cycle_time(db: AsyncSession, s: Scope) -> dict:
+    """Elapsed time from raised to resolved.
+
+    Jira's own `created`/`resolutiondate` first, our status events only as a
+    fallback for work that never went to Jira. Deriving this from status events
+    alone produced a median of 0.0h across 995 closed tasks: an imported row
+    gets exactly one event, so `closed_at - opened_at` was always zero. The
+    events are still the only source for web-entered work, hence the coalesce
+    rather than a straight swap.
+    """
     ev = _closed_at()
-    hours = func.extract("epoch", ev.c.closed_at - ev.c.opened_at) / 3600.0
+    opened = func.coalesce(EntryItem.external_created_at, ev.c.opened_at)
+    closed = func.coalesce(EntryItem.resolved_at, ev.c.closed_at)
+    hours = func.extract("epoch", closed - opened) / 3600.0
     median = func.percentile_cont(0.5).within_group(hours.asc())
     p90 = func.percentile_cont(0.9).within_group(hours.asc())
+    # Jira resolves 78% of issues; the rest are still open or were closed
+    # without a resolution. Reporting a median without saying what it covers is
+    # how the 0.0h figure went unquestioned for as long as it did.
+    resolved = and_(closed.isnot(None), closed >= opened)
+    # Much of this team files the ticket once the work is already done: 72% of
+    # tickets since 3 Aug were created and resolved inside 15 minutes, carrying
+    # 121 hours of logged effort between them. For those, created -> resolved
+    # measures how long the paperwork took, not the work, and including them
+    # pulled the recent median down to 0.04h. Two minutes is the cut — nobody
+    # raises a ticket and genuinely finishes it inside that.
+    retroactive = hours < (RETROACTIVE_MINUTES / 60.0)
+    measurable = and_(resolved, ~retroactive)
 
-    base = (
-        _from_tasks(s, func.count().label("n"), median.label("median"), p90.label("p90"))
-        .join(ev, ev.c.item_id == EntryItem.id)
-        .where(ev.c.closed_at.isnot(None))
-    )
-    overall = (await db.execute(base)).one()
+    def q(*cols):
+        return (
+            _from_tasks(s, *cols)
+            .outerjoin(ev, ev.c.item_id == EntryItem.id)
+            .where(measurable)
+        )
+
+    overall = (await db.execute(
+        q(func.count().label("n"), median.label("median"), p90.label("p90"))
+    )).one()
+    # Denominator is finished work, not `status = 'closed'`: an issue can carry
+    # a resolution while our status map still reads it as open, which made
+    # coverage come out at 1.001 — more measured than eligible.
+    counts = (await db.execute(
+        _from_tasks(
+            s,
+            func.count().filter(or_(EntryItem.status == "closed", closed.isnot(None)))
+            .label("eligible"),
+            func.count().filter(and_(resolved, retroactive)).label("retro"),
+        ).outerjoin(ev, ev.c.item_id == EntryItem.id)
+    )).one()
+    eligible = counts.eligible
 
     per_member = await db.execute(
-        _from_tasks(s, Member.display_name.label("member"),
-                    func.count().label("n"), median.label("median"))
-        .join(ev, ev.c.item_id == EntryItem.id)
+        q(Member.display_name.label("member"), func.count().label("n"), median.label("median"))
         .join(Member, Member.id == DailyEntry.member_id)
-        .where(ev.c.closed_at.isnot(None))
         .group_by(Member.display_name)
         .order_by(median.desc())
     )
     per_type = await db.execute(
-        _from_tasks(s, TaskType.name.label("task_type"),
-                    func.count().label("n"), median.label("median"))
-        .join(ev, ev.c.item_id == EntryItem.id)
+        q(TaskType.name.label("task_type"), func.count().label("n"), median.label("median"))
         .join(TaskType, TaskType.id == EntryItem.task_type_id)
-        .where(ev.c.closed_at.isnot(None))
         .group_by(TaskType.name)
         .order_by(median.desc())
     )
     r2 = lambda v: round(float(v), 2) if v is not None else None
     return {
         "closed_tasks": overall.n,
+        "measured_of_closed": eligible,
+        "filed_retroactively": counts.retro,
+        "coverage": round(overall.n / eligible, 4) if eligible else None,
         "median_hours": r2(overall.median),
         "p90_hours": r2(overall.p90),
         "by_member": [{"member": r.member, "closed_tasks": r.n, "median_hours": r2(r.median)}
@@ -438,7 +644,13 @@ async def cycle_time(db: AsyncSession, s: Scope) -> dict:
 
 async def plan_adherence(db: AsyncSession, s: Scope) -> list[dict]:
     """Of what was planned, how much got reported on and how much closed. This
-    is the point of a plan/update tracker and it was never measurable before."""
+    is the point of a plan/update tracker and it was never measurable before.
+
+    Only plans a person actually filed count. The Jira backfill files its issues
+    under synthetic `source='jira'` plan entries, and counting those made
+    adherence meaningless — Archita read `planned 229, reported 0, 0%` purely
+    because 229 backfilled tickets were being scored as unreported plans.
+    """
     mirror = (
         select(EntryItem.plan_item_id)
         .where(EntryItem.plan_item_id.isnot(None))
@@ -459,7 +671,7 @@ async def plan_adherence(db: AsyncSession, s: Scope) -> list[dict]:
         .select_from(EntryItem)
         .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
         .join(Member, Member.id == DailyEntry.member_id)
-        .where(*_entry_where(s), DailyEntry.kind == "plan")
+        .where(*_entry_where(s), DailyEntry.kind == "plan", DailyEntry.source != "jira")
         .group_by(Member.id, Member.display_name)
         .order_by(func.count().desc())
     )

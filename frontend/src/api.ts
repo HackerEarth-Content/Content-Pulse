@@ -1,7 +1,10 @@
 import type {
   Adherence,
+  AreaByMember,
   AreaStat,
   Aging,
+  EffortBreakdown,
+  QualityMix,
   ContentRequest,
   CurrentUser,
   CustomerStat,
@@ -139,9 +142,11 @@ export const api = {
       `/entry-items/${id}/history`
     ),
   jiraState: (entryId: number) =>
-    get<{ items: { id: number; jira_state: string; jira_issue_key: string | null }[]; pending: boolean }>(
-      `/entries/${entryId}/jira-state`
-    ),
+    get<{
+      items: { id: number; jira_state: string; jira_issue_key: string | null;
+                jira_issue_url: string | null }[];
+      pending: boolean;
+    }>(`/entries/${entryId}/jira-state`),
 
   summary: (p: Params) => get<Summary>("/analytics/summary", p),
   trend: (p: Params) => get<TrendPoint[]>("/analytics/trend", p),
@@ -157,6 +162,9 @@ export const api = {
   byCustomer: (p: Params) => get<CustomerStat[]>("/analytics/by-customer", p),
   statusFlow: (p: Params) =>
     get<{ from: Status; to: Status; count: number }[]>("/analytics/status-flow", p),
+  effortBreakdown: (p: Params) => get<EffortBreakdown>("/analytics/effort-breakdown", p),
+  areaByMember: (p: Params) => get<AreaByMember[]>("/analytics/area-by-member", p),
+  qualityMix: (p: Params) => get<QualityMix>("/analytics/quality-mix", p),
   cycleTime: (p: Params) => get<CycleTime>("/analytics/cycle-time", p),
   adherence: (p: Params) => get<Adherence[]>("/analytics/plan-adherence", p),
   aging: (p: Params) => get<Aging>("/analytics/aging", p),
@@ -188,6 +196,9 @@ export const api = {
     "/content-requests/sync"
   ),
   syncStatus: () => get<SyncStatus[]>("/meta/sync-status"),
+  syncJira: (force = false) =>
+    send<{ started: boolean; reason?: string }>(
+      "POST", `/integrations/jira/sync${force ? "?force=true" : ""}`),
   jiraHealth: () =>
     get<{ ok: boolean; account?: string | null; error?: string | null }>("/integrations/jira/health"),
   retryPendingJira: () => send<{ retried: number }>("POST", "/integrations/jira/retry-pending"),

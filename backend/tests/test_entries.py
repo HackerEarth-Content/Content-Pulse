@@ -60,17 +60,36 @@ async def test_plan_line_from_another_plan_rejected(client, member, task_type):
     assert r.json()["detail"]["code"] == "plan_item_mismatch"
 
 
-async def test_extra_work_lands_closed_and_cannot_move(client, member, task_type):
+async def test_extra_work_starts_open_and_can_move(client, member, task_type):
+    """Unplanned work is a normal task that just wasn't on this morning's
+    list — it starts open like any other, and moves the same way."""
     r = await client.post("/api/entries/updates", json={
         "member_id": member, "entry_date": DAY,
         "extra_items": [{"task_type_id": task_type, "notes": "unplanned"}],
     })
     extra = r.json()["items"][0]
-    assert extra["status"] == "closed" and extra["plan_item_id"] is None
+    assert extra["status"] == "open" and extra["plan_item_id"] is None
 
-    moved = await client.patch(f"/api/entry-items/{extra['id']}", json={"status": "open"})
-    assert moved.status_code == 422
-    assert moved.json()["detail"]["code"] == "extra_task_immutable"
+    moved = await client.patch(f"/api/entry-items/{extra['id']}", json={"status": "in_progress"})
+    assert moved.status_code == 200
+    assert moved.json()["status"] == "in_progress"
+
+    closed = await client.patch(f"/api/entry-items/{extra['id']}", json={"status": "closed"})
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "closed"
+
+
+async def test_extra_work_can_raise_a_jira_ticket_too(client, member, task_type):
+    """Unplanned work shares `ItemIn` with planned work, so `create_jira` must
+    flow through the same way — it used to be silently dropped by the frontend
+    before it ever reached this endpoint."""
+    r = await client.post("/api/entries/updates", json={
+        "member_id": member, "entry_date": DAY,
+        "extra_items": [{"task_type_id": task_type, "notes": "unplanned", "create_jira": True}],
+    })
+    extra = r.json()["items"][0]
+    assert extra["jira_wanted"] is True
+    assert extra["jira_state"] == "pending"
 
 
 async def test_patch_plan_item_cascades_to_its_update_rows(client, member, task_type):

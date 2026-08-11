@@ -27,12 +27,15 @@ function boundsFor(period: Period): { from: string; to: string } {
       const first = new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1);
       return { from: first.toLocaleDateString("en-CA"), to: t };
     }
-    default: {
-      // Week starts Monday, matching the backend's WEEK_START.
-      const d = new Date(`${t}T00:00:00`);
-      const monday = addDays(t, -((d.getDay() + 6) % 7));
-      return { from: monday, to: addDays(monday, 6) };
-    }
+    default:
+      // A rolling seven days ending today, never the calendar week.
+      //
+      // This used to run Monday to Sunday, so opening the app on a Monday asked
+      // for six days that hadn't happened yet plus one nobody had filed on, and
+      // every screen showed every person on zero. Fixing `resolve_range` on the
+      // server was not enough on its own: these bounds are sent as explicit
+      // `from`/`to`, and explicit dates always win there.
+      return { from: addDays(t, -6), to: t };
   }
 }
 
@@ -58,7 +61,16 @@ export function usePeriod(fallback: Period = "week"): Range {
         },
         { replace: true }
       ),
-    setCustom: (f, t) =>
+    setCustom: (f, t) => {
+      // Setting the range it already has still navigates, which re-renders the
+      // tree and drops the named period — so a control that re-announces its
+      // value on blur would silently turn "Last 7 days" into a custom range.
+      // The guard belongs here as well as in the field: any future caller gets
+      // it for free.
+      // Compare the *resolved* range, not the raw params: under a named period
+      // those are null, so comparing them would never match and the guard would
+      // never fire — which is precisely the case it exists for.
+      if (bounds.from === f && bounds.to === t) return;
       setParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -68,6 +80,7 @@ export function usePeriod(fallback: Period = "week"): Range {
           return next;
         },
         { replace: true }
-      ),
+      );
+    },
   };
 }

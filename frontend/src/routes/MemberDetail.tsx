@@ -20,6 +20,7 @@ import type { Item } from "../types";
 import { bucketFor, bucketNoun, bucketTick, groupSeries } from "../series";
 import { TOOLTIP } from "../charts";
 import { Donut } from "../components/Donut";
+import { EffortDrilldown } from "../components/EffortDrilldown";
 import { RankedBars } from "../components/RankedBars";
 import { useState } from "react";
 
@@ -51,17 +52,50 @@ export function MemberDetail({ range }: { range: Range }) {
     <>
       <SectionHeading title={member?.display_name ?? `Member ${memberId}`} />
 
-      {member ? (
-        <p className="hint" style={{ marginTop: -6, marginBottom: 12 }}>
-          <span className="pill pill-muted">{member.role}</span>{" "}
-          {member.email ?? "no email on file — can't sign in yet"}
-        </p>
-      ) : null}
-
       <Async loading={profile.loading} error={profile.error} data={profile.data}>
         {(pr) => (
           <>
-            <div className="stat-row">
+            {/* Who this is and how they're doing, before any number. The
+                sentence was already generated below the stats; it belongs at
+                the top, where it frames them. */}
+            <section className="profile-head card">
+              <div className="profile-id">
+                <span className="profile-avatar" aria-hidden="true">
+                  {(member?.display_name ?? "?").slice(0, 1).toUpperCase()}
+                </span>
+                <div>
+                  <h2 className="profile-name">
+                    {member?.display_name ?? `Member ${memberId}`}
+                    <span className="pill pill-muted">{member?.role ?? pr.member.role}</span>
+                  </h2>
+                  <p className="profile-sub">
+                    {member?.email ?? "No email on file — can't sign in yet"}
+                  </p>
+                </div>
+              </div>
+              <p className="profile-summary">
+                {pr.by_pipeline.length ? (
+                  <>
+                    Mostly <strong>{[...pr.by_pipeline].sort((a, b) =>
+                      b.effort_minutes - a.effort_minutes)[0].label}</strong>
+                    {" — "}{pct([...pr.by_pipeline].sort((a, b) =>
+                      b.effort_minutes - a.effort_minutes)[0].effort_minutes /
+                      (pr.totals.effort_minutes || 1))} of their hours
+                    {pr.totals.tasks
+                      ? `, ${mins(Math.round(pr.totals.effort_minutes / pr.totals.tasks))} per ticket`
+                      : ""}
+                    .{" "}
+                    {pr.by_customer.length
+                      ? `Worked for ${pr.by_customer.length} customers.`
+                      : "No customer recorded — Jira only captures it on Content Requests."}
+                  </>
+                ) : (
+                  <>Nothing logged in this range.</>
+                )}
+              </p>
+            </section>
+
+            <div className="stat-row stat-row--bare" style={{ marginTop: 12 }}>
               <StatTile
                 label="Effort logged"
                 value={mins(pr.totals.effort_minutes || null)}
@@ -80,28 +114,16 @@ export function MemberDetail({ range }: { range: Range }) {
               <StatTile label="Customers" value={num(pr.by_customer.length)} />
             </div>
 
-            <p className="insight">
-              {pr.by_pipeline.length ? (
-                <>
-                  Mostly <strong>{[...pr.by_pipeline].sort((a, b) =>
-                    b.effort_minutes - a.effort_minutes)[0].label}</strong>
-                  {" "}— {pct([...pr.by_pipeline].sort((a, b) =>
-                    b.effort_minutes - a.effort_minutes)[0].effort_minutes /
-                    (pr.totals.effort_minutes || 1))} of their hours.
-                </>
-              ) : (
-                <>Nothing logged in this range.</>
-              )}
-              {pr.totals.tasks
-                ? ` ${mins(Math.round(pr.totals.effort_minutes / pr.totals.tasks))} per ticket.`
-                : ""}
-              {pr.by_customer.length
-                ? ` Worked for ${pr.by_customer.length} customers.`
-                : " No customer recorded — Jira only captures it on Content Requests."}
-            </p>
 
             <SectionHeading title="Where the time went" color="var(--accent-magenta)" />
-            <div className="grid cols-2">
+
+            {/* The headline hours, opened up — which stream, which work type,
+                which customer, and the individual tickets underneath. */}
+            <Card title="Effort, accounted for" sub="every logged minute, traceable to a ticket">
+              <EffortDrilldown data={pr.effort_breakdown} showPeople={false} />
+            </Card>
+
+            <div className="grid cols-2" style={{ marginTop: 12 }}>
               <Card title="By stream" sub="share of their hours">
                 <Donut
                   slices={pr.by_pipeline.map((s) => ({

@@ -111,6 +111,23 @@ async def by_customer(limit: int = Query(20, ge=1, le=100), s: an.Scope = TeamSc
 
 
 
+@router.get("/effort-breakdown")
+async def effort_breakdown(s: an.Scope = TeamScope, db: AsyncSession = DB):
+    """What a headline effort figure is made of, down to the ticket."""
+    return await an.effort_breakdown(db, s)
+
+
+@router.get("/area-by-member")
+async def area_by_member(s: an.Scope = TeamScope, db: AsyncSession = DB):
+    """Each stream, and who spent the time in it."""
+    return await an.area_by_member(db, s)
+
+
+@router.get("/quality-mix")
+async def quality_mix(s: an.Scope = TeamScope, db: AsyncSession = DB):
+    return await an.quality_mix(db, s)
+
+
 @router.get("/status-flow")
 async def status_flow(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.status_flow(db, s)

@@ -150,6 +150,26 @@ async def option_ids(db, c: httpx.AsyncClient, cfg: dict, issue_type: str) -> di
     return value
 
 
+async def _account_id(db, c: httpx.AsyncClient, member) -> str | None:
+    """`jira_account_id` was never written anywhere, so it was always empty and
+    every issue landed unassigned — Jira's project default (a specific person,
+    not "nobody") silently ate the assignment instead. Resolve it from the
+    member's email on first use and cache it, so this self-heals per person
+    instead of needing a manual admin step.
+    """
+    if member.jira_account_id:
+        return member.jira_account_id
+    if not getattr(member, "email", None):
+        return None
+    r = await c.get("/rest/api/3/user/search", params={"query": member.email, "maxResults": 1})
+    users = r.json() if r.status_code < 400 else []
+    if not isinstance(users, list) or not users:
+        return None
+    member.jira_account_id = users[0]["accountId"]
+    await db.commit()
+    return member.jira_account_id
+
+
 def _describe(entry: DailyEntry, item: EntryItem) -> str:
     lines = [
         f"ContentOps — {entry.kind.title()} — {entry.entry_date} — {entry.member.display_name}",
@@ -195,10 +215,10 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
         fields[f["effort_logged"]] = item.effort_minutes
     if item.customer and issue_type in CUSTOMER_TYPES:
         fields[cfg["customer_field"]] = item.customer
-    if entry.member.jira_account_id:
-        fields["assignee"] = {"id": entry.member.jira_account_id}
 
     async with _client() as c:
+        if account_id := await _account_id(db, c, entry.member):
+            fields["assignee"] = {"id": account_id}
         options = await option_ids(db, c, cfg, issue_type)
         # Task Type is required on Content Tasks; an unmapped name would 400.
         if tt := options["task_type"].get(item.task_type.name):

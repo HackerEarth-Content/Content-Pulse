@@ -18,20 +18,18 @@ export function TodayStrip({ me }: { me: CurrentUser["member"] }) {
   if (today.loading || !today.data) return null;
   const t = today.data;
 
-  const mine = me?.display_name;
-  const iPlanned = mine ? !t.no_plan_yet.some((m) => m.member === mine) : false;
-  const iUpdated = mine
-    ? iPlanned && !t.awaiting_update.some((m) => m.member === mine)
-    : false;
+  // Computed server-side. Inferring it from absence in `no_plan_yet` silently
+  // read admins as "already planned", because they weren't in the list at all.
+  const iPlanned = t.you.planned;
+  const iUpdated = t.you.updated;
 
-  // What this person should do next, said plainly.
   const call = !me
     ? null
     : !iPlanned
-      ? { to: "/plans/new", label: "Plan your day", tone: "primary" as const }
+      ? { to: "/my-day", label: "Plan your day", tone: "primary" as const }
       : !iUpdated
-        ? { to: "/updates/new", label: "Log today's update", tone: "primary" as const }
-        : { to: "/updates/new", label: "Add extra work", tone: "secondary" as const };
+        ? { to: "/my-day", label: "Log today's progress", tone: "primary" as const }
+        : { to: "/my-day", label: "Open my day", tone: "secondary" as const };
 
   const state = !me ? "none" : iUpdated ? "done" : iPlanned ? "planned" : "todo";
 
@@ -52,7 +50,7 @@ export function TodayStrip({ me }: { me: CurrentUser["member"] }) {
           </>
         ) : (
           <>
-            <strong>You haven't planned today.</strong>
+            <strong>Today's plan isn't in.</strong> Due by 11:00.
           </>
         )}
       </span>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BrandLockup } from "../components/Header";
+import { BrandLockup } from "../components/Shell";
 import { Banner } from "../components/ui";
 import { useTheme } from "../hooks/useTheme";
 

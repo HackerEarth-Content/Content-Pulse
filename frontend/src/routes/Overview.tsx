@@ -53,7 +53,7 @@ export function Overview({ range }: { range: Range }) {
             {pct(s.completion_rate)} closed
             {s.blocked ? `, ${s.blocked} blocked` : ""}.
           </p>
-          <div className="stat-row">
+          <div className="stat-row stat-row--bare">
             <StatTile label="Tasks" value={num(s.tasks)} sub={`logged by ${s.members} ${s.members === 1 ? "person" : "people"}`} accent="var(--accent-blue)" />
             <StatTile
               label="Items produced"

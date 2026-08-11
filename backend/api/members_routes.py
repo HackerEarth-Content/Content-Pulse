@@ -138,6 +138,11 @@ async def member_profile(
         "by_task_type": await an.by_task_type(db, mine),
         "by_question_type": await an.by_question_type(db, mine),
         "by_customer": await an.by_customer(db, mine, limit=25),
+        # Where their minutes went, and how the work was rated — the two things
+        # a per-person page was missing to be worth opening.
+        "effort_breakdown": await an.effort_breakdown(db, mine),
+        "by_area": await an.by_area(db, mine),
+        "quality": await an.quality_mix(db, mine),
         "cycle_time": await an.cycle_time(db, mine),
         "adherence": (await an.plan_adherence(db, mine) or [None])[0],
         "trend": await an.trend(db, mine),

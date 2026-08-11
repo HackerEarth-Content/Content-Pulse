@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import { Donut } from "../components/Donut";
+import { EffortDrilldown } from "../components/EffortDrilldown";
 import { RankedBars } from "../components/RankedBars";
 import { WorkloadHeatmap } from "../components/WorkloadHeatmap";
 import { Async, Card, SectionHeading, StatTile } from "../components/ui";
@@ -9,9 +10,18 @@ import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
 import { bucketFor, bucketNoun, bucketTick, groupSeries } from "../series";
 
-const TABS = ["What shipped", "How long it took", "Who it was for",
-              "Can we trust it"] as const;
-type Tab = (typeof TABS)[number];
+/** Named for their contents, with a sentence saying what the tab answers.
+ *
+ * These were phrased as questions — "What shipped", "Can we trust it" — which
+ * read well but meant you had to open each one to find out what was in it. The
+ * noun says where to go; the blurb says what you'll get. */
+const TABS = [
+  { key: "Delivery", blurb: "What was planned, what got reported on, and what closed." },
+  { key: "Time & effort", blurb: "How long work takes end to end, and where the logged hours went." },
+  { key: "Customers", blurb: "Who the work was for, and how much rides on the largest accounts." },
+  { key: "Data quality", blurb: "What's missing from the records behind every other number here." },
+] as const;
+type Tab = (typeof TABS)[number]["key"];
 
 const ORD = ["var(--ord-2)", "var(--ord-3)", "var(--ord-4)", "var(--ord-5)"];
 const QUALITY_LABELS: Record<string, string> = {
@@ -20,17 +30,18 @@ const QUALITY_LABELS: Record<string, string> = {
 };
 
 export function Analytics({ range }: { range: Range }) {
-  const [tab, setTab] = useState<Tab>("What shipped");
+  const [tab, setTab] = useState<Tab>("Delivery");
   const p = { from: range.from, to: range.to };
   const deps = [range.from, range.to];
 
   const adherence = useApi(() => api.adherence(p), deps);
   const cycle = useApi(() => api.cycleTime(p), deps);
   const aging = useApi(() => api.aging(p), deps);
-  const flow = useApi(() => api.statusFlow(p), deps);
+  const qualityMix = useApi(() => api.qualityMix(p), deps);
   const customers = useApi(() => api.byCustomer(p), deps);
   const questions = useApi(() => api.byQuestionType(p), deps);
   const quality = useApi(() => api.dataQuality(p), deps);
+  const effort = useApi(() => api.effortBreakdown(p), deps);
   const throughput = useApi(() => api.throughput(p), deps);
   const workload = useApi(() => api.workload(p), deps);
   const bucket = bucketFor(range.from, range.to);
@@ -47,19 +58,21 @@ export function Analytics({ range }: { range: Range }) {
         }
       />
 
-      <div className="nav" style={{ marginBottom: 14, width: "fit-content" }}>
+      <div className="nav" style={{ width: "fit-content" }}>
         {TABS.map((t) => (
           <button
-            key={t}
-            className={`nav-link${tab === t ? " active" : ""}`}
-            onClick={() => setTab(t)}
+            key={t.key}
+            className={`nav-link${tab === t.key ? " active" : ""}`}
+            title={t.blurb}
+            onClick={() => setTab(t.key)}
           >
-            {t}
+            {t.key}
           </button>
         ))}
       </div>
+      <p className="tab-blurb">{TABS.find((t) => t.key === tab)?.blurb}</p>
 
-      {tab === "What shipped" && (
+      {tab === "Delivery" && (
         <>
           <Async loading={adherence.loading} error={adherence.error} data={adherence.data}>
             {(rows) => {
@@ -141,18 +154,22 @@ export function Analytics({ range }: { range: Range }) {
                 )}
               </Async>
             </Card>
-            <Card title="Status transitions" sub="blocked → open is the rework signal">
-              <Async
-                loading={flow.loading}
-                error={flow.error}
-                data={flow.data}
-                empty={{ title: "No transitions yet", hint: "Statuses moved in this app will show here." }}
-              >
-                {(rows) => (
-                  <RankedBars
-                    items={rows.map((r) => ({ key: `${r.from}-${r.to}`,
-                                              label: `${r.from} → ${r.to}`, value: r.count }))}
-                  />
+            <Card title="Priority & SLA" sub="how much of the work is high priority, and whether it met its SLA">
+              <Async loading={qualityMix.loading} error={qualityMix.error} data={qualityMix.data}>
+                {(qm) => (
+                  <>
+                    <div className="stat-row" style={{ marginBottom: 10 }}>
+                      <StatTile label="SLA met" value={num(qm.sla_met)} accent="var(--accent-aqua)" />
+                      <StatTile label="SLA missed" value={num(qm.sla_missed)} accent="var(--accent-red)" />
+                      <StatTile label="SLA rate" value={pct(qm.sla_rate)}
+                                sub="of tickets Jira actually rated" />
+                    </div>
+                    <RankedBars
+                      items={qm.by_priority.map((r) => ({
+                        key: r.key, label: r.key, value: r.tasks, sub: mins(r.effort_minutes),
+                      }))}
+                    />
+                  </>
                 )}
               </Async>
             </Card>
@@ -173,17 +190,33 @@ export function Analytics({ range }: { range: Range }) {
         </>
       )}
 
-      {tab === "How long it took" && (
+      {tab === "Time & effort" && (
         <>
-          <Card title="Cycle time" sub="open → done">
+          <Card
+            title="Cycle time"
+            sub="elapsed time from a ticket being raised in Jira to it being resolved — not time spent working on it"
+          >
             <Async loading={cycle.loading} error={cycle.error} data={cycle.data}>
               {(c) => (
                 <>
                   <div className="stat-row" style={{ marginBottom: 14 }}>
-                    <StatTile label="Median" value={hours(c.median_hours)} accent="var(--accent-aqua)" />
-                    <StatTile label="90th percentile" value={hours(c.p90_hours)} />
-                    <StatTile label="Tasks measured" value={num(c.closed_tasks)} />
+                    <StatTile label="Typical ticket" value={hours(c.median_hours)}
+                              sub="half take less than this" accent="var(--accent-aqua)" />
+                    <StatTile label="Slowest 10%" value={hours(c.p90_hours)}
+                              sub="one in ten takes at least this long" />
+                    <StatTile
+                      label="Tickets measured"
+                      value={`${num(c.closed_tasks)} of ${num(c.measured_of_closed)}`}
+                      sub={c.coverage === null ? undefined : `${pct(c.coverage)} of finished work`}
+                    />
                   </div>
+                  {c.filed_retroactively > 0 ? (
+                    <p className="insight">
+                      <strong>{num(c.filed_retroactively)} tickets</strong> were created and
+                      resolved within two minutes — filed once the work was already done. They
+                      measure paperwork, not effort, so they're left out of the median above.
+                    </p>
+                  ) : null}
                   <div className="grid cols-2">
                     <RankedBars
                       items={c.by_member.map((m) => ({
@@ -209,6 +242,12 @@ export function Analytics({ range }: { range: Range }) {
             </Async>
           </Card>
 
+          <Card title="Where the effort went" sub="every logged minute, traceable to a ticket">
+            <Async loading={effort.loading} error={effort.error} data={effort.data}>
+              {(e) => <EffortDrilldown data={e} />}
+            </Async>
+          </Card>
+
           <Card title="Aging" sub="open tasks by days since they were logged">
             <Async loading={aging.loading} error={aging.error} data={aging.data}>
               {(a) => (
@@ -223,7 +262,7 @@ export function Analytics({ range }: { range: Range }) {
         </>
       )}
 
-      {tab === "Who it was for" && (
+      {tab === "Customers" && (
         <>
         <Async loading={customers.loading} error={customers.error} data={customers.data}>
           {(rows) => {
@@ -245,7 +284,7 @@ export function Analytics({ range }: { range: Range }) {
           }}
         </Async>
         <div className="grid cols-2">
-          <Card title="By customer" sub="never aggregated in the old dashboard">
+          <Card title="By customer" sub="hours and tickets per customer, largest first">
             <Async
               loading={customers.loading}
               error={customers.error}
@@ -279,7 +318,7 @@ export function Analytics({ range }: { range: Range }) {
             </Async>
           </Card>
 
-          <Card title="Concentration" sub="how much rides on the biggest accounts">
+          <Card title="Concentration" sub="what share of all work the largest accounts take — a high number means concentration risk">
             <Async loading={customers.loading} error={customers.error} data={customers.data}
                    empty={{ title: "No customer tagged" }}>
               {(rows) => {
@@ -319,21 +358,21 @@ export function Analytics({ range }: { range: Range }) {
         </>
       )}
 
-      {tab === "Can we trust it" && (
-        <Card title="Data quality" sub="what's missing, and which plans nobody reported on">
+      {tab === "Data quality" && (
+        <Card title="Data quality" sub="fields left empty on the tickets behind every other number here">
           <Async loading={quality.loading} error={quality.error} data={quality.data}>
             {(q) => (
               <>
                 <div className="stat-row" style={{ marginBottom: 14 }}>
                   <StatTile
-                    label="Plans never reported"
+                    label="Plans with no update"
                     value={num(q.plans_with_unreported_tasks)}
                     accent="var(--status-warning)"
                   />
                   <StatTile
                     label="On retired work types"
                     value={num(q.tasks_on_retired_task_types)}
-                    sub="free text from the old app"
+                    sub="work types since retired from the list"
                   />
                   <StatTile label="Tasks in range" value={num(q.tasks)} />
                 </div>

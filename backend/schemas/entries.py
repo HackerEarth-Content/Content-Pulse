@@ -32,9 +32,24 @@ class ItemIn(BaseModel):
     due_at: date | None = None
     effort_minutes: int | None = Field(default=None, ge=0)
     status: str = Status
+    # Opt in, not out. Every planned item used to be pushed to Jira whether
+    # anyone wanted a ticket or not, and an unwanted ticket is far more
+    # annoying to undo than a wanted one is to ask for.
+    create_jira: bool = False
 
 
-class PlanIn(BaseModel):
+class Scheduled(BaseModel):
+    """Hold the entry back and release it later.
+
+    `post_at` in the past publishes immediately — there is no point refusing a
+    time that has already come, and a clock skew of a few seconds shouldn't be
+    an error.
+    """
+
+    post_at: datetime | None = None
+
+
+class PlanIn(Scheduled):
     member_id: int
     entry_date: date
     raw_text: str | None = None
@@ -53,7 +68,7 @@ class PlanLineIn(BaseModel):
     effort_minutes: int | None = Field(default=None, ge=0)
 
 
-class UpdateIn(BaseModel):
+class UpdateIn(Scheduled):
     member_id: int
     entry_date: date
     raw_text: str | None = None
@@ -86,6 +101,7 @@ class ItemOut(ORMModel):
     due_at: date | None
     effort_minutes: int | None
     status: str
+    jira_wanted: bool
     jira_issue_key: str | None
     jira_issue_url: str | None
     jira_state: str
@@ -95,8 +111,8 @@ class ItemOut(ORMModel):
         return cls(
             **{k: getattr(it, k) for k in
                ("id", "plan_item_id", "task_type_id", "customer", "count", "notes",
-                "due_at", "effort_minutes", "status", "jira_issue_key",
-                "jira_issue_url", "jira_state")},
+                "due_at", "effort_minutes", "status", "jira_wanted",
+                "jira_issue_key", "jira_issue_url", "jira_state")},
             task_type=it.task_type.name,
             question_type=it.question_type.name if it.question_type else None,
         )
@@ -112,6 +128,8 @@ class EntryOut(ORMModel):
     raw_text: str | None
     source: str
     updated_at: datetime
+    post_at: datetime | None
+    posted_at: datetime | None
     items: list[ItemOut]
 
     @classmethod
@@ -119,7 +137,7 @@ class EntryOut(ORMModel):
         return cls(
             **{k: getattr(e, k) for k in
                ("id", "entry_date", "kind", "status", "member_id", "raw_text",
-                "source", "updated_at")},
+                "source", "updated_at", "post_at", "posted_at")},
             member=e.member.display_name,
             items=[ItemOut.of(i) for i in e.items],
         )

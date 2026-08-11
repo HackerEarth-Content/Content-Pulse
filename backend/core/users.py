@@ -15,7 +15,7 @@ from fastapi_users.authentication import (
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi.responses import RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select, update
 
 from core.config import settings
 from core.database import get_session
@@ -36,9 +36,14 @@ async def _claim_member(session, user, email: str) -> None:
     """
     lowered = email.strip().lower()
     member = await session.scalar(
-        select(Member).where(
-            or_(Member.user_id == user.id, func.lower(Member.email) == lowered)
-        )
+        select(Member)
+        .where(or_(Member.user_id == user.id, func.lower(Member.email) == lowered))
+        # Both halves can match, on different rows: one already linked to this
+        # account, another carrying the address being signed in with. Without an
+        # explicit order Postgres returns whichever it likes, and if it returned
+        # the already-linked row the correct one was never claimed at all. The
+        # address is the identity being asserted, so it wins.
+        .order_by(case((func.lower(Member.email) == lowered, 0), else_=1), Member.id)
     )
     if member is None and lowered in settings.superadmins:
         member = Member(display_name=email.split("@")[0], email=lowered, role="admin")
@@ -46,6 +51,14 @@ async def _claim_member(session, user, email: str) -> None:
 
     if member is None:
         return
+
+    # `user_id` is not unique, and get_viewer resolves a member from it — two
+    # rows pointing at one account would hand out whichever role came first.
+    await session.execute(
+        update(Member)
+        .where(Member.user_id == user.id, Member.id != member.id)
+        .values(user_id=None)
+    )
     member.user_id = user.id
     if lowered in settings.superadmins:
         member.role = "admin"

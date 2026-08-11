@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     # outward-facing and must be opted into, never a side effect of a test.
     SLACK_WRITES_ENABLED: bool = False
     SLACK_BOT_TOKEN: str = ""
+
+    # Gmail SMTP for the daily plan reminder. EMAIL_ENABLED is the same guard as
+    # the Jira and Slack flags — off unless you mean it.
+    EMAIL_ENABLED: bool = False
+    GMAIL_SMTP_USER: str = ""
+    GMAIL_SMTP_APP_PASSWORD: str = ""
+    SUPPORT_EMAIL: str = ""
+    # When the nudge goes out, in the team's timezone.
+    PLAN_REMINDER_HOUR: int = 11
     SLACK_CHANNEL: str = "content-dashboard"
 
     # Reports run Mon-Sun; flip to 6 for Sun-Sat.
