@@ -60,17 +60,36 @@ async def test_plan_line_from_another_plan_rejected(client, member, task_type):
     assert r.json()["detail"]["code"] == "plan_item_mismatch"
 
 
-async def test_extra_work_lands_closed_and_cannot_move(client, member, task_type):
+async def test_extra_work_starts_open_and_can_move(client, member, task_type):
+    """Unplanned work is a normal task that just wasn't on this morning's
+    list — it starts open like any other, and moves the same way."""
     r = await client.post("/api/entries/updates", json={
         "member_id": member, "entry_date": DAY,
         "extra_items": [{"task_type_id": task_type, "notes": "unplanned"}],
     })
     extra = r.json()["items"][0]
-    assert extra["status"] == "closed" and extra["plan_item_id"] is None
+    assert extra["status"] == "open" and extra["plan_item_id"] is None
 
-    moved = await client.patch(f"/api/entry-items/{extra['id']}", json={"status": "open"})
-    assert moved.status_code == 422
-    assert moved.json()["detail"]["code"] == "extra_task_immutable"
+    moved = await client.patch(f"/api/entry-items/{extra['id']}", json={"status": "in_progress"})
+    assert moved.status_code == 200
+    assert moved.json()["status"] == "in_progress"
+
+    closed = await client.patch(f"/api/entry-items/{extra['id']}", json={"status": "closed"})
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "closed"
+
+
+async def test_extra_work_can_raise_a_jira_ticket_too(client, member, task_type):
+    """Unplanned work shares `ItemIn` with planned work, so `create_jira` must
+    flow through the same way — it used to be silently dropped by the frontend
+    before it ever reached this endpoint."""
+    r = await client.post("/api/entries/updates", json={
+        "member_id": member, "entry_date": DAY,
+        "extra_items": [{"task_type_id": task_type, "notes": "unplanned", "create_jira": True}],
+    })
+    extra = r.json()["items"][0]
+    assert extra["jira_wanted"] is True
+    assert extra["jira_state"] == "pending"
 
 
 async def test_patch_plan_item_cascades_to_its_update_rows(client, member, task_type):
@@ -189,3 +208,60 @@ async def test_work_log_search_covers_the_jira_key(client, member, task_type):
     assert (await client.get("/api/work-log", params=params | {"q": "findme-zz"})).json()["total"] == 1
     assert (await client.get("/api/work-log", params=params | {"q": "nope"})).json()["total"] == 0
     assert p["items"][0]["id"]
+
+
+async def test_today_strip_reports_who_still_owes_an_update(client, member, task_type):
+    """The strip's whole job is the gap between planning and updating, so it
+    reports the people, not just a count."""
+    from core.dates import today as today_ist
+
+    on = today_ist().isoformat()
+    before = (await client.get("/api/today")).json()
+    assert any(m["member_id"] == member for m in before["no_plan_yet"]), \
+        "a member with no plan today should be listed as yet to plan"
+
+    plan = (await client.post("/api/entries/plans", json={
+        "member_id": member, "entry_date": on,
+        "items": [{"task_type_id": task_type, "notes": "today"}],
+    })).json()
+
+    mid = (await client.get("/api/today")).json()
+    assert mid["planned"] >= 1
+    assert any(m["member_id"] == member for m in mid["awaiting_update"]), \
+        "planned but not updated"
+    assert not any(m["member_id"] == member for m in mid["no_plan_yet"])
+
+    await client.post("/api/entries/updates", json={
+        "member_id": member, "entry_date": on,
+        "plan_lines": [{"plan_item_id": plan["items"][0]["id"], "status": "closed",
+                        "notes": "done", "due_at": on}],
+    })
+
+    after = (await client.get("/api/today")).json()
+    assert after["updated"] == mid["updated"] + 1
+    assert not any(m["member_id"] == member for m in after["awaiting_update"])
+
+
+async def test_today_strip_ignores_backfilled_jira_plans(client, member, task_type):
+    """Synthetic day-entries from the Jira import aren't something a person
+    filed, so they must not count as 'planned today'."""
+    from core.database import Session
+    from core.dates import today as today_ist
+    from core.orm import DailyEntry
+    from sqlalchemy import select
+
+    on = today_ist()
+    async with Session() as db:
+        db.add(DailyEntry(member_id=member, entry_date=on, kind="plan", source="jira",
+                          idempotency_key=f"jira:{member}:{on.isoformat()}"))
+        await db.commit()
+
+    t = (await client.get("/api/today")).json()
+    assert not any(m["member_id"] == member for m in t["awaiting_update"]), \
+        "an imported Jira day is not a plan someone filed"
+
+    async with Session() as db:
+        row = await db.scalar(select(DailyEntry).where(
+            DailyEntry.idempotency_key == f"jira:{member}:{on.isoformat()}"))
+        await db.delete(row)
+        await db.commit()

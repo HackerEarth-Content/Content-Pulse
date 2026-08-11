@@ -17,7 +17,7 @@ import argparse
 import asyncio
 import base64
 import collections
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 from sqlalchemy import func, select
@@ -44,9 +44,19 @@ DEFAULT_FROM = date(2026, 5, 4)
 # averaging loses the truth.
 SUSPECT_OVER = 600
 
-FIELDS = ("summary,created,updated,resolutiondate,status,assignee,issuetype,duedate,"
-          "customfield_10526,customfield_10230,customfield_10235,customfield_10233,"
-          "customfield_10225,customfield_10521,customfield_10240")
+FIELDS = ("summary,created,updated,resolutiondate,resolution,priority,status,assignee,"
+          "issuetype,duedate,customfield_10526,customfield_10230,customfield_10235,"
+          "customfield_10233,customfield_10225,customfield_10521,customfield_10240,"
+          # [CHART] Time in Status and Resolution SLA. Jira computes both; the
+          # alternative is replaying every changelog ourselves.
+          "customfield_10013,customfield_10530")
+
+# `customfield_10529` (Time Taken to Resolve) and `customfield_10522` (Resolved
+# On) look like they'd serve here and don't: 10529 returns negative values
+# (-15058 on TCE-9120) and 10522 disagrees with `resolutiondate` by a month on
+# the same issue. `resolutiondate` is the only timestamp that holds up.
+# Native `worklog`/`timespent` is empty on all 1,200 issues — effort exists
+# only in customfield_10526.
 
 # Jira spells people differently from us. Confirmed mapping, not guesswork.
 ALIASES = {
@@ -62,6 +72,10 @@ ALIASES = {
 }
 # Present in Jira, wanted in ContentOps, no row yet.
 CREATE_MEMBERS = ["Arpit Gupta", "Nishu Kumari", "Sreejith PV"]
+
+# Jira lets an issue sit unassigned. Dropping those loses real effort from every
+# total, so they land here and stay visible as work nobody owns.
+UNASSIGNED = "Unassigned"
 
 # Jira's status vocabulary -> ours.
 STATUS_MAP = {
@@ -94,14 +108,63 @@ def _dt(raw: str | None) -> datetime | None:
     return datetime.fromisoformat(raw) if raw else None
 
 
-async def fetch(frm: date) -> list[dict]:
-    """Every TCE issue since `frm`, all issue types. GET only."""
+def _naive(value: datetime | None) -> datetime | None:
+    """Jira sends tz-aware timestamps; the columns are naive. Compare in UTC so
+    a resolution never lands before its own creation on a timezone boundary."""
+    if value is None:
+        return None
+    return value.astimezone(UTC).replace(tzinfo=None) if value.tzinfo else value
+
+
+def _time_in_status(raw: str | None, names: dict[str, str]) -> dict[str, int] | None:
+    """Decode `statusId_*:*_count_*:*_millis_*|*_...` into {status: ms}.
+
+    Verified against TCE-9216: 51m + 27m = 78m, versus 79m actual elapsed.
+    Unknown ids keep their number rather than being dropped — a status renamed
+    in Jira should show up as odd, not vanish.
+    """
+    if not raw:
+        return None
+    out: dict[str, int] = {}
+    for part in raw.split("_*|*_"):
+        bits = part.split("_*:*_")
+        if len(bits) != 3:
+            continue
+        sid, _count, ms = bits
+        if not ms.lstrip("-").isdigit():
+            continue
+        out[names.get(sid, f"status:{sid}")] = out.get(names.get(sid, f"status:{sid}"), 0) + int(ms)
+    return out or None
+
+
+async def _status_names(c: httpx.AsyncClient) -> dict[str, str]:
+    r = await c.get("/rest/api/3/status")
+    return {s["id"]: s["name"] for s in r.json()} if r.status_code < 400 else {}
+
+
+async def fetch(frm: date, since: datetime | None = None) -> tuple[list[dict], dict[str, str]]:
+    """TCE issues since `frm`, narrowed to those touched since `since`. GET only.
+
+    Filtering on `updated` rather than `created` is what makes this usable as a
+    frequent incremental: an issue created in May and edited yesterday is
+    indistinguishable from an untouched one under a created-only filter, so
+    every run re-read all 1,200 rows to find the ~15 that had changed — and
+    reassignments and edited effort values drifted for as long as the run
+    interval. `frm` stays as a floor so pre-May history never enters.
+    """
     out: list[dict] = []
     token = None
-    jql = f'project = TCE AND created >= "{frm.isoformat()}" ORDER BY created ASC'
+    jql = f'project = TCE AND created >= "{frm.isoformat()}"'
+    if since is not None:
+        # Jira's JQL clock is minute-resolution; round down so an issue updated
+        # inside the same minute as the last run isn't skipped.
+        jql += f' AND updated >= "{since.strftime("%Y-%m-%d %H:%M")}"'
+    jql += " ORDER BY created ASC"
+
     async with httpx.AsyncClient(
         base_url=settings.JIRA_BASE_URL, headers=_auth(), timeout=90
     ) as c:
+        names = await _status_names(c)
         while True:
             params = {"jql": jql, "maxResults": 100, "fields": FIELDS}
             if token:
@@ -113,7 +176,7 @@ async def fetch(frm: date) -> list[dict]:
             out += body.get("issues", [])
             token = body.get("nextPageToken")
             if body.get("isLast") or not token:
-                return out
+                return out, names
 
 
 async def resolve_people(db, names: set[str], create_missing: bool) -> dict[str, int]:
@@ -134,7 +197,7 @@ async def resolve_people(db, names: set[str], create_missing: bool) -> dict[str,
             db.add(MemberAlias(alias=alias, member_id=member_id))
             aliases[alias.lower()] = member_id
 
-    for name in CREATE_MEMBERS:
+    for name in [*CREATE_MEMBERS, UNASSIGNED]:
         if name.strip().lower() not in by_name:
             m = Member(display_name=name, role="content")
             db.add(m)
@@ -172,19 +235,73 @@ async def _lookup(db, model, name: str | None, cache: dict) -> int | None:
     return cache[name]
 
 
+def _apply(item, f: dict, status: str, jira_status: str, names: dict) -> None:
+    """Every field Jira owns, written onto the item.
+
+    Shared by the insert and the refresh paths deliberately. They used to set
+    overlapping-but-different subsets, which is how effort stayed stale on
+    already-imported rows while looking correct on new ones.
+    """
+    eff = f.get("customfield_10526")
+    minutes = int(eff) if eff is not None else None
+    item.effort_minutes = minutes
+    item.effort_suspect = bool(minutes and minutes > SUSPECT_OVER)
+    item.request_type = _val(f.get("customfield_10240"))
+    item.external_issue_type = f["issuetype"]["name"].strip()
+    item.external_status = jira_status
+    item.status = status
+    item.customer = _val(f.get("customfield_10225")) or None
+    item.pipeline = pipeline_for(f["issuetype"]["name"])
+    item.notes = (f.get("summary") or "")[:2000] or None
+    item.due_at = date.fromisoformat(f["duedate"]) if f.get("duedate") else None
+    item.external_created_at = _naive(_dt(f.get("created")))
+    item.resolved_at = _naive(_dt(f.get("resolutiondate")))
+    item.resolution = _val(f.get("resolution"))
+    item.priority = _val(f.get("priority"))
+    sla = _val(f.get("customfield_10530"))
+    item.sla_met = None if sla is None else (sla.strip().lower() == "met")
+    item.time_in_status = _time_in_status(f.get("customfield_10013"), names)
+
+
+async def _entry_for(db, entries: dict, member_id: int, on: date, stats) -> int:
+    """The synthetic plan entry holding `member_id`'s issues for `on`."""
+    entry_id = entries.get((member_id, on))
+    if entry_id is None:
+        entry = DailyEntry(
+            member_id=member_id, entry_date=on, kind="plan", source="jira",
+            idempotency_key=f"jira:{member_id}:{on.isoformat()}",
+        )
+        db.add(entry)
+        await db.flush()
+        entries[(member_id, on)] = entry_id = entry.id
+        stats["entries_created"] += 1
+    return entry_id
+
+
 async def run(frm: date, dry_run: bool, create_missing: bool,
-              refresh: bool = False) -> dict:
-    issues = await fetch(frm)
-    print(f"fetched {len(issues)} issues since {frm}")
+              refresh: bool = False, incremental: bool = False) -> dict:
+    started = datetime.now(UTC).replace(tzinfo=None)
+    since = None
+    if incremental:
+        async with Session() as db:
+            cursor = await db.get(SyncCursor, CURSOR)
+        if cursor is not None and cursor.last_synced_at is not None:
+            # Overlap the window. Jira's `updated` is minute-resolution and a
+            # run takes time, so an issue edited mid-run would otherwise fall
+            # into the gap between "fetched" and "cursor written".
+            since = _naive(cursor.last_synced_at) - timedelta(minutes=10)
+
+    issues, status_names = await fetch(frm, since)
+    print(f"fetched {len(issues)} issues since {frm}"
+          + (f", updated since {since:%Y-%m-%d %H:%M}" if since else ""))
 
     by_type = collections.Counter(i["fields"]["issuetype"]["name"] for i in issues)
     print("  " + ", ".join(f"{k}={v}" for k, v in by_type.most_common()))
 
     async with Session() as db:
         names = {
-            (i["fields"].get("assignee") or {}).get("displayName")
+            (i["fields"].get("assignee") or {}).get("displayName") or UNASSIGNED
             for i in issues
-            if (i["fields"].get("assignee") or {}).get("displayName")
         }
         people = await resolve_people(db, names, create_missing)
 
@@ -210,29 +327,46 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
         for issue in issues:
             f = issue["fields"]
             key = issue["key"]
+            jira_status = _val(f.get("status")) or "To Do"
+            status = STATUS_MAP.get(jira_status.strip().lower(), "open")
+
             who = (f.get("assignee") or {}).get("displayName")
+            if who is None:
+                # Unassigned work still happened; park it on a placeholder member
+                # rather than dropping it silently from every total.
+                who = UNASSIGNED
             if who not in people:
                 stats["skipped_no_member"] += 1
                 continue
+            member_id = people[who]
+            on = _naive(_dt(f["created"])).date()
+
             if key in seen:
-                # --refresh re-reads fields that were added after the first
-                # import, rather than forcing a wipe and full reload.
-                if refresh:
+                # --refresh re-reads what Jira may have changed since import,
+                # rather than forcing a wipe and full reload.
+                if refresh and not dry_run:
                     item = await db.scalar(
                         select(EntryItem).where(EntryItem.jira_issue_key == key)
                     )
                     if item is not None:
-                        item.request_type = _val(f.get("customfield_10240"))
-                        item.external_issue_type = f["issuetype"]["name"]
+                        _apply(item, f, status, jira_status, status_names)
+                        # Reassignment in Jira used to leave the item filed
+                        # under the original assignee forever: refresh updated
+                        # effort and status but never which member's entry the
+                        # row hung off. That is why 11 of Shruti's tickets and
+                        # 5 of Shivendra's sat on the wrong person while their
+                        # effort totals matched Jira exactly.
+                        entry = await db.get(DailyEntry, item.entry_id)
+                        if entry is not None and entry.member_id != member_id:
+                            item.entry_id = await _entry_for(
+                                db, entries, member_id, entry.entry_date, stats
+                            )
+                            stats["reassigned"] += 1
                         stats["refreshed"] += 1
                 else:
                     stats["already_present"] += 1
                 continue
 
-            member_id = people[who]
-            on = _dt(f["created"]).date()
-            jira_status = _val(f.get("status")) or "To Do"
-            status = STATUS_MAP.get(jira_status.strip().lower(), "open")
             effort = f.get("customfield_10526")
             minutes = int(effort) if effort is not None else None
 
@@ -242,59 +376,38 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
                     stats["suspect_effort"] += 1
                 continue
 
-            entry_id = entries.get((member_id, on))
-            if entry_id is None:
-                entry = DailyEntry(
-                    member_id=member_id, entry_date=on, kind="plan", source="jira",
-                    idempotency_key=f"jira:{member_id}:{on.isoformat()}",
-                )
-                db.add(entry)
-                await db.flush()
-                entries[(member_id, on)] = entry_id = entry.id
-                stats["entries_created"] += 1
-
+            entry_id = await _entry_for(db, entries, member_id, on, stats)
             item = EntryItem(
                 entry_id=entry_id,
                 task_type_id=await _lookup(db, TaskType, _val(f.get("customfield_10230")),
                                            task_cache) or other_id,
                 question_type_id=await _lookup(db, QuestionType,
                                                _val(f.get("customfield_10235")), question_cache),
-                customer=(_val(f.get("customfield_10225")) or None),
                 count=f.get("customfield_10233") and int(f["customfield_10233"]) or None,
-                notes=(f.get("summary") or "")[:2000] or None,
-                due_at=date.fromisoformat(f["duedate"]) if f.get("duedate") else None,
-                status=status,
-                external_status=jira_status,
-                external_issue_type=f["issuetype"]["name"],
-                request_type=_val(f.get("customfield_10240")),
-                pipeline=pipeline_for(f["issuetype"]["name"]),
-                effort_minutes=minutes,
-                effort_suspect=bool(minutes and minutes > SUSPECT_OVER),
                 jira_issue_key=key,
                 jira_issue_url=f"{settings.JIRA_BASE_URL}/browse/{key}",
                 jira_state="ok",
             )
+            _apply(item, f, status, jira_status, status_names)
             db.add(item)
             await db.flush()
             db.add(EntryItemStatusEvent(
                 entry_item_id=item.id, to_status=status, source="jira",
-                changed_at=_dt(f.get("resolutiondate")) or _dt(f["created"]),
+                changed_at=_naive(_dt(f.get("resolutiondate")) or _dt(f["created"])),
             ))
             stats["imported"] += 1
             if item.effort_suspect:
                 stats["suspect_effort"] += 1
 
         if not dry_run:
-            await db.execute(
-                select(SyncCursor).where(SyncCursor.key == CURSOR)
-            )
-            cursor = await db.get(SyncCursor, CURSOR)
-            if cursor is None:
-                db.add(SyncCursor(key=CURSOR, last_synced_at=func.now(), last_status="ok"))
+            # Stamped with when the fetch *started*, not when it finished —
+            # anything edited while the run was in flight is then inside the
+            # next window rather than skipped over.
+            row = await db.get(SyncCursor, CURSOR)
+            if row is None:
+                db.add(SyncCursor(key=CURSOR, last_synced_at=started, last_status="ok"))
             else:
-                cursor.last_synced_at, cursor.last_status, cursor.last_error = (
-                    datetime.now(), "ok", None,
-                )
+                row.last_synced_at, row.last_status, row.last_error = started, "ok", None
             await db.commit()
         else:
             await db.rollback()
@@ -312,9 +425,11 @@ async def main() -> None:
                     help="update already-imported rows with newly captured fields")
     ap.add_argument("--create-missing-members", action="store_true",
                     help="unknown Jira assignees become inactive members instead of skipping")
+    ap.add_argument("--incremental", action="store_true",
+                    help="only fetch issues updated since the last run")
     args = ap.parse_args()
     await run(date.fromisoformat(args.frm), args.dry_run,
-              args.create_missing_members, args.refresh)
+              args.create_missing_members, args.refresh, args.incremental)
 
 
 if __name__ == "__main__":

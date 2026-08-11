@@ -55,6 +55,7 @@ AREA_LABELS = {
     "ht_request": "HT Request",
     "hc_ht_feasibility": "HC/HT Feasibility",
     "technical_writing": "Technical Writing",
+    "tce_subtask": "TCE Subtask",
 }
 
 
@@ -216,6 +217,12 @@ class DailyEntry(Timestamps, Base):
     source: Mapped[str] = mapped_column(default="web")
     idempotency_key: Mapped[str | None] = mapped_column(unique=True)
     slack_reply_ts: Mapped[str | None]
+    # Hold the entry back until this time, then push it to Jira and Slack.
+    # Writing a plan at 18:00 for release at 20:00 is the point: the work is
+    # captured when it's fresh, announced when the team will read it.
+    post_at: Mapped[datetime | None]
+    # Set once it actually went out, so a restart can't publish twice.
+    posted_at: Mapped[datetime | None]
     created_by_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("user.user_id", ondelete="SET NULL")
     )
@@ -285,6 +292,25 @@ class EntryItem(Timestamps, Base):
     # work, content issues, validation and so on.
     request_type: Mapped[str | None]
 
+    # Jira's own clock. Cycle time was previously derived from our status
+    # events, but an imported row only ever gets one event, so every interval
+    # came out at zero and the median read 0.0h across 995 closed tasks.
+    # These two are the real thing, on the 78% of issues Jira has resolved.
+    external_created_at: Mapped[datetime | None]
+    resolved_at: Mapped[datetime | None]
+    resolution: Mapped[str | None]
+    priority: Mapped[str | None]
+    # Jira's own SLA verdict. NULL where Jira never evaluated one.
+    sla_met: Mapped[bool | None]
+    # Milliseconds per status name, from Jira's [CHART] Time in Status. This is
+    # queue time, NOT effort — a ticket parked in TO DO accrues hours nobody
+    # worked. Never sum it against effort_minutes.
+    time_in_status: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    # Whether this task should become a Jira ticket at all. Plenty of logged
+    # work has no business being a ticket, and until now every planned item was
+    # pushed whether anyone wanted it or not.
+    jira_wanted: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     jira_issue_key: Mapped[str | None]
     jira_issue_url: Mapped[str | None]
     jira_state: Mapped[str] = mapped_column(default="none")

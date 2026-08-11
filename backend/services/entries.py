@@ -49,7 +49,10 @@ async def _new_item(
     item = EntryItem(
         entry_id=entry.id, sort_order=sort_order, status=status_,
         plan_item_id=plan_item.id if plan_item else None,
-        **data.model_dump(exclude={"status"}),
+        # `create_jira` is the request's word for it; `jira_wanted` is the
+        # column. Mapped rather than renamed so the API reads as an instruction.
+        jira_wanted=getattr(data, "create_jira", False),
+        **data.model_dump(exclude={"status", "create_jira"}),
     )
     db.add(item)
     await db.flush()
@@ -81,6 +84,7 @@ async def create_plan(db: AsyncSession, data: PlanIn, user_id: str | None) -> Da
     entry = DailyEntry(
         member_id=data.member_id, entry_date=data.entry_date, kind="plan",
         raw_text=data.raw_text, source="web", created_by_user_id=user_id,
+        post_at=data.post_at,
     )
     db.add(entry)
     await db.flush()
@@ -111,6 +115,7 @@ async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -
     entry = DailyEntry(
         member_id=data.member_id, entry_date=data.entry_date, kind="update",
         raw_text=data.raw_text, source="web", created_by_user_id=user_id,
+        post_at=data.post_at,
     )
     db.add(entry)
     await db.flush()
@@ -146,8 +151,10 @@ async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -
         order += 1
 
     for extra in data.extra_items:
-        # Unplanned work is reported after the fact, so it's already done.
-        await _new_item(db, entry, extra, order, status_="closed", user_id=user_id)
+        # A normal task like any other — it just wasn't on this morning's
+        # list. Starts wherever the caller says (open, by default), and moves
+        # the same way a planned one does.
+        await _new_item(db, entry, extra, order, status_=extra.status, user_id=user_id)
         order += 1
 
     await db.commit()
@@ -164,10 +171,6 @@ async def patch_item(
         raise err(404, "not_found", "No such item.")
 
     if status_ and status_ != item.status:
-        entry = await db.get(DailyEntry, item.entry_id)
-        if entry.kind == "update" and item.plan_item_id is None:
-            raise err(422, "extra_task_immutable",
-                      "Extra work is always Done and can't be moved.")
         await record_status(db, item, status_, note=notes, user_id=user_id)
         # The plan row and every update row pointing at it are one task shown
         # more than once — move them all, whichever end the change came from.
@@ -189,6 +192,74 @@ async def patch_item(
         item.effort_minutes = effort_minutes
     await db.commit()
     return await db.scalar(select(EntryItem).where(EntryItem.id == item_id))
+
+
+async def today_status(db: AsyncSession, on: date, viewer_member_id: int | None = None) -> dict:
+    """Who has filed a plan today, and who has followed it with an update.
+
+    Reports the people, not just counts — a number nobody can act on is worse
+    than a name they can chase. `you` is computed here rather than inferred by
+    the caller from absence in a list: admins were being left out of the team
+    set, so "not listed as missing" silently read as "already planned".
+    """
+    planned = {
+        m: (mid, e) for mid, m, e in await db.execute(
+            select(DailyEntry.member_id, Member.display_name, DailyEntry.id)
+            .join(Member, Member.id == DailyEntry.member_id)
+            .where(DailyEntry.entry_date == on, DailyEntry.kind == "plan",
+                   DailyEntry.source != "jira")
+        )
+    }
+    updated = {
+        m for (m,) in await db.execute(
+            select(Member.display_name)
+            .select_from(DailyEntry)
+            .join(Member, Member.id == DailyEntry.member_id)
+            .where(DailyEntry.entry_date == on, DailyEntry.kind == "update")
+        )
+    }
+    # Everyone active plans their day, admins included.
+    active = {
+        m: mid for mid, m in await db.execute(
+            select(Member.id, Member.display_name).where(Member.is_active.is_(True))
+        )
+    }
+
+    done = sorted(n for n in planned if n in updated)
+    pending = sorted(n for n in planned if n not in updated)
+    no_plan = sorted(n for n in active if n not in planned)
+
+    mine = next((n for n, mid in active.items() if mid == viewer_member_id), None)
+    you = {
+        "member_id": viewer_member_id,
+        "member": mine,
+        "planned": mine is not None and mine in planned,
+        "updated": mine is not None and mine in updated,
+        "plan_entry_id": planned[mine][1] if mine in planned else None,
+    }
+    return {
+        "date": on.isoformat(),
+        "planned": len(planned),
+        "updated": len(done),
+        "awaiting_update": [{"member_id": planned[n][0], "member": n} for n in pending],
+        "no_plan_yet": [{"member_id": active[n], "member": n} for n in no_plan],
+        "team_size": len(active),
+        "you": you,
+    }
+
+
+async def members_without_a_plan(db: AsyncSession, on: date) -> list[Member]:
+    """Active members with an email who haven't filed a plan today."""
+    planned = select(DailyEntry.member_id).where(
+        DailyEntry.entry_date == on, DailyEntry.kind == "plan", DailyEntry.source != "jira"
+    )
+    return list(await db.scalars(
+        select(Member).where(
+            Member.is_active.is_(True),
+            Member.email.isnot(None),
+            Member.id.notin_(planned),
+        ).order_by(Member.display_name)
+    ))
 
 
 async def list_items(

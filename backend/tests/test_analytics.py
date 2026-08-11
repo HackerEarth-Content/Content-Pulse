@@ -32,7 +32,11 @@ async def dataset(client, member, task_type):
         "member_id": member, "entry_date": DAY,
         "plan_lines": [{"plan_item_id": plan["items"][0]["id"], "status": "closed",
                         "notes": "done", "due_at": DAY}],
-        "extra_items": [{"task_type_id": task_type, "count": 1, "notes": "unplanned"}],
+        # Explicit: extra work only defaults to open since it's a normal task
+        # now, but this fixture's "2 closed" scenario predates that and still
+        # wants this one closed.
+        "extra_items": [{"task_type_id": task_type, "count": 1, "notes": "unplanned",
+                         "status": "closed"}],
     })
     return plan
 
@@ -65,14 +69,57 @@ async def test_trend_is_zero_filled(client, member, task_type):
     assert [r["tasks"] for r in rows] == [0, 0, 0, 3]
 
 
-async def test_status_flow_and_cycle_time_read_the_event_log(client, member, task_type, params):
+async def test_status_flow_reads_the_event_log(client, member, task_type, params):
     await dataset(client, member, task_type)
     flow = (await client.get("/api/analytics/status-flow", params=params)).json()
     assert {"from": "open", "to": "closed", "count": 1} in flow
 
+
+async def test_cycle_time_excludes_work_logged_after_the_fact(client, member, task_type, params):
+    """Everything in `dataset` is opened and closed in the same breath, which is
+    also how most of the real Jira tickets arrive — 72% of them since 3 Aug were
+    created and resolved inside 15 minutes. Counting those reported a median of
+    0.04h, so they're excluded and surfaced separately instead of quietly."""
+    await dataset(client, member, task_type)
     cycle = (await client.get("/api/analytics/cycle-time", params=params)).json()
-    assert cycle["closed_tasks"] == 2
-    assert cycle["median_hours"] is not None
+
+    assert cycle["filed_retroactively"] > 0
+    assert cycle["closed_tasks"] == 0, "same-instant closures are not cycle time"
+    assert cycle["median_hours"] is None
+    assert cycle["coverage"] == 0.0
+
+
+async def test_cycle_time_measures_a_real_interval(client, member, task_type, params):
+    """The other half: backdate the opening event and a genuine duration appears."""
+    from datetime import timedelta
+
+    from sqlalchemy import func, select, update as sa_update
+
+    from core.database import Session
+    from core.orm import DailyEntry, EntryItem, EntryItemStatusEvent
+
+    await dataset(client, member, task_type)
+    async with Session() as db:
+        ids = (await db.execute(
+            select(EntryItem.id)
+            .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+            .where(DailyEntry.member_id == member)
+        )).scalars().all()
+        first = await db.scalar(
+            select(func.min(EntryItemStatusEvent.changed_at))
+            .where(EntryItemStatusEvent.entry_item_id.in_(ids))
+        )
+        await db.execute(
+            sa_update(EntryItemStatusEvent)
+            .where(EntryItemStatusEvent.entry_item_id.in_(ids),
+                   EntryItemStatusEvent.to_status != "closed")
+            .values(changed_at=first - timedelta(hours=6))
+        )
+        await db.commit()
+
+    cycle = (await client.get("/api/analytics/cycle-time", params=params)).json()
+    assert cycle["closed_tasks"] >= 1
+    assert cycle["median_hours"] is not None and cycle["median_hours"] >= 5.9
 
 
 async def test_data_quality_flags_unreported_plans(client, member, task_type, params):
@@ -109,6 +156,19 @@ async def test_areas_partition_the_work(client, member, task_type, params):
     total = (await client.get("/api/analytics/summary", params=params)).json()["tasks"]
     areas = (await client.get("/api/analytics/by-area", params=params)).json()
     assert sum(a["tasks"] for a in areas) == total
+
+
+async def test_effort_breakdown_labels_are_the_real_names(client, member, task_type, params):
+    """Regression: by_customer/by_member/by_task_type labels used to be the
+    literal dimension name ("customer", "member", "task_type") instead of the
+    actual value, so the UI showed the field name rather than who/what it was."""
+    plan = await dataset(client, member, task_type)
+    await client.patch(f"/api/entry-items/{plan['items'][0]['id']}", json={"effort_minutes": 60})
+    b = (await client.get("/api/analytics/effort-breakdown", params=params)).json()
+    assert any(row["label"] == "Acme" for row in b["by_customer"])
+    assert all(row["label"] != "customer" for row in b["by_customer"])
+    assert all(row["label"] != "member" for row in b["by_member"])
+    assert all(row["label"] != "task_type" for row in b["by_task_type"])
 
 
 async def test_assessments_split_out_of_content_requests(client, member, task_type, params):

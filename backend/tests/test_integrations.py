@@ -294,6 +294,48 @@ async def test_created_issue_carries_every_field(client, member, task_type, monk
     assert sent["issuetype"]["name"] == "Content Tasks"
 
 
+async def test_assignee_resolved_from_email_and_cached(client, member, task_type, monkeypatch):
+    """No jira_account_id yet, but the member has an email — resolve it via
+    Jira's user search instead of leaving the ticket unassigned, and remember
+    it so the next ticket skips the lookup."""
+    from core.database import Session as S
+    from core.orm import Member
+
+    async with S() as db:
+        m = await db.get(Member, member)
+        # The row is shared across the file's tests, so an earlier test's
+        # jira_account_id would otherwise short-circuit this one.
+        m.email, m.jira_account_id = "person@example.com", None
+        await db.commit()
+
+    plan = (await client.post("/api/entries/plans", json={
+        "member_id": member, "entry_date": DAY,
+        "items": [{"task_type_id": task_type, "notes": "n"}],
+    })).json()
+
+    sent = {}
+    searched = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            sent.update(httpx.Response(200, content=request.content).json()["fields"])
+            return httpx.Response(201, json={"key": "TCE-51"})
+        if request.url.path.endswith("/user/search"):
+            searched.append(request.url.params.get("query"))
+            return httpx.Response(200, json=[{"accountId": "acct-from-email"}])
+        return httpx.Response(200, json={"fields": {}})
+
+    monkeypatch.setattr(jira, "_client", transport(handler))
+    await jira.push_item(plan["items"][0]["id"])
+
+    assert searched == ["person@example.com"]
+    assert sent["assignee"] == {"id": "acct-from-email"}
+
+    async with S() as db:
+        m = await db.get(Member, member)
+        assert m.jira_account_id == "acct-from-email", "cached for next time"
+
+
 async def test_pipeline_picks_the_issue_type(monkeypatch):
     """content_request -> Content Requests, and only that type carries the
     customer field. Exercised directly: the HTTP round trip adds nothing here."""

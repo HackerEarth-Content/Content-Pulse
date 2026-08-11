@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { DateField } from "./DateField";
 import { ApiError, api } from "../api";
 import { statusLabel } from "../format";
 import type { Item, Status } from "../types";
@@ -82,13 +83,7 @@ export function StatusDialog({
       <label className="label" htmlFor="dlg-due">
         Due date
       </label>
-      <input
-        id="dlg-due"
-        className="field"
-        type="date"
-        value={dueAt}
-        onChange={(e) => setDueAt(e.target.value)}
-      />
+      <DateField id="dlg-due" label="due date" value={dueAt} onChange={setDueAt} />
 
       <label className="label" style={{ marginTop: 12 }} htmlFor="dlg-effort">
         Effort (min) — total for this task, not an addition

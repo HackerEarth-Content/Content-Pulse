@@ -38,6 +38,58 @@ export function shortDate(iso: string): string {
 
 export const today = () => new Date().toLocaleDateString("en-CA");
 
+/** ISO `2026-08-10` → `10/08/2026`, the format this team writes dates in.
+ *
+ * Built from the string rather than a Date, because `new Date("2026-08-10")`
+ * parses as UTC midnight and renders as the 9th anywhere west of Greenwich.
+ * ISO stays the wire and storage format everywhere; this is display only. */
+export function dmy(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return y && m && d ? `${d}/${m}/${y}` : iso;
+}
+
+/** What a date field should do with what the user typed.
+ *
+ * Split out of the component so it can be tested: deciding to emit when nothing
+ * changed is what made the period picker reset itself on every stray click, and
+ * that decision is worth a check rather than a code review.
+ *
+ * `changed` is false when the parsed date equals what the field already holds —
+ * the caller must not fire onChange then, because this runs on blur and so runs
+ * on every click away from the field.
+ */
+export function commitDate(
+  raw: string,
+  current: string,
+  min?: string,
+  max?: string
+): { iso: string; changed: boolean; invalid: boolean } {
+  if (!raw.trim()) {
+    return { iso: "", changed: current !== "", invalid: false };
+  }
+  const iso = fromDmy(raw);
+  if (!iso || (min && iso < min) || (max && iso > max)) {
+    return { iso: current, changed: false, invalid: true };
+  }
+  return { iso, changed: iso !== current, invalid: false };
+}
+
+/** `10/08/2026` → `2026-08-10`, or null if it isn't a real date.
+ *
+ * Rejects impossible days rather than letting them roll over: `31/02/2026` is
+ * a typo, and Date would silently turn it into 3 March. */
+export function fromDmy(text: string): string | null {
+  const m = text.trim().match(/^(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{4})$/);
+  if (!m) return null;
+  const [, d, mo, y] = m.map(Number) as unknown as [string, number, number, number];
+  const iso = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const back = new Date(`${iso}T00:00:00`);
+  return back.getFullYear() === y && back.getMonth() + 1 === mo && back.getDate() === d
+    ? iso
+    : null;
+}
+
 export function addDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00`);
   d.setDate(d.getDate() + days);

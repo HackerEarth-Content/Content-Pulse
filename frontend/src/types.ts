@@ -54,6 +54,22 @@ export interface Entry {
   items: Item[];
 }
 
+export interface TodayStatus {
+  date: string;
+  you: {
+    member_id: number | null;
+    member: string | null;
+    planned: boolean;
+    updated: boolean;
+    plan_entry_id: number | null;
+  };
+  planned: number;
+  updated: number;
+  awaiting_update: { member_id: number; member: string }[];
+  no_plan_yet: { member_id: number; member: string }[];
+  team_size: number;
+}
+
 export interface WorkLogRow {
   id: number;
   entry_id: number;
@@ -179,6 +195,9 @@ export interface MemberProfile {
   by_task_type: TaskTypeStat[];
   by_question_type: { question_type: string; tasks: number; volume: number }[];
   by_customer: CustomerStat[];
+  by_area: AreaStat[];
+  effort_breakdown: EffortBreakdown;
+  quality: QualityMix;
   cycle_time: CycleTime;
   adherence: Adherence | null;
   trend: TrendPoint[];
@@ -196,11 +215,80 @@ export interface Adherence {
 }
 
 export interface CycleTime {
+  /** Tasks the median is actually computed over. */
   closed_tasks: number;
+  /** Finished tasks in range — the denominator for `coverage`. */
+  measured_of_closed: number;
+  /** Created and resolved within two minutes: filed after the work, so
+   *  excluded from the median. Show this, or the number reads as complete. */
+  filed_retroactively: number;
+  coverage: number | null;
   median_hours: number | null;
   p90_hours: number | null;
   by_member: { member: string; closed_tasks: number; median_hours: number | null }[];
   by_task_type: { task_type: string; closed_tasks: number; median_hours: number | null }[];
+}
+
+/** One slice of a total — by area, task type, customer or person. */
+export interface EffortSlice {
+  key: string;
+  label: string;
+  tasks: number;
+  effort_minutes: number;
+}
+
+export interface EffortTicket {
+  id: number;
+  notes: string | null;
+  effort_minutes: number;
+  suspect: boolean;
+  jira_issue_key: string | null;
+  jira_issue_url: string | null;
+  customer: string | null;
+  status: Status;
+  entry_date: string;
+  member: string;
+  area: string;
+  area_label: string;
+}
+
+/** What a headline effort figure is made of. Every slice sums back to
+ *  `effort_minutes`, so the parts reconcile with the whole. */
+export interface EffortBreakdown {
+  effort_minutes: number;
+  tasks: number;
+  tasks_without_effort: number;
+  tasks_with_suspect_effort: number;
+  by_area: EffortSlice[];
+  by_task_type: EffortSlice[];
+  by_customer: EffortSlice[];
+  by_member: EffortSlice[];
+  top_tickets: EffortTicket[];
+}
+
+/** A stream, and who spent the time in it. */
+export interface AreaByMember {
+  area: string;
+  label: string;
+  tasks: number;
+  effort_minutes: number;
+  members: {
+    member_id: number;
+    member: string;
+    tasks: number;
+    effort_minutes: number;
+    closed: number;
+    share_of_area: number | null;
+  }[];
+}
+
+export interface QualityMix {
+  by_priority: { key: string; tasks: number; effort_minutes: number }[];
+  sla_met: number;
+  sla_missed: number;
+  /** Jira only rates about half the issues, so this is a rate over the rated
+   *  ones — not over everything. */
+  sla_rate: number | null;
 }
 
 export interface OpenItem {

@@ -1,11 +1,11 @@
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
-from core.dates import resolve_range
+from core.dates import resolve_range, today
 from core.deps import Viewer, get_viewer
 from core.orm import DailyEntry, EntryItem, EntryItemStatusEvent, User
 from core.users import current_user
@@ -21,6 +21,7 @@ from schemas.entries import (
     WorkLogRow,
 )
 from services import entries as svc
+from services import publish
 
 router = APIRouter(prefix="/api", tags=["entries"], dependencies=[Depends(current_user)])
 
@@ -47,6 +48,13 @@ async def list_entries(
         task_type_id=task_type_id, customer=customer, q=q, page=page, page_size=page_size,
     )
     return Page(items=[EntryOut.of(r) for r in rows], total=total, page=page, page_size=page_size)
+
+
+@router.get("/today")
+async def today_status(db: AsyncSession = Depends(get_session),
+                       viewer: Viewer = Depends(get_viewer)):
+    """The strip at the top of every page: today's plan/update state."""
+    return await svc.today_status(db, today(), viewer.member.id if viewer.member else None)
 
 
 @router.get("/work-log", response_model=Page[WorkLogRow])
@@ -122,14 +130,27 @@ async def create_update(data: UpdateIn, background: BackgroundTasks,
 
 async def _dispatch(db: AsyncSession, background: BackgroundTasks, entry) -> None:
     """Queue the integration work for after the response. A slow or broken Jira
-    must never make saving a plan slow or look broken."""
-    for item in entry.items:
+    must never make saving a plan slow or look broken.
+
+    Two things stop a push: the entry is scheduled for later, or nobody asked
+    for a ticket on that item. Both are checked in `services.publish` so the
+    scheduled path can't disagree with this one.
+    """
+    if publish.is_held(entry):
+        await db.commit()
+        await publish.reload_stamps(db, entry)
+        return
+
+    pushable = publish.mark_pending(entry)
+    entry.posted_at = datetime.now()
+    await db.commit()
+    await publish.reload_stamps(db, entry)
+
+    for item in pushable:
         if item.jira_issue_key:
             background.add_task(jira.push_status, item.id, item.status, item.notes)
         else:
-            item.jira_state = "pending"
             background.add_task(jira.push_item, item.id)
-    await db.commit()
     background.add_task(slack.post_entry, entry.id)
 
 

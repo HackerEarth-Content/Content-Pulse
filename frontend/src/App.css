@@ -8,6 +8,125 @@
   padding: 18px 22px 56px;
 }
 
+/* ── shell: fixed sidebar, scrolling main ────────────────────────────────── */
+
+.shell {
+  display: grid;
+  grid-template-columns: 244px minmax(0, 1fr);
+  min-height: 100%;
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px 12px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  /* Sticky, not fixed: it scrolls with a short viewport instead of clipping
+     the settings and theme controls out of reach. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+.sidebar-brand {
+  padding: 4px 10px 0;
+}
+.side-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sidebar-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.side-link {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+.side-link:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.side-link.active {
+  background: var(--surface-3);
+  color: var(--ink);
+  font-weight: 600;
+}
+.side-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--ink-3);
+  font-size: 14px;
+}
+.side-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.side-link.active .side-icon {
+  color: var(--accent-indigo);
+}
+.shell-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.shell-content {
+  padding: 0 26px 56px;
+  max-width: 1600px;
+  width: 100%;
+}
+@media (max-width: 1000px) {
+  /* The column becomes a strip across the top; the icons keep it legible
+     without eating a third of a narrow screen. */
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .side-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .sidebar-foot {
+    margin-top: 0;
+    flex-direction: row;
+    border-top: 0;
+    padding-top: 0;
+  }
+  .shell-content {
+    padding: 0 16px 48px;
+  }
+}
+
 /* ── top bar ─────────────────────────────────────────────────────────────── */
 
 .topbar {
@@ -15,7 +134,14 @@
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
-  padding: 12px 0 16px;
+  padding: 14px 26px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+@media (max-width: 1000px) {
+  .topbar {
+    padding: 12px 16px;
+  }
 }
 
 .brand {
@@ -138,19 +264,132 @@
   border-radius: 999px;
   cursor: pointer;
 }
-.period-btn[aria-pressed="true"] {
+/* The group is a radiogroup now, so selection is `aria-checked`. The old
+   `aria-pressed` rule is kept because a toggle elsewhere may still use it. */
+.period-btn[aria-pressed="true"],
+.period-btn[aria-checked="true"] {
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow);
 }
-.period-custom {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* Keyboard focus has to be visible: roving tabindex means arrow keys move
+   between options, and without a ring there is no way to see where you are. */
+.period-btn:focus-visible {
+  outline: 2px solid var(--accent-indigo);
+  outline-offset: 1px;
 }
-.period-custom .field {
+.period-picker {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.period-dates {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.period-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.period-field .label {
+  margin: 0;
+  font-size: 10.5px;
+}
+.period-field .field {
   padding: 5px 8px;
   font-size: 11.5px;
+  /* Chrome hides the picker button until hover otherwise, which makes the
+     control look like a plain text box. */
+  min-width: 132px;
+}
+.period-resolved {
+  margin: 0 0 2px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+/* ── when an entry goes out ──────────────────────────────────────────────── */
+
+.schedule {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px 10px;
+  margin-top: 14px;
+}
+.schedule > .label {
+  padding: 0 4px;
+  margin: 0;
+}
+.schedule-options {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin-top: 8px;
+}
+.schedule-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.schedule-option:hover {
+  border-color: color-mix(in srgb, var(--accent-indigo) 45%, var(--line));
+}
+.schedule-option.selected {
+  border-color: var(--accent-indigo);
+  background: color-mix(in srgb, var(--accent-indigo) 8%, var(--surface-2));
+}
+.schedule-option:focus-within {
+  outline: 2px solid var(--accent-indigo);
+  outline-offset: 1px;
+}
+.schedule-option[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.schedule-option[aria-disabled="true"]:hover {
+  border-color: var(--line);
+}
+.schedule-option input {
+  margin-top: 2px;
+  accent-color: var(--accent-indigo);
+  cursor: pointer;
+  flex: none;
+}
+.schedule-option > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.schedule-option-label {
+  font-weight: 550;
+  color: var(--ink);
+}
+.schedule-option .muted {
+  font-size: 11px;
+}
+.schedule-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 10px;
+}
+.schedule-custom .field {
+  width: auto;
+  max-width: 260px;
+}
+.schedule-summary {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
 }
 
 /* ── section rules, not boxes ────────────────────────────────────────────── */
@@ -227,11 +466,12 @@
   }
 }
 
+/* No shadow: a card is defined by its background step and border. Shadows are
+   reserved for things that genuinely float, like the status dialog. */
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
   padding: 16px;
 }
 .card-head {
@@ -263,12 +503,36 @@
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
   padding: 13px 14px;
   min-width: 0;
 }
+/* The same numbers with the card chrome taken away, for a headline row where
+   eight boxed tiles is more border than content. Divided by hairlines instead,
+   so the row reads as one object. */
+.stat-row--bare {
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+.stat-row--bare .stat {
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 16px;
+}
+.stat-row--bare .stat:first-child {
+  border-left: 0;
+}
+.stat-row--bare .stat:hover {
+  background: var(--surface-2);
+  border-color: var(--line);
+}
 .stat-label {
   display: block;
+  font-family: var(--font-mono);
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.07em;
@@ -301,7 +565,6 @@
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: var(--shadow);
 }
 table {
   width: 100%;
@@ -309,32 +572,43 @@ table {
   border-spacing: 0;
   font-size: 12.5px;
 }
+/* `label-caps`: mono, small, wide-tracked. Distinguishes a column header from
+   the interactive text elsewhere on the page at a glance. */
 th {
   position: sticky;
   top: 0;
   z-index: 2;
   text-align: left;
   white-space: nowrap;
+  font-family: var(--font-mono);
   font-size: 10.5px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--ink-3);
   background: var(--surface-2);
   border-bottom: 1px solid var(--line);
-  padding: 9px 12px;
+  padding: 11px 12px;
 }
+/* Mono throughout the body so columns align down the page — the point of a
+   tabular font. Free prose opts out via `.text`, because a ticket summary is a
+   sentence, not a value, and mono makes a long one harder to read. */
 td {
-  padding: 9px 12px;
+  padding: 11px 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
   color: var(--ink-2);
   vertical-align: top;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+td.text {
+  font-family: var(--font-sans);
 }
 tbody tr:last-child td {
   border-bottom: 0;
 }
 tbody tr:hover td {
-  background: color-mix(in srgb, var(--accent-blue) 4%, transparent);
+  background: var(--surface-3);
 }
 td.num,
 th.num {
@@ -393,24 +667,30 @@ td.strong {
   flex: none;
 }
 .pill-open {
-  color: var(--status-neutral);
+  color: var(--status-neutral-ink);
   background: color-mix(in srgb, var(--status-neutral) 12%, transparent);
   border-color: color-mix(in srgb, var(--status-neutral) 28%, transparent);
 }
 .pill-in_progress {
-  color: var(--status-warning);
+  color: var(--status-warning-ink);
   background: color-mix(in srgb, var(--status-warning) 14%, transparent);
   border-color: color-mix(in srgb, var(--status-warning) 30%, transparent);
 }
 .pill-blocked {
-  color: var(--status-critical);
+  color: var(--status-critical-ink);
   background: color-mix(in srgb, var(--status-critical) 12%, transparent);
   border-color: color-mix(in srgb, var(--status-critical) 30%, transparent);
 }
 .pill-closed {
-  color: var(--status-good);
+  color: var(--status-good-ink);
   background: color-mix(in srgb, var(--status-good) 12%, transparent);
   border-color: color-mix(in srgb, var(--status-good) 28%, transparent);
+}
+/* A caveat attached to a number, not a status — "counted, but check it". */
+.pill-warn {
+  color: var(--status-warning-ink);
+  background: color-mix(in srgb, var(--status-warning) 12%, transparent);
+  border-color: color-mix(in srgb, var(--status-warning) 28%, transparent);
 }
 .pill-plan {
   color: var(--accent-indigo);
@@ -477,16 +757,213 @@ textarea.field {
   gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
+/* Filters live in one bordered strip rather than floating loose above the
+   table, so it's obvious where the controls end and the results begin. */
 .filter-bar {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 .filter-bar .field {
   width: auto;
   min-width: 140px;
+  border-radius: var(--radius-sm);
+}
+.filter-bar .section-action {
+  margin-left: auto;
+}
+
+/* Inputs sitting inside a table cell: no label of their own (the column header
+   names them), and quiet until you interact, so a screen of them doesn't read
+   as a wall of boxes. */
+.field-inline {
+  width: 100%;
+  min-width: 90px;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: transparent;
+  border-color: transparent;
+}
+.field-inline:hover {
+  border-color: var(--line);
+}
+.field-inline:focus {
+  background: var(--surface);
+  border-color: var(--accent-indigo);
+}
+.field-num {
+  max-width: 84px;
+  text-align: right;
+  font-family: var(--font-mono);
+}
+.day-table td {
+  vertical-align: middle;
+}
+.day-task {
+  display: block;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+
+/* ── person header ───────────────────────────────────────────────────────── */
+
+.profile-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.profile-id {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 220px;
+}
+/* An initial, not a photo: we have no avatars, and a placeholder silhouette
+   for eleven named colleagues reads worse than their own letter. */
+.profile-avatar {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: none;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent-indigo) 16%, var(--surface-2));
+  color: var(--accent-indigo);
+  font-size: 19px;
+  font-weight: 650;
+}
+.profile-name {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.profile-sub {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.profile-summary {
+  flex: 1 1 300px;
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.profile-summary strong {
+  color: var(--ink);
+}
+
+/* ── Jira freshness, and a way to force it ───────────────────────────────── */
+
+.sync {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sync-age {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.sync-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.sync-btn:hover:not(:disabled) {
+  color: var(--accent-indigo);
+  background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--accent-indigo) 45%, var(--line));
+}
+.sync-btn:disabled {
+  cursor: default;
+  color: var(--ink-3);
+}
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: sync-spin 1s linear infinite;
+}
+/* A spinner is decoration; the wording next to it already says "Syncing…", so
+   nothing is lost by holding it still for anyone who asked for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+/* ── date field: dd/mm/yyyy text, native calendar behind a button ────────── */
+
+.datefield {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.datefield .field {
+  padding-right: 30px;
+}
+/* Present in the DOM so `showPicker()` has a real input to open, but taken out
+   of layout and the tab order. `display: none` would make showPicker throw. */
+.datefield-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  bottom: 0;
+  left: 8px;
+}
+.datefield-btn {
+  position: absolute;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.datefield-btn:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.field.is-invalid {
+  border-color: var(--status-critical);
+}
+
+/* Says what the selected tab contains, so you don't have to open each one to
+   find out. Sits between the tab strip and the first card. */
+.tab-blurb {
+  margin: 8px 0 14px;
+  font-size: 12.5px;
+  color: var(--ink-3);
 }
 .hint {
   font-size: 11.5px;
@@ -551,16 +1028,91 @@ textarea.field {
 .task-row-wide {
   grid-column: 1 / -1;
 }
+/* Effort drill-down: the total, its caveats, then the split beneath. */
+.drilldown-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.drilldown-caveats {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.drilldown-tabs {
+  width: fit-content;
+  margin-bottom: 14px;
+}
+.section-sub {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 18px 0 8px;
+}
+
+/* One card per stream, each ranking the people inside it. */
+.stream-split {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+.stream-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.stream-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.stream-total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+/* Opting a task into a Jira ticket. The whole label is the hit target, so the
+   box doesn't need pixel-accurate aim. */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent-indigo);
+  cursor: pointer;
+}
+.check:hover {
+  color: var(--text-1);
+}
 @media (max-width: 900px) {
   .task-row {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* Planned versus unplanned work. Both used to carry a 2px accent bar down the
+   left edge; the distinction is real, so it stays, but as a tint of the row's
+   own surface rather than a stripe bolted to its side. */
 .plan-line {
-  border-left: 2px solid var(--accent-indigo);
+  background: color-mix(in srgb, var(--accent-indigo) 6%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent-indigo) 22%, var(--line));
 }
 .extra-line {
-  border-left: 2px solid var(--accent-aqua);
+  background: color-mix(in srgb, var(--accent-aqua) 6%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent-aqua) 22%, var(--line));
 }
 
 /* ── bar list ────────────────────────────────────────────────────────────── */
@@ -953,10 +1505,9 @@ td.heat {
   gap: 8px;
   flex-wrap: wrap;
   padding: 11px 14px;
-  border: 1px solid var(--line);
-  border-left: 2px solid var(--accent-indigo);
+  border: 1px solid color-mix(in srgb, var(--accent-indigo) 20%, var(--line));
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--accent-indigo) 5%, var(--surface));
   font-size: 12.5px;
   color: var(--ink-2);
   margin-bottom: 12px;
@@ -964,4 +1515,72 @@ td.heat {
 .insight strong {
   color: var(--ink);
   font-weight: 600;
+}
+
+/* ── today strip ─────────────────────────────────────────────────────────── */
+
+.today-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 11px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.today-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+}
+/* A halo rather than an outline — reads as "live" without shouting. */
+.today-dot--done {
+  background: var(--status-good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-good) 20%, transparent);
+}
+.today-dot--planned {
+  background: var(--status-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-warning) 20%, transparent);
+}
+.today-dot--todo {
+  background: var(--status-serious);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-serious) 20%, transparent);
+}
+.today-dot--none {
+  background: var(--status-neutral);
+}
+.today-mine strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.today-team {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-left: auto;
+  color: var(--ink-3);
+}
+.today-stat b {
+  color: var(--ink);
+  font-weight: 600;
+  margin-right: 3px;
+}
+.today-stat--warn b {
+  color: var(--status-warning);
+}
+.today-cta {
+  text-decoration: none;
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  .today-team {
+    margin-left: 0;
+  }
 }

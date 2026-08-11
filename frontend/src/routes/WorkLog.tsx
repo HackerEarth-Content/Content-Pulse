@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type EntryFilters } from "../api";
 import { StatusDialog } from "../components/StatusDialog";
-import { Async, SectionHeading, StatusPill } from "../components/ui";
-import { mins, num, statusLabel } from "../format";
+import { Async, SectionHeading } from "../components/ui";
+import { dmy, mins, num, statusLabel } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
 import type { Item, WorkLogRow } from "../types";
@@ -170,7 +170,7 @@ export function WorkLog({ range }: { range: Range }) {
                         <td className="strong">
                           <Link className="tag" to={`/members/${r.member_id}`}>{r.member}</Link>
                         </td>
-                        <td className="mono">{r.entry_date}</td>
+                        <td className="mono">{dmy(r.entry_date)}</td>
                         <td>
                           <span className="pill pill-muted">
                             {r.external_issue_type ?? (r.kind === "plan" ? "Plan" : "Update")}
@@ -181,14 +181,10 @@ export function WorkLog({ range }: { range: Range }) {
                         <td className="num">{num(r.count)}</td>
                         <td className="num">{mins(r.effort_minutes)}</td>
                         <td>
-                          {r.kind === "update" && r.plan_item_id === null ? (
-                            <StatusPill status={r.status} />
-                          ) : (
-                            <button className={`pill pill-${r.status} pill-button`}
-                                    onClick={() => setMoving(asItem(r))} title="Move status">
-                              {statusLabel(r.status)}
-                            </button>
-                          )}
+                          <button className={`pill pill-${r.status} pill-button`}
+                                  onClick={() => setMoving(asItem(r))} title="Move status">
+                            {statusLabel(r.status)}
+                          </button>
                         </td>
                         <td className="mono muted">{r.due_at ?? "—"}</td>
                         <td>
