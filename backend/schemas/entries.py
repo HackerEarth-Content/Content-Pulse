@@ -73,7 +73,7 @@ class UpdateIn(Scheduled):
     entry_date: date
     raw_text: str | None = None
     plan_lines: list[PlanLineIn] = []
-    # Work done that wasn't planned. Always lands closed — it's already done.
+    # Work that wasn't planned. Starts open by default, same as a planned item.
     extra_items: list[ItemIn] = []
 
 

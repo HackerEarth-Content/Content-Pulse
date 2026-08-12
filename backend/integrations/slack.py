@@ -80,10 +80,13 @@ def parent_text(on: date, kind: str, entries: list[DailyEntry]) -> str:
 
 
 async def _entries_for(db, on: date, kind: str) -> list[DailyEntry]:
+    # Same rule as members_without_a_plan/today_status: a Jira-sync mirror of
+    # ticket activity is not someone filing a plan or update in this app.
     return list(await db.scalars(
         select(DailyEntry)
         .options(selectinload(DailyEntry.items))
-        .where(DailyEntry.entry_date == on, DailyEntry.kind == kind)
+        .where(DailyEntry.entry_date == on, DailyEntry.kind == kind,
+               DailyEntry.source != "jira")
         .order_by(DailyEntry.created_at)
     ))
 
