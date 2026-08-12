@@ -22,6 +22,7 @@ import { Login } from "./routes/Login";
 import { MemberDetail } from "./routes/MemberDetail";
 import { Members } from "./routes/Members";
 import { Overview } from "./routes/Overview";
+import { PlanBoard } from "./routes/PlanBoard";
 import { MyDay } from "./routes/MyDay";
 import { WorkLog } from "./routes/WorkLog";
 
@@ -63,6 +64,7 @@ export default function App() {
         <Route path="/members" element={<Members range={range} />} />
         <Route path="/members/:id" element={<MemberDetail range={range} />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/plan-board" element={<PlanBoard />} />
         <Route path="/requests" element={<Requests range={range} />} />
         <Route path="/leaderboard" element={<Leaderboard range={range} />} />
         {/* Raw Jira board mirror. Off the nav — /requests supersedes it. */}

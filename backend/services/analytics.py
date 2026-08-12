@@ -686,6 +686,48 @@ async def plan_adherence(db: AsyncSession, s: Scope) -> list[dict]:
     ]
 
 
+async def plan_daily_status(db: AsyncSession, s: Scope) -> list[dict]:
+    """Per member, per day: did they file a plan, did they log an update.
+
+    `plan_adherence` collapses the whole range into one row per member; this
+    keeps the day so a board can show the pattern over time. Same Jira-sync
+    exclusion on the plan side as `plan_adherence` — a backfilled ticket isn't
+    someone filing a plan. The Jira sync never creates `update` rows, so that
+    side needs no such filter (matches `today_status` in services/entries.py).
+    """
+    planned = {
+        (r.member_id, r.entry_date) for r in await db.execute(
+            select(DailyEntry.member_id, DailyEntry.entry_date)
+            .where(*_entry_where(s), DailyEntry.kind == "plan", DailyEntry.source != "jira")
+            .distinct()
+        )
+    }
+    updated = {
+        (r.member_id, r.entry_date) for r in await db.execute(
+            select(DailyEntry.member_id, DailyEntry.entry_date)
+            .where(*_entry_where(s), DailyEntry.kind == "update")
+            .distinct()
+        )
+    }
+    member_where = [Member.is_active.is_(True)]
+    if s.member_id:
+        member_where.append(Member.id == s.member_id)
+    members = await db.execute(
+        select(Member.id, Member.display_name)
+        .where(*member_where)
+        .order_by(Member.display_name)
+    )
+    days = _days(s.frm, s.to)
+    return [
+        {
+            "member_id": member_id, "member": member, "entry_date": d.isoformat(),
+            "planned": (member_id, d) in planned, "updated": (member_id, d) in updated,
+        }
+        for member_id, member in members
+        for d in days
+    ]
+
+
 async def aging(db: AsyncSession, s: Scope, today: date) -> dict:
     """Open work by age. Buckets match the plan: 0-2 / 3-7 / 8-14 / 15+."""
     age = today - DailyEntry.entry_date

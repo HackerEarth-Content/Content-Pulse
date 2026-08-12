@@ -10,7 +10,7 @@ DAY = "2030-03-04"
 ENDPOINTS = [
     "summary", "trend", "by-member", "by-task-type", "by-question-type",
     "by-customer", "status-flow", "cycle-time",
-    "plan-adherence", "aging", "due-risk", "throughput", "workload",
+    "plan-adherence", "plan-daily-status", "aging", "due-risk", "throughput", "workload",
     "open-items", "data-quality", "by-area", "by-request-type", "by-pipeline",
 ]
 
@@ -59,6 +59,28 @@ async def test_plan_adherence_splits_reported_from_silent(client, member, task_t
     assert row["reported"] == 1
     assert row["closed"] == 1
     assert row["no_update"] == 1    # planned, never reported on, still open
+
+
+async def test_plan_daily_status_ignores_backfilled_jira_plans(client, member, task_type):
+    """A synthetic Jira-sync plan isn't someone filing a plan — same rule as
+    plan_adherence, kept day-by-day here instead of collapsed into a range."""
+    from core.database import Session
+    from core.orm import DailyEntry
+
+    await dataset(client, member, task_type)  # real plan + update on DAY
+    other_day = "2030-03-05"
+    async with Session() as db:
+        db.add(DailyEntry(member_id=member, entry_date=other_day, kind="plan",
+                          source="jira", idempotency_key=f"jira:{member}:{other_day}"))
+        await db.commit()
+
+    rows = (await client.get("/api/analytics/plan-daily-status",
+                             params={"from": DAY, "to": other_day, "member_id": member})).json()
+    by_date = {r["entry_date"]: r for r in rows}
+    assert by_date[DAY]["planned"] is True
+    assert by_date[DAY]["updated"] is True
+    assert by_date[other_day]["planned"] is False, "a backfilled Jira day is not a filed plan"
+    assert by_date[other_day]["updated"] is False
 
 
 async def test_trend_is_zero_filled(client, member, task_type):

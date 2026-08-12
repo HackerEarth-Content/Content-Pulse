@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
 from core.dates import resolve_range, today
-from core.deps import Viewer, get_viewer
+from core.deps import LEADS, Viewer, get_viewer, require_role
 from core.users import current_user
 from services import analytics as an
 
@@ -62,6 +62,9 @@ async def team_scope(
 Scope = Depends(scope)
 TeamScope = Depends(team_scope)
 DB = Depends(get_session)
+# Named people's daily plan/update pattern, not just an aggregate count — kept
+# behind the same lead tier that already sees "who's behind" elsewhere.
+leads_only = Depends(require_role(*LEADS))
 
 
 @router.get("/summary")
@@ -141,6 +144,11 @@ async def cycle_time(s: an.Scope = TeamScope, db: AsyncSession = DB):
 @router.get("/plan-adherence")
 async def plan_adherence(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.plan_adherence(db, s)
+
+
+@router.get("/plan-daily-status", dependencies=[leads_only])
+async def plan_daily_status(s: an.Scope = TeamScope, db: AsyncSession = DB):
+    return await an.plan_daily_status(db, s)
 
 
 @router.get("/aging")

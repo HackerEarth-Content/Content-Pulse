@@ -39,6 +39,9 @@ const LINKS: NavItem[] = [
     icon: icon("M4 20V14M10 20V10M16 20V6M4 20h16") },
   { to: "/analytics", label: "Insights", title: "Delivery, timing, customers and data quality",
     icon: icon("M3 3v18h18M7 15l4-5 3 3 5-7") },
+  { to: "/plan-board", label: "Plan board", roles: ["admin", "manager"],
+    title: "Who's filed a plan and logged an update today",
+    icon: icon("M3 10h18M7 3v4M17 3v4M5 6h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2zM7 14h2M11 14h2M15 14h2M7 17h2M11 17h2") },
 ];
 
 const SETTINGS: NavItem = {
