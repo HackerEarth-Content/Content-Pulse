@@ -1,31 +1,13 @@
-# Postgres is hosted (Supabase) — see backend/.env. Only the two app processes
-# run here.
 services:
-  api:
-    image: ghcr.io/astral-sh/uv:python3.13-bookworm-slim
-    working_dir: /app
-    command: sh -c "uv sync && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
-    environment:
-      # Outside the bind mount, so the container's venv doesn't fight the
-      # host's ./backend/.venv when you also run uv directly.
-      UV_PROJECT_ENVIRONMENT: /opt/venv
-    env_file: [backend/.env]
-    volumes:
-      - ./backend:/app
-      - uvcache:/opt/venv
-      # One-shot legacy import source; drop once the data is in.
-      - ../contentops_ref/ContentOps/backend/db.sqlite3:/legacy.sqlite3:ro
-    ports: ["8000:8000"]
+  backend:
+    build: ./backend
+    env_file: backend/.env  # compose parses quotes correctly, unlike `docker run --env-file`
+    ports:
+      - "8000:8000"
 
-  web:
-    image: node:22-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host"
-    environment:
-      VITE_API_PROXY_TARGET: http://api:8000
-    volumes: ["./frontend:/app"]
-    ports: ["5173:5173"]
-    depends_on: [api]
-
-volumes:
-  uvcache:
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
