@@ -19,6 +19,7 @@ import type {
   OpenItem,
   Page,
   PipelineStat,
+  PlanDailyStatus,
   Status,
   Summary,
   SyncStatus,
@@ -167,6 +168,7 @@ export const api = {
   qualityMix: (p: Params) => get<QualityMix>("/analytics/quality-mix", p),
   cycleTime: (p: Params) => get<CycleTime>("/analytics/cycle-time", p),
   adherence: (p: Params) => get<Adherence[]>("/analytics/plan-adherence", p),
+  planDailyStatus: (p: Params) => get<PlanDailyStatus[]>("/analytics/plan-daily-status", p),
   aging: (p: Params) => get<Aging>("/analytics/aging", p),
   dueRisk: (p: Params) => get<DueRisk>("/analytics/due-risk", p),
   throughput: (p: Params) => get<{ date: string; closed: number }[]>("/analytics/throughput", p),
@@ -204,6 +206,8 @@ export const api = {
   retryPendingJira: () => send<{ retried: number }>("POST", "/integrations/jira/retry-pending"),
   slackDigest: (kind: string, dryRun: boolean) =>
     send<Record<string, unknown>>("POST", "/integrations/slack/digest", { kind, dry_run: dryRun }),
+  slackRollCall: (phase: "morning" | "evening") =>
+    send<Record<string, unknown>>("POST", "/integrations/slack/roll-call", { phase }),
 
   exportWorkLog: (f: EntryFilters, format: "xlsx" | "csv") =>
     download(`/exports/work-log.${format}`, f, `work-log-${f.from}_${f.to}.${format}`),

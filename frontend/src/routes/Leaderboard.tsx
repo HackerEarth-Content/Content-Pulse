@@ -9,12 +9,15 @@ import type { Range } from "../hooks/usePeriod";
 const COLUMNS: { key: string; label: string }[] = [
   { key: "content_task", label: "Content Tasks" },
   { key: "content_request", label: "Content Requests" },
-  { key: "content_assessment", label: "Content Assessments" },
   { key: "hc_request", label: "HC Request" },
   { key: "ht_request", label: "HT Request" },
   { key: "hc_ht_feasibility", label: "HC/HT Feasibility" },
   { key: "technical_writing", label: "Technical Writing" },
 ];
+
+/** Assessments are a request type inside Content Requests, not a separate
+ * stream — folded into the same column as the rest of Content Requests. */
+const AREA_KEY: Record<string, string> = { content_assessment: "content_request" };
 
 export function Leaderboard({ range }: { range: Range }) {
   const areas = useApi(() => api.areaByMember({ from: range.from, to: range.to }),
@@ -35,8 +38,12 @@ export function Leaderboard({ range }: { range: Range }) {
           const byMember = new Map<number, { member: string; byArea: Map<string, number> }>();
           for (const area of rows) {
             for (const m of area.members) {
+              // Jira issues with no assignee land on a placeholder "Unassigned"
+              // member — real effort, but not anyone's to rank on a leaderboard.
+              if (m.member === "Unassigned") continue;
+              const key = AREA_KEY[area.area] ?? area.area;
               const entry = byMember.get(m.member_id) ?? { member: m.member, byArea: new Map() };
-              entry.byArea.set(area.area, m.effort_minutes);
+              entry.byArea.set(key, (entry.byArea.get(key) ?? 0) + m.effort_minutes);
               byMember.set(m.member_id, entry);
             }
           }

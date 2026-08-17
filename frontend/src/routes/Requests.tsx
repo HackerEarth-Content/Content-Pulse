@@ -8,22 +8,65 @@ import { Async, Card, SectionHeading, StatTile } from "../components/ui";
 import { mins, num, pct } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
+import type { AreaByMember, AreaStat } from "../types";
 
 /** Content Tasks owns Overview, Work log and Analytics. This screen is the
  * request pipelines. `tce_subtask` is a Jira housekeeping type with no effort. */
 const EXCLUDED = new Set(["content_task", "tce_subtask"]);
 
-/** The top-level bifurcation, at three parts so the colours survive an
+/** The top-level bifurcation, at two parts so the colours survive an
  * all-pairs contrast check. Everything else is a ranked bar. */
 const GROUPS: { key: string; label: string; areas: string[] }[] = [
-  { key: "requests", label: "Content Requests", areas: ["content_request"] },
-  { key: "assessments", label: "Content Assessments", areas: ["content_assessment"] },
+  { key: "requests", label: "Content Requests", areas: ["content_request", "content_assessment"] },
   {
     key: "programs",
     label: "Programs & Writing",
     areas: ["hc_request", "ht_request", "hc_ht_feasibility", "technical_writing"],
   },
 ];
+
+/** Assessments are a Jira request *type* inside Content Requests, not a
+ * different kind of work — shown as one area rather than two. */
+function mergeAssessments(rows: AreaStat[]): AreaStat[] {
+  const request = rows.find((r) => r.area === "content_request");
+  const assessment = rows.find((r) => r.area === "content_assessment");
+  if (!assessment) return rows;
+  const merged = request
+    ? { ...request, tasks: request.tasks + assessment.tasks,
+        effort_minutes: request.effort_minutes + assessment.effort_minutes }
+    : { ...assessment, area: "content_request", label: "Content Requests" };
+  return [merged, ...rows.filter((r) => r.area !== "content_request" && r.area !== "content_assessment")];
+}
+
+/** Same merge as `mergeAssessments`, but for the per-member breakdown feeding
+ * the "Who spent the time" split. */
+function mergeAssessmentStreams(streams: AreaByMember[]): AreaByMember[] {
+  const request = streams.find((s) => s.area === "content_request");
+  const assessment = streams.find((s) => s.area === "content_assessment");
+  if (!assessment) return streams;
+  if (!request) {
+    return [
+      { ...assessment, area: "content_request", label: "Content Requests" },
+      ...streams.filter((s) => s !== assessment),
+    ];
+  }
+  const members = new Map(request.members.map((m) => [m.member_id, { ...m }]));
+  for (const m of assessment.members) {
+    const existing = members.get(m.member_id);
+    members.set(m.member_id, existing
+      ? { ...existing, tasks: existing.tasks + m.tasks,
+          effort_minutes: existing.effort_minutes + m.effort_minutes,
+          closed: existing.closed + m.closed }
+      : { ...m });
+  }
+  const merged: AreaByMember = {
+    ...request,
+    tasks: request.tasks + assessment.tasks,
+    effort_minutes: request.effort_minutes + assessment.effort_minutes,
+    members: [...members.values()],
+  };
+  return [merged, ...streams.filter((s) => s !== request && s !== assessment)];
+}
 
 export function Requests({ range }: { range: Range }) {
   const p = { from: range.from, to: range.to };
@@ -32,7 +75,7 @@ export function Requests({ range }: { range: Range }) {
   const byMember = useApi(() => api.areaByMember(p), deps);
   const [area, setArea] = useState<string | null>(null);
 
-  const rows = (areas.data ?? []).filter((a) => !EXCLUDED.has(a.area));
+  const rows = mergeAssessments((areas.data ?? []).filter((a) => !EXCLUDED.has(a.area)));
   const current = area ?? rows[0]?.area ?? null;
 
   return (
@@ -131,7 +174,11 @@ export function Requests({ range }: { range: Range }) {
           effort actually belongs to. */}
       <SectionHeading title="Who spent the time" color="var(--accent-indigo)" />
       <Async loading={byMember.loading} error={byMember.error} data={byMember.data}>
-        {(streams) => <StreamSplit streams={streams.filter((s) => !EXCLUDED.has(s.area))} />}
+        {(streams) => (
+          <StreamSplit
+            streams={mergeAssessmentStreams(streams.filter((s) => !EXCLUDED.has(s.area)))}
+          />
+        )}
       </Async>
     </>
   );

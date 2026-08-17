@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
 from core.dates import resolve_range, today
-from core.deps import Viewer, get_viewer
+from core.deps import ADMINS, LEADS, Viewer, get_viewer, require_role
 from core.users import current_user
 from services import analytics as an
 
@@ -62,6 +62,12 @@ async def team_scope(
 Scope = Depends(scope)
 TeamScope = Depends(team_scope)
 DB = Depends(get_session)
+# Named people's daily plan/update pattern, not just an aggregate count — kept
+# behind the same lead tier that already sees "who's behind" elsewhere.
+leads_only = Depends(require_role(*LEADS))
+# Insights and Request streams are admin-only tabs — these endpoints exist
+# only to feed those two screens, so the gate can sit right here.
+admin_only = Depends(require_role(*ADMINS))
 
 
 @router.get("/summary")
@@ -84,7 +90,7 @@ async def by_area(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.by_area(db, s)
 
 
-@router.get("/by-request-type")
+@router.get("/by-request-type", dependencies=[admin_only])
 async def by_request_type(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.by_request_type(db, s)
 
@@ -99,19 +105,19 @@ async def by_task_type(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.by_task_type(db, s)
 
 
-@router.get("/by-question-type")
+@router.get("/by-question-type", dependencies=[admin_only])
 async def by_question_type(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.by_question_type(db, s)
 
 
-@router.get("/by-customer")
+@router.get("/by-customer", dependencies=[admin_only])
 async def by_customer(limit: int = Query(20, ge=1, le=100), s: an.Scope = TeamScope,
                       db: AsyncSession = DB):
     return await an.by_customer(db, s, limit)
 
 
 
-@router.get("/effort-breakdown")
+@router.get("/effort-breakdown", dependencies=[admin_only])
 async def effort_breakdown(s: an.Scope = TeamScope, db: AsyncSession = DB):
     """What a headline effort figure is made of, down to the ticket."""
     return await an.effort_breakdown(db, s)
@@ -143,7 +149,12 @@ async def plan_adherence(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.plan_adherence(db, s)
 
 
-@router.get("/aging")
+@router.get("/plan-daily-status", dependencies=[leads_only])
+async def plan_daily_status(s: an.Scope = TeamScope, db: AsyncSession = DB):
+    return await an.plan_daily_status(db, s)
+
+
+@router.get("/aging", dependencies=[admin_only])
 async def aging(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.aging(db, s, today())
 
@@ -153,12 +164,12 @@ async def due_risk(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.due_risk(db, s, today())
 
 
-@router.get("/throughput")
+@router.get("/throughput", dependencies=[admin_only])
 async def throughput(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.throughput(db, s)
 
 
-@router.get("/workload")
+@router.get("/workload", dependencies=[admin_only])
 async def workload(s: an.Scope = TeamScope, db: AsyncSession = DB):
     return await an.workload(db, s)
 

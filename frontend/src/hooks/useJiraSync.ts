@@ -4,7 +4,14 @@ import { bumpDataVersion } from "./useDataVersion";
 
 const CURSOR = "jira_backfill";
 const POLL_MS = 2000;
+const SLOW_POLL_MS = 5000;
+// Hide the spinner after this — a sync taking longer than a minute isn't
+// worth watching a spinner for.
 const GIVE_UP_MS = 60_000;
+// But keep quietly polling well past that: a big backlog can take minutes,
+// and giving up the *watch* (not just the spinner) is what left the screen
+// stuck on pre-sync numbers until someone happened to change tabs.
+const HARD_STOP_MS = 10 * 60_000;
 
 /** Refresh Jira data when the dashboard opens, then refresh the screen when it
  * lands.
@@ -54,7 +61,7 @@ export function useJiraSync(enabled: boolean): JiraSync {
       if (stopped || !started.started) return;
 
       setSyncing(true);
-      const deadline = Date.now() + GIVE_UP_MS;
+      const startedAt = Date.now();
       const poll = async () => {
         if (stopped) return;
         const now = await cursorTime();
@@ -64,13 +71,14 @@ export function useJiraSync(enabled: boolean): JiraSync {
           bumpDataVersion();
           return;
         }
-        if (Date.now() > deadline) {
-          // The sync may still be running; it simply stops being worth
-          // watching. Whatever it writes shows up on the next navigation.
+        const elapsed = Date.now() - startedAt;
+        if (elapsed > HARD_STOP_MS) {
+          // Truly stuck, or the server never wrote the cursor — stop for real.
           setSyncing(false);
           return;
         }
-        timer = setTimeout(poll, POLL_MS);
+        if (elapsed > GIVE_UP_MS) setSyncing(false);
+        timer = setTimeout(poll, elapsed > GIVE_UP_MS ? SLOW_POLL_MS : POLL_MS);
       };
       timer = setTimeout(poll, POLL_MS);
     })();

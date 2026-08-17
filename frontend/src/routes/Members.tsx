@@ -1,10 +1,9 @@
 import { Link } from "react-router-dom";
 import { api } from "../api";
-import { RankedBars } from "../components/RankedBars";
-import { Async, Card, SectionHeading } from "../components/ui";
+import { Async, SectionHeading } from "../components/ui";
 import { mins, num, pct } from "../format";
 import { useApi } from "../hooks/useApi";
-import type { Range } from "../hooks/usePeriod";
+import { rangeQuery, type Range } from "../hooks/usePeriod";
 
 export function Members({ range }: { range: Range }) {
   const p = { from: range.from, to: range.to };
@@ -48,7 +47,7 @@ export function Members({ range }: { range: Range }) {
                   return (
                     <tr key={m.id}>
                       <td className="strong">
-                        <Link className="tag" to={`/members/${m.id}`}>
+                        <Link className="tag" to={`/members/${m.id}?${rangeQuery(range)}`}>
                           {m.display_name}
                         </Link>
                       </td>
@@ -102,34 +101,10 @@ export function Members({ range }: { range: Range }) {
           );
         }}
       </Async>
-      <div className="grid cols-2">
-        <Card title="Effort logged" sub="hours per person, this range">
-          <Async loading={stats.loading} error={stats.error} data={stats.data}>
-            {(rows) => (
-              <RankedBars
-                items={rows.map((r) => ({
-                  key: String(r.member_id), label: r.member,
-                  value: r.effort_minutes, sub: `${r.tasks} tickets`,
-                }))}
-                format={(n) => mins(n)}
-              />
-            )}
-          </Async>
-        </Card>
-        <Card title="Tickets" sub="count per person">
-          <Async loading={stats.loading} error={stats.error} data={stats.data}>
-            {(rows) => (
-              <RankedBars
-                items={rows.map((r) => ({
-                  key: String(r.member_id), label: r.member, value: r.tasks,
-                  sub: pct(r.completion_rate) + " done",
-                }))}
-                showShare={false}
-              />
-            )}
-          </Async>
-        </Card>
-      </div>
+      <p className="hint">
+        Ranked by effort and ticket count — see the{" "}
+        <Link className="tag" to={`/leaderboard?${rangeQuery(range)}`}>leaderboard →</Link>
+      </p>
     </>
   );
 }

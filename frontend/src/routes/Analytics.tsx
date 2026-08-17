@@ -19,15 +19,10 @@ const TABS = [
   { key: "Delivery", blurb: "What was planned, what got reported on, and what closed." },
   { key: "Time & effort", blurb: "How long work takes end to end, and where the logged hours went." },
   { key: "Customers", blurb: "Who the work was for, and how much rides on the largest accounts." },
-  { key: "Data quality", blurb: "What's missing from the records behind every other number here." },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
 
 const ORD = ["var(--ord-2)", "var(--ord-3)", "var(--ord-4)", "var(--ord-5)"];
-const QUALITY_LABELS: Record<string, string> = {
-  notes: "no notes", count: "no item count", customer: "no customer",
-  question_type: "no question type", due_date: "no due date", effort: "no effort logged",
-};
 
 export function Analytics({ range }: { range: Range }) {
   const [tab, setTab] = useState<Tab>("Delivery");
@@ -37,10 +32,8 @@ export function Analytics({ range }: { range: Range }) {
   const adherence = useApi(() => api.adherence(p), deps);
   const cycle = useApi(() => api.cycleTime(p), deps);
   const aging = useApi(() => api.aging(p), deps);
-  const qualityMix = useApi(() => api.qualityMix(p), deps);
   const customers = useApi(() => api.byCustomer(p), deps);
   const questions = useApi(() => api.byQuestionType(p), deps);
-  const quality = useApi(() => api.dataQuality(p), deps);
   const effort = useApi(() => api.effortBreakdown(p), deps);
   const throughput = useApi(() => api.throughput(p), deps);
   const workload = useApi(() => api.workload(p), deps);
@@ -140,7 +133,7 @@ export function Analytics({ range }: { range: Range }) {
             </Async>
           </Card>
 
-          <div className="grid cols-2" style={{ marginTop: 12 }}>
+          <div style={{ marginTop: 12 }}>
             <Card title="Throughput" sub={`tasks closed per ${bucketNoun(bucket)}, from the status log`}>
               <Async loading={throughput.loading} error={throughput.error} data={throughput.data}>
                 {(rows) => (
@@ -151,25 +144,6 @@ export function Analytics({ range }: { range: Range }) {
                                      value: r.closed }))}
                     showShare={false}
                   />
-                )}
-              </Async>
-            </Card>
-            <Card title="Priority & SLA" sub="how much of the work is high priority, and whether it met its SLA">
-              <Async loading={qualityMix.loading} error={qualityMix.error} data={qualityMix.data}>
-                {(qm) => (
-                  <>
-                    <div className="stat-row" style={{ marginBottom: 10 }}>
-                      <StatTile label="SLA met" value={num(qm.sla_met)} accent="var(--accent-aqua)" />
-                      <StatTile label="SLA missed" value={num(qm.sla_missed)} accent="var(--accent-red)" />
-                      <StatTile label="SLA rate" value={pct(qm.sla_rate)}
-                                sub="of tickets Jira actually rated" />
-                    </div>
-                    <RankedBars
-                      items={qm.by_priority.map((r) => ({
-                        key: r.key, label: r.key, value: r.tasks, sub: mins(r.effort_minutes),
-                      }))}
-                    />
-                  </>
                 )}
               </Async>
             </Card>
@@ -356,38 +330,6 @@ export function Analytics({ range }: { range: Range }) {
           </Card>
         </div>
         </>
-      )}
-
-      {tab === "Data quality" && (
-        <Card title="Data quality" sub="fields left empty on the tickets behind every other number here">
-          <Async loading={quality.loading} error={quality.error} data={quality.data}>
-            {(q) => (
-              <>
-                <div className="stat-row" style={{ marginBottom: 14 }}>
-                  <StatTile
-                    label="Plans with no update"
-                    value={num(q.plans_with_unreported_tasks)}
-                    accent="var(--status-warning)"
-                  />
-                  <StatTile
-                    label="On retired work types"
-                    value={num(q.tasks_on_retired_task_types)}
-                    sub="work types since retired from the list"
-                  />
-                  <StatTile label="Tasks in range" value={num(q.tasks)} />
-                </div>
-                <RankedBars
-                  items={Object.entries(q.missing).map(([k, v]) => ({
-                    key: k, label: QUALITY_LABELS[k] ?? k.replace(/_/g, " "), value: v,
-                    sub: `${Math.round((v / (q.tasks || 1)) * 100)}% of tickets`,
-                  }))}
-                  max={q.tasks || 1}
-                  showShare={false}
-                />
-              </>
-            )}
-          </Async>
-        </Card>
       )}
     </>
   );

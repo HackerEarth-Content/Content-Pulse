@@ -14,11 +14,11 @@ import { api } from "../api";
 import { AXIS as CHART_AXIS, TOOLTIP } from "../charts";
 import { Donut } from "../components/Donut";
 import { RankedBars } from "../components/RankedBars";
-import { Async, Card, SectionHeading, StatTile, StatusPill } from "../components/ui";
+import { Async, Card, SectionHeading, StatTile } from "../components/ui";
 import { hours, mins, num, pct } from "../format";
 import { bucketFor, bucketNoun, bucketTick, groupSeries } from "../series";
 import { useApi } from "../hooks/useApi";
-import type { Range } from "../hooks/usePeriod";
+import { rangeQuery, type Range } from "../hooks/usePeriod";
 
 const AXIS = CHART_AXIS;
 
@@ -26,11 +26,9 @@ export function Overview({ range }: { range: Range }) {
   const p = { from: range.from, to: range.to };
   const summary = useApi(() => api.summary(p), [range.from, range.to]);
   const trend = useApi(() => api.trend(p), [range.from, range.to]);
-  const members = useApi(() => api.byMember(p), [range.from, range.to]);
   const types = useApi(() => api.byTaskType(p), [range.from, range.to]);
   const due = useApi(() => api.dueRisk(p), [range.from, range.to]);
   const cycle = useApi(() => api.cycleTime(p), [range.from, range.to]);
-  const open = useApi(() => api.openItems({ ...p, limit: 12 }), [range.from, range.to]);
   const areas = useApi(() => api.byArea(p), [range.from, range.to]);
 
   // A quarter is ~92 daily points — roll up so the axis stays readable.
@@ -155,23 +153,10 @@ export function Overview({ range }: { range: Range }) {
       </Card>
 
       <div className="grid cols-2" style={{ marginTop: 12 }}>
-        <Card title="By member" sub="hours in this range">
-          <Async
-            loading={members.loading}
-            error={members.error}
-            data={members.data}
-            empty={{ title: "No activity", hint: "Nobody filed anything in this range." }}
-          >
-            {(rows) => (
-              <RankedBars
-                items={rows.slice(0, 8).map((r) => ({
-                  key: String(r.member_id), label: r.member,
-                  value: r.effort_minutes, sub: `${r.tasks} tickets`,
-                }))}
-                format={(n) => mins(n)}
-              />
-            )}
-          </Async>
+        <Card title="By member" sub="full ranking lives on the Leaderboard">
+          <p className="hint">
+            <Link className="tag" to={`/leaderboard?${rangeQuery(range)}`}>View the leaderboard →</Link>
+          </p>
         </Card>
 
         <Card title="By work type" sub="hours in this range">
@@ -230,62 +215,16 @@ export function Overview({ range }: { range: Range }) {
         </Card>
       </div>
 
-      <SectionHeading
-        title="Open work"
-        color="var(--accent-orange)"
-        action={
-          <Link to="/work-log" className="section-action" style={{ textDecoration: "none" }}>
-            Full work log →
-          </Link>
-        }
-      />
-      <Async
-        loading={open.loading}
-        error={open.error}
-        data={open.data}
-        empty={{ title: "Nothing open", hint: "Every task in this range is done." }}
-      >
-        {(rows) => (
-          <div className="table-scroll">
-            <table className="sticky-col">
-              <thead>
-                <tr>
-                  <th>Member</th>
-                  <th>Task</th>
-                  <th>Customer</th>
-                  <th>Status</th>
-                  <th className="num">Age</th>
-                  <th>Due</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id}>
-                    <td className="strong">{r.member}</td>
-                    <td>{r.task_type}</td>
-                    <td className="muted">{r.customer ?? "—"}</td>
-                    <td>
-                      <StatusPill status={r.status} />
-                    </td>
-                    <td className="num">{r.age_days}d</td>
-                    <td className={r.overdue ? "" : "muted"}>
-                      {r.due_at ? (
-                        r.overdue ? (
-                          <span className="pill pill-blocked">{r.due_at}</span>
-                        ) : (
-                          r.due_at
-                        )
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="cell-notes">{r.notes ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      <SectionHeading title="Open work" color="var(--accent-orange)" />
+      <Async loading={summary.loading} error={summary.error} data={summary.data}>
+        {(s) => (
+          <p className="insight">
+            <strong>{num(s.open)}</strong> {s.open === 1 ? "ticket is" : "tickets are"} still
+            open.{" "}
+            <Link className="tag" to={`/work-log?status=open&${rangeQuery(range)}`}>
+              View them in the work log →
+            </Link>
+          </p>
         )}
       </Async>
     </>

@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, type EntryFilters } from "../api";
 import { StatusDialog } from "../components/StatusDialog";
 import { Async, SectionHeading } from "../components/ui";
 import { dmy, mins, num, statusLabel } from "../format";
 import { useApi } from "../hooks/useApi";
-import type { Range } from "../hooks/usePeriod";
-import type { Item, WorkLogRow } from "../types";
+import { rangeQuery, type Range } from "../hooks/usePeriod";
+import type { CurrentUser, Item, WorkLogRow } from "../types";
 
 const PAGE_SIZE = 50;
 
@@ -37,8 +37,13 @@ const asItem = (r: WorkLogRow): Item => ({
   jira_state: r.jira_state,
 });
 
-export function WorkLog({ range }: { range: Range }) {
-  const [filters, setFilters] = useState<EntryFilters>({});
+export function WorkLog({ range, me }: { range: Range; me: CurrentUser["member"] }) {
+  const isLead = me?.role === "admin" || me?.role === "manager";
+  const [params] = useSearchParams();
+  const [filters, setFilters] = useState<EntryFilters>(() => {
+    const status = params.get("status");
+    return status ? { status } : {};
+  });
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState(false);
   const [moving, setMoving] = useState<Item | null>(null);
@@ -47,7 +52,9 @@ export function WorkLog({ range }: { range: Range }) {
     from: range.from, to: range.to, ...filters, page, page_size: PAGE_SIZE,
   };
   const rows = useApi(() => api.workLog(query), [JSON.stringify(query)]);
-  const members = useApi(() => api.members(), []);
+  // Non-leads only ever see their own tickets — the roster is pointless to
+  // fetch for a filter they can't use.
+  const members = useApi(() => (isLead ? api.members() : Promise.resolve([])), [isLead]);
   const taskTypes = useApi(() => api.taskTypes(), []);
 
   const set = (patch: EntryFilters) => {
@@ -98,13 +105,19 @@ export function WorkLog({ range }: { range: Range }) {
           onBlur={(e) => set({ q: e.currentTarget.value })}
           aria-label="Search"
         />
-        <select className="field" value={filters.member_id ?? ""} aria-label="Member"
-                onChange={(e) => set({ member_id: e.target.value ? Number(e.target.value) : undefined })}>
-          <option value="">Everyone</option>
-          {(members.data ?? []).map((m) => (
-            <option key={m.id} value={m.id}>{m.display_name}</option>
-          ))}
-        </select>
+        {isLead ? (
+          <select className="field" value={filters.member_id ?? ""} aria-label="Member"
+                  onChange={(e) => set({ member_id: e.target.value ? Number(e.target.value) : undefined })}>
+            <option value="">Everyone</option>
+            {(members.data ?? []).map((m) => (
+              <option key={m.id} value={m.id}>{m.display_name}</option>
+            ))}
+          </select>
+        ) : (
+          <select className="field" aria-label="Member" disabled value={me?.id ?? ""}>
+            <option value={me?.id ?? ""}>{me?.display_name ?? "Me"}</option>
+          </select>
+        )}
         <select className="field" value={filters.pipeline ?? ""} aria-label="Stream"
                 onChange={(e) => set({ pipeline: e.target.value || undefined })}>
           <option value="">All streams</option>
@@ -147,7 +160,7 @@ export function WorkLog({ range }: { range: Range }) {
             </div>
           ) : (
             <>
-              <div className="table-scroll">
+              <div className="table-scroll table-scroll--capped">
                 <table className="sticky-col">
                   <thead>
                     <tr>
@@ -168,7 +181,9 @@ export function WorkLog({ range }: { range: Range }) {
                     {pageData.items.map((r) => (
                       <tr key={r.id}>
                         <td className="strong">
-                          <Link className="tag" to={`/members/${r.member_id}`}>{r.member}</Link>
+                          <Link className="tag" to={`/members/${r.member_id}?${rangeQuery(range)}`}>
+                            {r.member}
+                          </Link>
                         </td>
                         <td className="mono">{dmy(r.entry_date)}</td>
                         <td>

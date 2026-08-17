@@ -214,6 +214,14 @@ export interface Adherence {
   close_rate: number | null;
 }
 
+export interface PlanDailyStatus {
+  member_id: number;
+  member: string;
+  entry_date: string;
+  planned: boolean;
+  updated: boolean;
+}
+
 export interface CycleTime {
   /** Tasks the median is actually computed over. */
   closed_tasks: number;
