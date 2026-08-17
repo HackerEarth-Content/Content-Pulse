@@ -17,7 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from core.config import settings
 from core.database import Session
-from core.orm import DailyEntry, SlackDayThread
+from core.orm import DailyEntry, Member, SlackDayThread
 
 log = logging.getLogger(__name__)
 API = "https://slack.com/api"
@@ -159,3 +159,110 @@ async def post_digest(on: date, kind: str, dry_run: bool = False) -> dict:
     for entry in entries:
         await post_entry(entry.id)
     return {"posted": posted, "skipped": len(entries) - posted}
+
+
+# ── roll call: who's planned/updated today, who hasn't ───────────────────────
+
+# email -> Slack user id, or None if it doesn't resolve. In-process only: the
+# mapping doesn't change within a run, and there's no reason to hit Slack
+# twice a day for the same handful of people.
+# ponytail: resets on restart; a persistent mapping is the upgrade if lookups
+# ever get expensive enough to matter.
+_slack_id_cache: dict[str, str | None] = {}
+
+
+async def _mention(slack_user_id: str | None, email: str | None, display_name: str) -> str:
+    """`<@U123>`, so the channel actually pings them.
+
+    A `slack_user_id` set on the member (Settings) wins outright — no API
+    call needed. Otherwise falls back to resolving their email via
+    `users.lookupByEmail`, which needs the bot's `users:read.email` scope;
+    if that's missing or the lookup fails, falls back to a plain name rather
+    than erroring the whole roll call.
+    """
+    if slack_user_id:
+        return f"<@{slack_user_id}>"
+    if not email:
+        return display_name
+    if email not in _slack_id_cache:
+        try:
+            body = await _call("users.lookupByEmail", {"email": email})
+            _slack_id_cache[email] = body["user"]["id"]
+        except Exception:
+            _slack_id_cache[email] = None
+    user_id = _slack_id_cache[email]
+    return f"<@{user_id}>" if user_id else display_name
+
+
+# Tests run against this same live database (see tests/conftest.py) and flip
+# these exact rows to is_active=True for the duration of a run. A roll call
+# triggered while a test run is mid-flight would otherwise call them out by
+# name. ponytail: name-matching a known fixture list, not a real "is_test"
+# column — the real fix is tests/conftest.py's own noted TODO, a separate
+# test database.
+_TEST_FIXTURE_NAMES = {"PyTest Member", "PyTest AE", "PyTest Admin", "RBAC Ada", "RBAC Grace"}
+
+
+async def post_roll_call(on: date, phase: str) -> dict:
+    """Post the whole roster's plan/update status as one message — not a
+    thread reply, a standalone post, since it's a summary rather than
+    someone's individual entry.
+
+    `phase="morning"` reports who's filed today's plan; `phase="evening"`
+    reports who's followed it with an update. Same Jira-sync exclusion as
+    `services.entries.today_status` — a backfilled ticket isn't someone
+    filing a plan, and "active" means every active member, admins included.
+    """
+    async with Session() as db:
+        planned = {
+            mid: name for mid, name in await db.execute(
+                select(DailyEntry.member_id, Member.display_name)
+                .join(Member, Member.id == DailyEntry.member_id)
+                .where(DailyEntry.entry_date == on, DailyEntry.kind == "plan",
+                       DailyEntry.source != "jira")
+            )
+        }
+        updated_ids = {mid for (mid,) in await db.execute(
+            select(DailyEntry.member_id)
+            .where(DailyEntry.entry_date == on, DailyEntry.kind == "update")
+        )}
+        active = list(await db.execute(
+            select(Member.id, Member.display_name, Member.email, Member.slack_user_id)
+            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES))
+            .order_by(Member.display_name)
+        ))
+
+    no_plan = [row for row in active if row[0] not in planned]
+    planned_rows = [row for row in active if row[0] in planned]
+    done = [row for row in planned_rows if row[0] in updated_ids]
+    pending = [row for row in planned_rows if row[0] not in updated_ids]
+
+    async def names(rows: list) -> str:
+        return ", ".join(
+            [await _mention(slack_id, email, name) for _, name, email, slack_id in rows]
+        ) or "—"
+
+    day = on.strftime("%A, %d %b %Y")
+    if phase == "morning":
+        lines = [f"📋 *Plan check-in — {day}*", "",
+                  f"{len(planned_rows)} of {len(active)} people have filed today's plan.", "",
+                  f"✅ *Planned* ({len(planned_rows)})", await names(planned_rows)]
+        if no_plan:
+            lines += ["", f"❌ *No plan yet* ({len(no_plan)})", await names(no_plan)]
+    else:
+        lines = [f"✅ *Update check-in — {day}*", "",
+                  f"{len(done)} of {len(planned_rows)} planned today have logged an update.", "",
+                  f"✅ *Updated* ({len(done)})", await names(done)]
+        if pending:
+            lines += ["", f"⏳ *Still pending* ({len(pending)})", await names(pending)]
+        if no_plan:
+            lines += ["", f"⚠️ *Never planned today* ({len(no_plan)})", await names(no_plan)]
+
+    try:
+        await _call("chat.postMessage", {"channel": settings.SLACK_CHANNEL, "text": "\n".join(lines)})
+        return {"posted": True}
+    except SlackDisabled as e:
+        return {"posted": False, "reason": str(e)}
+    except Exception as e:
+        log.warning("roll call failed: %s", e)
+        return {"posted": False, "reason": str(e)}

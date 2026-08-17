@@ -203,14 +203,20 @@ class MemberIn(BaseModel):
     display_name: str = Field(min_length=1)
     email: str | None = None
     role: str = Field(default="content", pattern="^(content|ae|manager|admin)$")
-    slack_user_id: str | None = None
+    # A real Slack member id (`users.info` -> "Copy member ID"), never a
+    # username or display name — those looked plausible and silently never
+    # pinged anyone.
+    slack_user_id: str | None = Field(default=None, pattern="^[UW][A-Z0-9]{6,}$")
 
 
 class MemberPatch(BaseModel):
     display_name: str | None = Field(default=None, min_length=1)
     email: str | None = None
     role: str | None = Field(default=None, pattern="^(content|ae|manager|admin)$")
-    slack_user_id: str | None = None
+    # A real Slack member id (`users.info` -> "Copy member ID"), never a
+    # username or display name — those looked plausible and silently never
+    # pinged anyone.
+    slack_user_id: str | None = Field(default=None, pattern="^[UW][A-Z0-9]{6,}$")
     is_active: bool | None = None
 
 

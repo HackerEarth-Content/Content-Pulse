@@ -12,7 +12,7 @@ import {
 import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { StatusDialog } from "../components/StatusDialog";
-import { Async, Card, SectionHeading, StatTile, StatusPill } from "../components/ui";
+import { Async, Banner, Card, SectionHeading, StatTile, StatusPill } from "../components/ui";
 import { hours, mins, num, pct, statusLabel } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
@@ -47,6 +47,19 @@ export function MemberDetail({ range }: { range: Range }) {
   const member = (members.data ?? []).find((m) => m.id === memberId);
   const stat = (stats.data ?? [])[0];
   const adhere = (adherence.data ?? [])[0];
+
+  // The profile call is the one gated by "may I see this person" — every
+  // other fetch on this page silently falls back to the viewer's own data
+  // instead of erroring, so it's this error (not those) that means "blocked",
+  // and it's checked before any of that mismatched data can render.
+  if (profile.error) {
+    return (
+      <>
+        <SectionHeading title={member?.display_name ?? `Member ${memberId}`} />
+        <Banner tone="warn">No access — you can only view your own profile.</Banner>
+      </>
+    );
+  }
 
   return (
     <>
@@ -315,7 +328,7 @@ export function MemberDetail({ range }: { range: Range }) {
               Try a wider date range.
             </div>
           ) : (
-            <div className="table-scroll">
+            <div className="table-scroll table-scroll--capped">
               <table className="sticky-col">
                 <thead>
                   <tr>

@@ -64,24 +64,44 @@ function LookupList({ kind, title, sub }: { kind: LookupKind; title: string; sub
 
 const ROLES = ["content", "ae", "manager", "admin"];
 
+// Slack's own format for a member id — never a username or display name,
+// both of which look plausible and silently never ping anyone.
+const SLACK_ID_RE = /^[UW][A-Z0-9]{6,}$/;
+
+function invalidSlackId(value: string): ApiError | null {
+  return value && !SLACK_ID_RE.test(value)
+    ? new ApiError(0, "invalid_slack_id",
+        "That doesn't look like a Slack member id. It should look like U0123ABCD — " +
+          "copy it from their Slack profile's \"Copy member ID\", not their name.")
+    : null;
+}
+
 function MemberEditor() {
   const list = useApi(() => api.members({ is_active: undefined }), []);
   const [error, setError] = useState<ApiError | null>(null);
-  const [draft, setDraft] = useState<Record<number, { email: string; role: string }>>({});
-  const [adding, setAdding] = useState({ display_name: "", email: "", role: "content" });
+  const [draft, setDraft] = useState<
+    Record<number, { email: string; role: string; slack_user_id: string }>
+  >({});
+  const [adding, setAdding] = useState({
+    display_name: "", email: "", role: "content", slack_user_id: "",
+  });
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
   async function add() {
     setError(null);
+    const slackId = adding.slack_user_id.trim();
+    const invalid = invalidSlackId(slackId);
+    if (invalid) return setError(invalid);
     setBusy(true);
     try {
       await api.createMember({
         display_name: adding.display_name.trim(),
         email: adding.email.trim() || null,
         role: adding.role,
+        slack_user_id: slackId || null,
       });
-      setAdding({ display_name: "", email: "", role: "content" });
+      setAdding({ display_name: "", email: "", role: "content", slack_user_id: "" });
       list.reload();
     } catch (e) {
       setError(e as ApiError);
@@ -118,11 +138,15 @@ function MemberEditor() {
     }
   }
 
-  async function save(id: number) {
+  async function save(id: number, existingSlackId: string | null) {
     setError(null);
+    const slackId = (draft[id]?.slack_user_id ?? existingSlackId ?? "").trim();
+    const invalid = invalidSlackId(slackId);
+    if (invalid) return setError(invalid);
     try {
       await api.patchMember(id, {
         email: draft[id]?.email?.trim() || null,
+        slack_user_id: slackId || null,
         ...(draft[id]?.role ? { role: draft[id].role } : {}),
       });
       setDraft((d) => {
@@ -155,6 +179,15 @@ function MemberEditor() {
           onChange={(e) => setAdding((a) => ({ ...a, email: e.target.value }))}
           onKeyDown={(e) => e.key === "Enter" && adding.display_name.trim() && add()}
         />
+        <input
+          className="field"
+          placeholder="Slack ID (U0123ABCD)"
+          pattern={SLACK_ID_RE.source}
+          title="A Slack member id, e.g. U0123ABCD — not a username or display name"
+          value={adding.slack_user_id}
+          onChange={(e) => setAdding((a) => ({ ...a, slack_user_id: e.target.value }))}
+          onKeyDown={(e) => e.key === "Enter" && adding.display_name.trim() && add()}
+        />
         <select
           className="field"
           value={adding.role}
@@ -177,7 +210,8 @@ function MemberEditor() {
       </div>
       <p className="hint" style={{ marginTop: -4, marginBottom: 12 }}>
         Give them an email and they can sign in with Google straight away — no
-        restart, no deploy.
+        restart, no deploy. A Slack ID lets the plan/update roll call @-mention them —
+        copy it from their Slack profile's "Copy member ID", never their name or username.
       </p>
 
       <Async loading={list.loading} error={list.error} data={list.data}>
@@ -188,6 +222,7 @@ function MemberEditor() {
                 <tr>
                   <th>Member</th>
                   <th>Email</th>
+                  <th>Slack ID</th>
                   <th>Role</th>
                   <th>Access</th>
                   <th />
@@ -209,7 +244,30 @@ function MemberEditor() {
                           onChange={(e) =>
                             setDraft((d) => ({
                               ...d,
-                              [m.id]: { role: d[m.id]?.role ?? m.role, email: e.target.value },
+                              [m.id]: {
+                                role: d[m.id]?.role ?? m.role,
+                                slack_user_id: d[m.id]?.slack_user_id ?? m.slack_user_id ?? "",
+                                email: e.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="field"
+                          placeholder="U0123ABCD"
+                          pattern={SLACK_ID_RE.source}
+                          title="A Slack member id, e.g. U0123ABCD — not a username or display name"
+                          value={edited?.slack_user_id ?? m.slack_user_id ?? ""}
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              [m.id]: {
+                                role: d[m.id]?.role ?? m.role,
+                                email: d[m.id]?.email ?? m.email ?? "",
+                                slack_user_id: e.target.value,
+                              },
                             }))
                           }
                         />
@@ -221,7 +279,11 @@ function MemberEditor() {
                           onChange={(e) =>
                             setDraft((d) => ({
                               ...d,
-                              [m.id]: { email: d[m.id]?.email ?? m.email ?? "", role: e.target.value },
+                              [m.id]: {
+                                email: d[m.id]?.email ?? m.email ?? "",
+                                slack_user_id: d[m.id]?.slack_user_id ?? m.slack_user_id ?? "",
+                                role: e.target.value,
+                              },
                             }))
                           }
                         >
@@ -249,7 +311,7 @@ function MemberEditor() {
                         <button
                           className="section-action"
                           disabled={!edited}
-                          onClick={() => save(m.id)}
+                          onClick={() => save(m.id, m.slack_user_id)}
                         >
                           Save
                         </button>
@@ -367,6 +429,30 @@ function Integrations() {
       </div>
       <p className="hint">
         Preview renders the message without sending. Posting is visible to everyone in the channel.
+      </p>
+
+      <div className="btn-row" style={{ marginTop: 12 }}>
+        {([
+          { phase: "morning" as const, label: "Post plan roll call now" },
+          { phase: "evening" as const, label: "Post update roll call now" },
+        ]).map(({ phase, label }) => (
+          <button
+            key={phase}
+            className="btn btn-secondary"
+            disabled={!!busy}
+            onClick={() =>
+              confirm(
+                `Post the ${phase} roll call to Slack now, instead of waiting for its ` +
+                  "scheduled time? This is visible to the channel."
+              ) && act(phase, () => api.slackRollCall(phase))
+            }
+          >
+            {busy === phase ? "Posting…" : label}
+          </button>
+        ))}
+      </div>
+      <p className="hint">
+        Runs the same roll call as the 11:05/19:35 schedule, right now, regardless of the time of day.
       </p>
     </Card>
   );

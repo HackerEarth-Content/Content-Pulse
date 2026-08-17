@@ -11,8 +11,9 @@ from core.config import settings
 from core.database import Session
 from sqlalchemy import select
 
-from core.orm import EntryItem, IntegrationSetting
+from core.orm import DailyEntry, EntryItem, IntegrationSetting, Member
 from integrations import jira, slack
+from tests.conftest import ADMIN_MEMBER, TEST_MEMBER
 
 DAY = "2030-07-08"
 
@@ -183,6 +184,70 @@ def test_reply_text_renders_tasks(client):
     assert "*Ada* — ✅ Update" in text
     assert "<http://j/TCE-9|TCE-9> · Content review · Acme · SQL · Count: 3 · In Progress" in text
     assert "_halfway_" in text
+
+
+async def test_roll_call_excludes_test_fixtures_and_reports_status(
+    client, task_type, monkeypatch
+):
+    """PyTest Member/PyTest Admin (and the RBAC fixtures) are excluded by name
+    — they're test fixtures that flip is_active=True for the duration of a
+    run, per tests/conftest.py, and must never get called out by name in a
+    real Slack message. Two throwaway probes (cleaned up in `finally`, so a
+    failed assertion still leaves the live DB clean) verify the actual
+    planned/no-plan split still works for everyone else."""
+    from datetime import date
+
+    from sqlalchemy import delete
+
+    PLANNED, NO_PLAN = "RollCall Planned Probe", "RollCall NoPlan Probe"
+    async with Session() as db:
+        planned_member = Member(display_name=PLANNED, is_active=True)
+        db.add(planned_member)
+        db.add(Member(display_name=NO_PLAN, is_active=True))
+        await db.commit()
+        planned_id = planned_member.id
+
+    try:
+        await client.post("/api/entries/plans", json={
+            "member_id": planned_id, "entry_date": DAY,
+            "items": [{"task_type_id": task_type, "notes": "n"}],
+        })
+
+        sent = []
+
+        async def fake_call(method, payload):
+            sent.append((method, payload))
+            return {"ok": True, "ts": "172000.1"}
+
+        monkeypatch.setattr(slack, "_call", fake_call)
+
+        result = await slack.post_roll_call(date.fromisoformat(DAY), "morning")
+        assert result == {"posted": True}
+        # `_mention` also calls `_call` (users.lookupByEmail) for each active
+        # member with an email — only one of these calls is the actual post.
+        posts = [payload for method, payload in sent if method == "chat.postMessage"]
+        assert len(posts) == 1
+        text = posts[0]["text"]
+
+        assert TEST_MEMBER not in text
+        assert ADMIN_MEMBER not in text
+
+        planned_section, _, no_plan_section = text.partition("No plan yet")
+        assert "Planned" in text
+        assert PLANNED in planned_section
+        assert NO_PLAN in no_plan_section
+    finally:
+        # Entries cascade-delete their items, but the member row itself has an
+        # ON DELETE RESTRICT from daily_entries — the plan filed above has to
+        # go first.
+        async with Session() as db:
+            ids = (await db.execute(
+                select(Member.id).where(Member.display_name.in_([PLANNED, NO_PLAN]))
+            )).scalars().all()
+            if ids:
+                await db.execute(delete(DailyEntry).where(DailyEntry.member_id.in_(ids)))
+                await db.execute(delete(Member).where(Member.id.in_(ids)))
+            await db.commit()
 
 
 # ── intake webhook ────────────────────────────────────────────────────────────
@@ -369,6 +434,29 @@ async def test_pipeline_picks_the_issue_type(monkeypatch):
         await jira.create_issue(db, entry, item)
     assert sent["issuetype"]["name"] == "Content Tasks"
     assert "customfield_10225" not in sent, "Content Tasks carry no customer"
+
+
+def test_title_leads_with_work_and_customer_over_notes():
+    """A Jira issue list should be scannable without opening each ticket —
+    task type, then customer, then what the notes actually say."""
+    from types import SimpleNamespace as N
+
+    entry = N(member=N(display_name="Ada"), entry_date=DAY)
+    item = N(task_type=N(name="Documentation"), customer="Acme Corp",
+             notes="fix the onboarding guide typo\nsecond line ignored")
+
+    assert jira._title(entry, item) == "Documentation — Acme Corp: fix the onboarding guide typo"
+
+
+def test_title_falls_back_to_who_and_when_without_notes():
+    """A freshly-planned item usually has no notes yet — the title shouldn't
+    end in a bare colon."""
+    from types import SimpleNamespace as N
+
+    entry = N(member=N(display_name="Ada"), entry_date=DAY)
+    item = N(task_type=N(name="Documentation"), customer=None, notes=None)
+
+    assert jira._title(entry, item) == f"Documentation: Ada · {DAY}"
 
 
 async def test_rate_limit_is_obeyed(monkeypatch):

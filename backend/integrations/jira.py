@@ -36,7 +36,6 @@ DEFAULTS: dict[str, Any] = {
     "project_key": "TCE",
     "issue_type": "Content Tasks",
     "customer_field": "customfield_10225",
-    "summary_prefix": "[Plan]",
     "status_names": {
         "open": ["To Do"], "in_progress": ["In Progress"],
         "blocked": ["Blocked"], "closed": ["Done"],
@@ -170,6 +169,22 @@ async def _account_id(db, c: httpx.AsyncClient, member) -> str | None:
     return member.jira_account_id
 
 
+def _title(entry: DailyEntry, item: EntryItem) -> str:
+    """Task type first (what it is), customer next (who it's for), then a
+    one-line notes excerpt — a Jira issue list should be scannable without
+    opening each ticket. Notes are often absent on a freshly-planned item, so
+    fall back to who/when rather than leaving a bare trailing colon."""
+    lead = item.task_type.name
+    if item.customer:
+        lead += f" — {item.customer}"
+    if item.notes:
+        snippet = item.notes.strip().splitlines()[0]
+        tail = snippet if len(snippet) <= 80 else snippet[:79] + "…"
+    else:
+        tail = f"{entry.member.display_name} · {entry.entry_date}"
+    return f"{lead}: {tail}"[:254]
+
+
 def _describe(entry: DailyEntry, item: EntryItem) -> str:
     lines = [
         f"ContentOps — {entry.kind.title()} — {entry.entry_date} — {entry.member.display_name}",
@@ -201,8 +216,7 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
 
     fields: dict[str, Any] = {
         "project": {"key": cfg["project_key"]},
-        "summary": (f"{cfg['summary_prefix']} {item.task_type.name} · "
-                    f"{entry.member.display_name} · {entry.entry_date}")[:254],
+        "summary": _title(entry, item),
         "description": _adf(_describe(entry, item)),
         "issuetype": {"name": issue_type},
     }

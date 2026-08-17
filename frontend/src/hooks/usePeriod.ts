@@ -39,6 +39,14 @@ function boundsFor(period: Period): { from: string; to: string } {
   }
 }
 
+/** The query string a link to another range-aware page needs to carry, so
+ * navigating there doesn't reset the picked period back to the default. */
+export function rangeQuery(range: Pick<Range, "period" | "from" | "to">): string {
+  return range.period === "custom"
+    ? `from=${range.from}&to=${range.to}`
+    : `period=${range.period}`;
+}
+
 /** The range lives in the URL, so any view is linkable and survives reload. */
 export function usePeriod(fallback: Period = "week"): Range {
   const [params, setParams] = useSearchParams();

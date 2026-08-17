@@ -206,6 +206,8 @@ export const api = {
   retryPendingJira: () => send<{ retried: number }>("POST", "/integrations/jira/retry-pending"),
   slackDigest: (kind: string, dryRun: boolean) =>
     send<Record<string, unknown>>("POST", "/integrations/slack/digest", { kind, dry_run: dryRun }),
+  slackRollCall: (phase: "morning" | "evening") =>
+    send<Record<string, unknown>>("POST", "/integrations/slack/roll-call", { phase }),
 
   exportWorkLog: (f: EntryFilters, format: "xlsx" | "csv") =>
     download(`/exports/work-log.${format}`, f, `work-log-${f.from}_${f.to}.${format}`),

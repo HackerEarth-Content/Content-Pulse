@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 import type { CurrentUser } from "../types";
 
@@ -26,18 +26,19 @@ const icon = (d: string) => (
 const LINKS: NavItem[] = [
   { to: "/my-day", label: "My day", title: "Plan today and report progress",
     icon: icon("M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z") },
-  { to: "/", label: "Overview", end: true, title: "Headline numbers for the period",
+  { to: "/", label: "Team Overview", end: true, title: "Headline numbers for the period",
     icon: icon("M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z") },
   { to: "/work-log", label: "All tickets", title: "Every ticket, filterable",
     icon: icon("M4 5h16M4 12h16M4 19h10") },
-  { to: "/members", label: "People", title: "Per-person workload and effort",
+  { to: "/members", label: "Team Members", title: "Per-person workload and effort",
     icon: icon("M16 20v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 3a4 4 0 100 8 4 4 0 000-8zM22 20v-2a4 4 0 00-3-3.9") },
-  { to: "/requests", label: "Request streams",
+  { to: "/requests", label: "Request streams", roles: ["admin"],
     title: "Requests, assessments, programs and technical writing",
     icon: icon("M4 6h16M4 11h16M4 16h9") },
   { to: "/leaderboard", label: "Leaderboard", title: "Effort logged per person, by area",
     icon: icon("M4 20V14M10 20V10M16 20V6M4 20h16") },
-  { to: "/analytics", label: "Insights", title: "Delivery, timing, customers and data quality",
+  { to: "/analytics", label: "Insights", roles: ["admin"],
+    title: "Delivery, timing, customers and data quality",
     icon: icon("M3 3v18h18M7 15l4-5 3 3 5-7") },
   { to: "/plan-board", label: "Plan board", roles: ["admin", "manager"],
     title: "Who's filed a plan and logged an update today",
@@ -64,18 +65,32 @@ export function BrandLockup({ theme, large = false }: { theme: string; large?: b
         height={size}
       />
       <span className="brand-text">
-        <span className="brand-mark">ContentOps</span>
-        <span className="brand-sub">Daily Tracker</span>
+        <span className="brand-sub">HackerEarth - Content</span>
+        <span className="brand-mark">Content Pulse</span>
       </span>
     </div>
   );
 }
 
+/** The picked date range lives in the URL (period/from/to) so a view is
+ * linkable — but that means a bare `to="/members"` drops it on every tab
+ * switch, since it's a fresh URL with no query string. Carry just those
+ * three keys over; a page's own filters (status, member_id, ...) are that
+ * page's business and shouldn't follow you to the next tab. */
 function Item({ link, allowed }: { link: NavItem; allowed: boolean }) {
+  const location = useLocation();
   if (!allowed) return null;
+
+  const search = new URLSearchParams(location.search);
+  const carried = new URLSearchParams();
+  for (const key of ["period", "from", "to"]) {
+    const value = search.get(key);
+    if (value) carried.set(key, value);
+  }
+
   return (
     <NavLink
-      to={link.to}
+      to={{ pathname: link.to, search: carried.toString() }}
       end={link.end}
       title={link.title}
       className={({ isActive }) => `side-link${isActive ? " active" : ""}`}

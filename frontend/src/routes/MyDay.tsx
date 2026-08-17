@@ -539,8 +539,8 @@ function ExtraRow({
   );
 }
 
-/** A ticket is its own thing, not a row in the day's report — raised and
- * closed in one step, same field order as the morning plan. */
+/** A ticket is its own thing, not a row in the day's report — same fields,
+ * same Jira/scheduling options as the morning plan, saved in one step. */
 function NewTicketDialog({
   memberId, date, taskTypes, onClose, onCreated,
 }: {
@@ -554,6 +554,10 @@ function NewTicketDialog({
   const [count, setCount] = useState("");
   const [dueAt, setDueAt] = useState("");
   const [notes, setNotes] = useState("");
+  // Same default as the morning plan — an unwanted ticket is more annoying to
+  // undo than a wanted one is to ask for.
+  const [createJira, setCreateJira] = useState(false);
+  const [postAt, setPostAt] = useState("");
   const [error, setError] = useState<ApiError | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -568,6 +572,7 @@ function NewTicketDialog({
       await api.createUpdate({
         member_id: memberId,
         entry_date: date,
+        post_at: postAt || null,
         plan_lines: [],
         extra_items: [{
           task_type_id: Number(taskTypeId),
@@ -577,7 +582,7 @@ function NewTicketDialog({
           due_at: dueAt || null,
           notes: notes || null,
           effort_minutes: null,
-          create_jira: true,
+          create_jira: createJira,
         }],
       });
       onCreated();
@@ -593,7 +598,7 @@ function NewTicketDialog({
       <div className="dialog-head">
         <div>
           <div className="card-title">New ticket</div>
-          <div className="card-sub">Raises it right away and closes.</div>
+          <div className="card-sub">Same options as the morning plan — logs it and closes.</div>
         </div>
         <button className="section-action" onClick={onClose} aria-label="Close">✕</button>
       </div>
@@ -627,6 +632,14 @@ function NewTicketDialog({
 
       <label className="label" style={{ marginTop: 12 }}>Notes</label>
       <textarea className="field" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+
+      <label className="check" style={{ marginTop: 12 }}>
+        <input type="checkbox" checked={createJira} onChange={(e) => setCreateJira(e.target.checked)} />
+        <span>Raise a Jira ticket for this</span>
+      </label>
+
+      {/* Same as the morning plan — written now, announced later. */}
+      <SchedulePicker value={postAt} onChange={setPostAt} />
 
       <div className="btn-row">
         <span className="topbar-spacer" />

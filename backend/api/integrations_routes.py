@@ -10,12 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import settings
 from core.database import get_session
 from core.dates import resolve_range, today
+from core.deps import ADMINS, require_role
 from core.orm import SyncCursor
 from core.users import current_user
 from integrations import jira, slack
 from services import content_requests as cr
 
 log = logging.getLogger(__name__)
+
+admin_only = Depends(require_role(*ADMINS))
 
 router = APIRouter(prefix="/api", tags=["integrations"],
                    dependencies=[Depends(current_user)])
@@ -71,6 +74,18 @@ async def slack_digest(data: DigestIn):
     """Replaces `manage.py post_slack_daily`."""
     from core.dates import today
     return await slack.post_digest(data.on or today(), data.kind, data.dry_run)
+
+
+class RollCallIn(BaseModel):
+    phase: str
+    on: date | None = None
+
+
+@router.post("/integrations/slack/roll-call", dependencies=[admin_only])
+async def slack_roll_call(data: RollCallIn):
+    """On-demand version of the 11:05/19:35 cron jobs — post the roster's
+    plan/update status right now, regardless of the schedule."""
+    return await slack.post_roll_call(data.on or today(), data.phase)
 
 
 @router.post("/integrations/email/plan-reminder")

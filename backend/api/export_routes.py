@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.analytics_routes import scope
 from core.database import get_session
 from core.dates import resolve_range
-from core.deps import Viewer, get_viewer
+from core.deps import ADMINS, Viewer, get_viewer, require_role
 from core.users import current_user
 from services import analytics as an
 from services import export
@@ -75,7 +75,7 @@ async def content_requests_xlsx(
     return _attachment(content, "content-requests.xlsx", XLSX)
 
 
-@router.get("/analytics.xlsx")
+@router.get("/analytics.xlsx", dependencies=[Depends(require_role(*ADMINS))])
 async def analytics_xlsx(s: an.Scope = Depends(scope), db: AsyncSession = Depends(get_session)):
     content = await export.analytics_xlsx(db, s)
     return _attachment(content, f"analytics-{s.frm}_{s.to}.xlsx", XLSX)

@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="ContentOps API", lifespan=lifespan)
+app = FastAPI(title="Content-Pulse API", lifespan=lifespan)
 
 # Cookie auth needs credentialed CORS, which browsers only allow with an
 # explicit origin — "*" is rejected once allow_credentials is on.

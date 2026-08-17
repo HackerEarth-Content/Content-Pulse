@@ -169,18 +169,19 @@
 }
 .brand-sub {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 650;
-  letter-spacing: 0.13em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
+  white-space: nowrap;
 }
 .brand-large .brand-mark {
   font-size: 27px;
 }
 .brand-large .brand-sub {
-  font-size: 12px;
-  letter-spacing: 0.15em;
+  font-size: 11px;
+  letter-spacing: 0.12em;
 }
 
 .topbar-spacer {
@@ -565,6 +566,13 @@
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
+}
+/* For long, single-fetch tables: the table scrolls in place instead of
+   stretching the page, and `th`'s `position: sticky` (below) only has
+   something to stick to once this container has a bounded height. */
+.table-scroll--capped {
+  max-height: 560px;
+  overflow-y: auto;
 }
 table {
   width: 100%;
