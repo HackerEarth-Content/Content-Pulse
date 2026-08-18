@@ -26,6 +26,8 @@ import type {
   TaskTypeStat,
   TodayStatus,
   TrendPoint,
+  WeeklyPlanCompletion,
+  WeeklyPlanItem,
   WorkLogRow,
 } from "./types";
 
@@ -216,4 +218,13 @@ export const api = {
   exportAnalytics: (p: Params) =>
     download("/exports/analytics.xlsx", p, `analytics-${p.from}_${p.to}.xlsx`),  exportContentRequests: (p: Params) =>
     download("/exports/content-requests.xlsx", p, "content-requests.xlsx"),
+
+  weeklyPlan: (week: string, memberId?: number) =>
+    get<WeeklyPlanItem[]>("/weekly-plan", { week, member_id: memberId }),
+  createWeeklyPlanItem: (week_start: string, action: string) =>
+    send<WeeklyPlanItem>("POST", "/weekly-plan/items", { week_start, action }),
+  patchWeeklyPlanItem: (id: number, body: { status?: string; achievement?: string }) =>
+    send<WeeklyPlanItem>("PATCH", `/weekly-plan/items/${id}`, body),
+  weeklyPlanCompletion: (week: string) =>
+    get<WeeklyPlanCompletion>("/weekly-plan/completion", { week }),
 };

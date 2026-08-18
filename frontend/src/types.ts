@@ -363,3 +363,22 @@ export interface SyncStatus {
   status: string | null;
   error: string | null;
 }
+
+export type WeeklyPlanStatus = "yet_to_start" | "in_progress" | "blocked" | "completed";
+
+export interface WeeklyPlanItem {
+  id: number;
+  member_id: number;
+  member: string;
+  week_start: string;
+  action: string;
+  achievement: string | null;
+  status: WeeklyPlanStatus;
+  updated_at: string;
+}
+
+export interface WeeklyPlanCompletion {
+  active: number;
+  filed: number;
+  updated: number;
+}

@@ -266,3 +266,59 @@ async def post_roll_call(on: date, phase: str) -> dict:
     except Exception as e:
         log.warning("roll call failed: %s", e)
         return {"posted": False, "reason": str(e)}
+
+
+async def post_weekly_plan_status(week_start: date, phase: str) -> dict:
+    """Monday 11:59pm reports who's filed this week's plan; Friday 11:59pm
+    reports who's updated it — same shape as `post_roll_call`, one week wide
+    instead of one day.
+    """
+    from core.orm import WeeklyPlanItem
+
+    async with Session() as db:
+        active = list(await db.execute(
+            select(Member.id, Member.display_name, Member.email, Member.slack_user_id)
+            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES))
+            .order_by(Member.display_name)
+        ))
+        filed_ids = {mid for (mid,) in await db.execute(
+            select(WeeklyPlanItem.member_id)
+            .where(WeeklyPlanItem.week_start == week_start)
+            .distinct()
+        )}
+        updated_ids = {mid for (mid,) in await db.execute(
+            select(WeeklyPlanItem.member_id)
+            .where(
+                WeeklyPlanItem.week_start == week_start,
+                WeeklyPlanItem.status != "yet_to_start",
+            )
+            .distinct()
+        )}
+
+    done_ids = filed_ids if phase == "monday" else updated_ids
+    done = [row for row in active if row[0] in done_ids]
+    missing = [row for row in active if row[0] not in done_ids]
+
+    async def names(rows: list) -> str:
+        return ", ".join(
+            [await _mention(slack_id, email, name) for _, name, email, slack_id in rows]
+        ) or "—"
+
+    week_label = week_start.strftime("Week of %d %b %Y")
+    verb = "filed" if phase == "monday" else "updated"
+    lines = [
+        f"🗓️ *Weekly plan {verb} — {week_label}*", "",
+        f"{len(done)} of {len(active)} people have {verb} this week's plan.", "",
+        f"✅ *{verb.title()}* ({len(done)})", await names(done),
+    ]
+    if missing:
+        lines += ["", f"❌ *Not yet {verb}* ({len(missing)})", await names(missing)]
+
+    try:
+        await _call("chat.postMessage", {"channel": settings.SLACK_CHANNEL, "text": "\n".join(lines)})
+        return {"posted": True}
+    except SlackDisabled as e:
+        return {"posted": False, "reason": str(e)}
+    except Exception as e:
+        log.warning("weekly plan status post failed: %s", e)
+        return {"posted": False, "reason": str(e)}

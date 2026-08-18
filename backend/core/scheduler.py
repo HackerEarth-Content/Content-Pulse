@@ -14,7 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from core.config import settings
-from core.dates import TZ, today
+from core.dates import TZ, today, week_bounds
 from integrations import email, jira, slack
 from services import content_requests
 
@@ -132,6 +132,22 @@ def _roll_call(phase: str):
     return run
 
 
+def _weekly_plan_status(phase: str):
+    """Monday 11:59pm: who's filed this week's plan. Friday 11:59pm: who's
+    updated it. `week_bounds` gives the Monday of whichever week `today()`
+    falls in, which on these two days is always the week just being reported."""
+
+    async def run() -> None:
+        try:
+            week_start, _ = week_bounds(today())
+            log.info("slack weekly plan %s: %s", phase,
+                     await slack.post_weekly_plan_status(week_start, phase))
+        except Exception:
+            log.exception("slack weekly plan %s failed", phase)
+
+    return run
+
+
 def start() -> AsyncIOScheduler:
     s = AsyncIOScheduler(timezone=TZ)
     s.add_job(_sync_content_requests, IntervalTrigger(minutes=15),
@@ -161,5 +177,9 @@ def start() -> AsyncIOScheduler:
                   id="plan_rollcall", max_instances=1, coalesce=True)
         s.add_job(_roll_call("evening"), CronTrigger(hour=19, minute=35, day_of_week="mon-fri"),
                   id="update_rollcall", max_instances=1, coalesce=True)
+        s.add_job(_weekly_plan_status("monday"), CronTrigger(hour=23, minute=59, day_of_week="mon"),
+                  id="weekly_plan_monday", max_instances=1, coalesce=True)
+        s.add_job(_weekly_plan_status("friday"), CronTrigger(hour=23, minute=59, day_of_week="fri"),
+                  id="weekly_plan_friday", max_instances=1, coalesce=True)
     s.start()
     return s

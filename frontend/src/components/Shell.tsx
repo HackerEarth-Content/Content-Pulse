@@ -26,6 +26,9 @@ const icon = (d: string) => (
 const LINKS: NavItem[] = [
   { to: "/my-day", label: "My day", title: "Plan today and report progress",
     icon: icon("M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z") },
+  { to: "/weekly-plan", label: "Weekly plan",
+    title: "File Monday morning, report Friday afternoon",
+    icon: icon("M3 3v18h18M7 16l3-4 3 2 4-6") },
   { to: "/", label: "Team Overview", end: true, title: "Headline numbers for the period",
     icon: icon("M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z") },
   { to: "/work-log", label: "All tickets", title: "Every ticket, filterable",

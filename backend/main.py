@@ -11,6 +11,7 @@ from api.intake_routes import router as intake_router
 from api.entries_routes import router as entries_router
 from api.export_routes import router as export_router
 from api.members_routes import router as members_router
+from api.weekly_plan_routes import router as weekly_plan_router
 from core.config import settings
 from core.database import engine
 from core.scheduler import start as start_scheduler
@@ -56,3 +57,4 @@ app.include_router(analytics_router)
 app.include_router(integrations_router)
 app.include_router(intake_router)
 app.include_router(export_router)
+app.include_router(weekly_plan_router)
