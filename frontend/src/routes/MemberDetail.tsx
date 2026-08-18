@@ -378,6 +378,12 @@ export function MemberDetail({ range }: { range: Range }) {
                             removed in Jira
                           </span>
                         ) : null}
+                        {r.parent_issue_key ? (
+                          <a className="tag" href={r.parent_issue_url ?? "#"} target="_blank"
+                             rel="noreferrer" title="Parent ticket" style={{ marginLeft: 6 }}>
+                            ↑ {r.parent_issue_key}
+                          </a>
+                        ) : null}
                       </td>
                     </tr>
                   ))}

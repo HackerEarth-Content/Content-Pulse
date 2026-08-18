@@ -10,27 +10,12 @@ function stamp(day: Date, hour: number, minute = 0): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function options(now: Date) {
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return [
-    { key: "now", label: "Post now", value: "", hint: "Goes out as soon as you save" },
-    // The two times the team actually works to: the evening plan drop and the
-    // 11am update deadline.
-    { key: "evening", label: "8:00 PM today", value: stamp(now, 20), hint: "This evening",
-      past: now.getHours() >= 20 },
-    { key: "morning", label: "11:00 AM tomorrow", value: stamp(tomorrow, 11),
-      hint: "Before the update deadline" },
-  ];
-}
+const OPTIONS = [
+  { key: "now", label: "Post now", value: "", hint: "Goes out as soon as you save" },
+];
 
-/** When an entry should reach Jira and Slack.
- *
- * A bare `datetime-local` asks you to assemble a timestamp for what is really a
- * choice between two moments — tonight's drop or tomorrow morning. The presets
- * are those two; the custom field is still there, revealed rather than removed,
- * because a control that only offers presets is a control you fight.
- */
+/** When an entry should reach Jira and Slack — post now, or hold it for a
+ * specific time you pick. */
 export function SchedulePicker({
   value,
   onChange,
@@ -40,8 +25,7 @@ export function SchedulePicker({
 }) {
   const id = useId();
   const now = new Date();
-  const choices = options(now);
-  const matched = choices.find((c) => c.value === value);
+  const matched = OPTIONS.find((c) => c.value === value);
   const [custom, setCustom] = useState(!matched);
 
   const pick = (next: string) => {
@@ -54,29 +38,20 @@ export function SchedulePicker({
       <legend className="label">When should this go out?</legend>
 
       <div className="schedule-options">
-        {choices.map((c) => (
+        {OPTIONS.map((c) => (
           <label
             key={c.key}
             className={`schedule-option${!custom && matched?.key === c.key ? " selected" : ""}`}
-            aria-disabled={c.past || undefined}
           >
             <input
               type="radio"
               name={`${id}-when`}
               checked={!custom && matched?.key === c.key}
-              // Choosing a time that has already passed would publish instantly
-              // under a label promising 8pm. Disabled rather than silently
-              // reinterpreted, and it still announces itself to a screen reader.
-              disabled={c.past}
               onChange={() => pick(c.value)}
             />
             <span>
               <span className="schedule-option-label">{c.label}</span>
-              <span className="muted">
-                {/* Offering "8:00 PM today" at nine at night is a preset that
-                    silently means yesterday. Say so instead of hiding it. */}
-                {c.past ? "Already gone — pick a time below" : c.hint}
-              </span>
+              <span className="muted">{c.hint}</span>
             </span>
           </label>
         ))}

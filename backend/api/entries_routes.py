@@ -178,11 +178,15 @@ async def patch_item(item_id: int, patch: ItemPatch, background: BackgroundTasks
     await _owned(db, viewer, item_id)
     item = await svc.patch_item(
         db, item_id, status_=patch.status, count=patch.count,
-        notes=patch.notes, due_at=patch.due_at, user_id=user.id,
+        notes=patch.notes, comment=patch.comment, due_at=patch.due_at, user_id=user.id,
         effort_minutes=patch.effort_minutes, task_type_id=patch.task_type_id,
     )
     if patch.status and item.jira_issue_key:
-        background.add_task(jira.push_status, item.id, item.status, patch.notes)
+        # Task type rides along on this same transition call now (see
+        # integrations.jira.transition) — a separate push_fields call used to
+        # run after it and could lose a race against Jira's own
+        # transition-time field defaults.
+        background.add_task(jira.push_status, item.id, item.status, patch.comment)
     if (patch.task_type_id is not None or patch.notes is not None) and item.jira_issue_key:
         background.add_task(jira.push_fields, item.id)
     return ItemOut.of(item)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.orm import PIPELINES, STATUSES
 
@@ -43,6 +43,16 @@ class ItemIn(BaseModel):
     # anyone wanted a ticket or not, and an unwanted ticket is far more
     # annoying to undo than a wanted one is to ask for.
     create_jira: bool = False
+    # Mandatory for Content Requests only — see the validator below. Checked
+    # against Jira (it must be a real, existing issue) before the ticket is
+    # created; see integrations.jira.issue_exists.
+    parent_issue_key: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9]*-\d+$")
+
+    @model_validator(mode="after")
+    def _parent_required_for_content_requests(self) -> ItemIn:
+        if self.pipeline == "content_request" and not self.parent_issue_key:
+            raise ValueError("parent_issue_key is required for Content Requests.")
+        return self
 
 
 class Scheduled(BaseModel):
@@ -88,7 +98,13 @@ class ItemPatch(BaseModel):
     status: str | None = Field(default=None, pattern="^(" + "|".join(STATUSES) + ")$")
     task_type_id: int | None = None
     count: int | None = Field(default=None, gt=0)
+    # Edits the ticket's persistent Summary, shown everywhere the ticket is
+    # listed. Distinct from `comment` below — conflating the two used to mean
+    # a one-off note about a status change silently overwrote the Summary.
     notes: str | None = None
+    # A per-transition remark: recorded on the status-event log and posted to
+    # Jira as a transition comment. Never written to the ticket's Summary.
+    comment: str | None = None
     due_at: date | None = None
     # Absolute, unlike an update line — this edits one row rather than adding to it.
     effort_minutes: int | None = Field(default=None, ge=0)
@@ -133,6 +149,8 @@ class ItemOut(ORMModel):
     jira_issue_url: str | None
     jira_state: str
     jira_missing: bool
+    parent_issue_key: str | None
+    parent_issue_url: str | None
 
     @classmethod
     def of(cls, it) -> ItemOut:
@@ -140,7 +158,8 @@ class ItemOut(ORMModel):
             **{k: getattr(it, k) for k in
                ("id", "plan_item_id", "task_type_id", "pipeline", "customer", "count", "notes",
                 "due_at", "effort_minutes", "status", "jira_wanted",
-                "jira_issue_key", "jira_issue_url", "jira_state", "jira_missing")},
+                "jira_issue_key", "jira_issue_url", "jira_state", "jira_missing",
+                "parent_issue_key", "parent_issue_url")},
             task_type=it.task_type.name,
             title=_title(it),
             work_type=PIPELINE_LABELS.get(it.pipeline, it.pipeline),
@@ -199,6 +218,8 @@ class WorkLogRow(ORMModel):
     jira_issue_url: str | None
     jira_state: str
     jira_missing: bool
+    parent_issue_key: str | None
+    parent_issue_url: str | None
     plan_item_id: int | None
 
     @classmethod
@@ -207,7 +228,8 @@ class WorkLogRow(ORMModel):
             **{k: getattr(item, k) for k in
                ("id", "entry_id", "task_type_id", "customer", "count", "effort_minutes", "notes",
                 "due_at", "status", "pipeline", "external_issue_type", "request_type",
-                "jira_issue_key", "jira_issue_url", "jira_state", "jira_missing", "plan_item_id")},
+                "jira_issue_key", "jira_issue_url", "jira_state", "jira_missing",
+                "parent_issue_key", "parent_issue_url", "plan_item_id")},
             entry_date=entry.entry_date, kind=entry.kind,
             member_id=entry.member_id, member=entry.member.display_name,
             task_type=item.task_type.name,

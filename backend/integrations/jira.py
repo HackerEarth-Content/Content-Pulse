@@ -114,6 +114,20 @@ def _explain(r: httpx.Response) -> str:
     return f"HTTP {r.status_code}: {'; '.join(map(str, detail)) or r.text[:200]}"
 
 
+async def issue_exists(db, key: str) -> bool:
+    """A lightweight existence check — Content Requests must reference a real
+    parent issue, verified once at creation time rather than trusted blind.
+    Reads are always allowed, so this runs regardless of JIRA_WRITES_ENABLED."""
+    await config(db)  # raises JiraDisabled if credentials aren't set
+    async with _client() as c:
+        r = await c.get(f"/rest/api/3/issue/{key}", params={"fields": "summary"})
+    if r.status_code == 404:
+        return False
+    if r.status_code >= 400:
+        raise RuntimeError(_explain(r))
+    return True
+
+
 def _adf(text: str) -> dict:
     return {
         "type": "doc", "version": 1,
@@ -327,7 +341,8 @@ def _pick(transitions: list[dict], want: set[str]) -> dict | None:
 
 
 async def transition(db, key: str, status: str, *, comment: str | None = None,
-                     due_at: date | None = None, effort_minutes: int | None = None) -> None:
+                     due_at: date | None = None, effort_minutes: int | None = None,
+                     pipeline: str | None = None, task_type_name: str | None = None) -> None:
     cfg = await config(db)
     _writes_allowed()
     want = {n.lower() for n in cfg["status_names"].get(status, [])}
@@ -356,13 +371,28 @@ async def transition(db, key: str, status: str, *, comment: str | None = None,
             raise RuntimeError(f"No transition to {status!r}. Available: {names}")
 
         payload: dict[str, Any] = {"transition": {"id": chosen["id"]}}
+        fields: dict[str, Any] = {}
         if status == "closed":
-            payload["fields"] = await _done_fields(c, cfg, key, due_at, effort_minutes)
+            fields = await _done_fields(c, cfg, key, due_at, effort_minutes)
         elif due_at:
             for fk, fv in (chosen.get("fields") or {}).items():
                 if "due" in str((fv or {}).get("name", "")).lower():
-                    payload["fields"] = {fk: due_at.isoformat()}
+                    fields[fk] = due_at.isoformat()
                     break
+        # Set on the transition itself, not a follow-up call: a workflow
+        # transition can carry its own field defaults/validators, which — for
+        # a Done transition in particular — silently reset Task Type if it
+        # isn't part of THIS request. A later "fix it up" call is too late to
+        # stop that from ever having happened. Overwrites whatever
+        # `_done_fields` read back from Jira, so our freshly-chosen type
+        # always wins over Jira's currently-stored one.
+        if task_type_name:
+            issue_type = ISSUE_TYPES.get(pipeline, cfg["issue_type"]) if pipeline else cfg["issue_type"]
+            options_map = await option_ids(db, c, cfg, issue_type)
+            if tt := _find_option(options_map["task_type"], task_type_name):
+                fields[cfg["done_fields"]["task_type"]] = {"id": tt}
+        if fields:
+            payload["fields"] = fields
         if comment and comment.strip():
             payload["update"] = {"comment": [{"add": {"body": _adf(comment.strip())}}]}
 
@@ -403,7 +433,8 @@ async def push_item(item_id: int) -> None:
             await _audit(db, "jira.create", item, {"pipeline": item.pipeline})
             if item.status != "open":
                 await transition(db, key, item.status, comment=item.notes,
-                                 due_at=item.due_at, effort_minutes=item.effort_minutes)
+                                 due_at=item.due_at, effort_minutes=item.effort_minutes,
+                                 pipeline=item.pipeline, task_type_name=item.task_type.name)
         except JiraDisabled as e:
             item.jira_state, item.jira_error = "none", str(e)
         except Exception as e:
@@ -413,14 +444,16 @@ async def push_item(item_id: int) -> None:
 
 
 async def push_status(item_id: int, status: str, note: str | None = None) -> None:
-    """Moves the Jira issue and syncs our effort onto it."""
+    """Moves the Jira issue, syncs our effort onto it, and reasserts task type
+    on the same transition call — see `transition()`'s task_type_name."""
     async with Session() as db:
         item = await db.get(EntryItem, item_id)
         if item is None or not item.jira_issue_key:
             return
         try:
             await transition(db, item.jira_issue_key, status, comment=note,
-                             due_at=item.due_at, effort_minutes=item.effort_minutes)
+                             due_at=item.due_at, effort_minutes=item.effort_minutes,
+                             pipeline=item.pipeline, task_type_name=item.task_type.name)
             item.jira_state, item.jira_error = "ok", None
             await _audit(db, "jira.transition", item,
                          {"to": status, "effort_minutes": item.effort_minutes})

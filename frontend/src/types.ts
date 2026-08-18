@@ -43,6 +43,8 @@ export interface Item {
   jira_issue_url: string | null;
   jira_state: "none" | "pending" | "ok" | "failed";
   jira_missing: boolean;
+  parent_issue_key: string | null;
+  parent_issue_url: string | null;
 }
 
 export interface Entry {
@@ -98,6 +100,8 @@ export interface WorkLogRow {
   jira_issue_url: string | null;
   jira_state: "none" | "pending" | "ok" | "failed";
   jira_missing: boolean;
+  parent_issue_key: string | null;
+  parent_issue_url: string | null;
   plan_item_id: number | null;
 }
 

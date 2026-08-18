@@ -22,6 +22,10 @@ export function Donut({
   onSelect,
   selected,
   height = 240,
+  // Opt-in only — every other Donut on this app stays at the CVD-safe 3.
+  // Set this when the slices already carry their own distinguishable
+  // `colour`s and folding into "Other" would defeat the point of the chart.
+  maxSlices = CATEGORICAL.length,
 }: {
   slices: Slice[];
   total?: number;
@@ -30,9 +34,10 @@ export function Donut({
   onSelect?: (key: string) => void;
   selected?: string | null;
   height?: number;
+  maxSlices?: number;
 }) {
-  const top = slices.slice(0, CATEGORICAL.length);
-  const rest = slices.slice(CATEGORICAL.length);
+  const top = slices.slice(0, maxSlices);
+  const rest = slices.slice(maxSlices);
   const data = [
     ...top.map((s, i) => ({ ...s, colour: s.colour ?? CATEGORICAL[i] })),
     ...(rest.length

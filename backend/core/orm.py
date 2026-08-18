@@ -296,6 +296,11 @@ class EntryItem(Timestamps, Base):
     # Jira's "Request type" — how Content Requests sub-divide into assessment
     # work, content issues, validation and so on.
     request_type: Mapped[str | None]
+    # A Content Request ticket must reference the parent issue it belongs to
+    # (verified against Jira at creation time — see integrations.jira.issue_exists).
+    # Optional on every other work type.
+    parent_issue_key: Mapped[str | None]
+    parent_issue_url: Mapped[str | None]
 
     # Jira's own clock. Cycle time was previously derived from our status
     # events, but an imported row only ever gets one event, so every interval

@@ -28,13 +28,18 @@ async def dataset(client, member, task_type):
             {"task_type_id": task_type, "count": 5, "notes": "two", "due_at": DAY},
         ],
     })).json()
+    # Open can't jump straight to closed — pass through in_progress first, via
+    # a direct patch rather than a second update entry, so this still files
+    # exactly one update for the day.
+    await client.patch(f"/api/entry-items/{plan['items'][0]['id']}", json={"status": "in_progress"})
     await client.post("/api/entries/updates", json={
         "member_id": member, "entry_date": DAY,
         "plan_lines": [{"plan_item_id": plan["items"][0]["id"], "status": "closed",
-                        "notes": "done", "due_at": DAY}],
+                        "notes": "done", "due_at": DAY, "effort_minutes": 30}],
         # Explicit: extra work only defaults to open since it's a normal task
         # now, but this fixture's "2 closed" scenario predates that and still
-        # wants this one closed.
+        # wants this one closed. A fresh item's initial status isn't a
+        # transition, so it's exempt from the in_progress-first rule.
         "extra_items": [{"task_type_id": task_type, "count": 1, "notes": "unplanned",
                          "status": "closed", "due_at": DAY}],
     })
@@ -94,7 +99,9 @@ async def test_trend_is_zero_filled(client, member, task_type):
 async def test_status_flow_reads_the_event_log(client, member, task_type, params):
     await dataset(client, member, task_type)
     flow = (await client.get("/api/analytics/status-flow", params=params)).json()
-    assert {"from": "open", "to": "closed", "count": 1} in flow
+    # Open can't jump straight to closed any more — it's two transitions now.
+    assert {"from": "open", "to": "in_progress", "count": 1} in flow
+    assert {"from": "in_progress", "to": "closed", "count": 1} in flow
 
 
 async def test_cycle_time_excludes_work_logged_after_the_fact(client, member, task_type, params):

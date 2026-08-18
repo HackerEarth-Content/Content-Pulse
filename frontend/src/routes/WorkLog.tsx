@@ -39,6 +39,8 @@ const asItem = (r: WorkLogRow): Item => ({
   jira_issue_url: r.jira_issue_url,
   jira_state: r.jira_state,
   jira_missing: r.jira_missing,
+  parent_issue_key: r.parent_issue_key,
+  parent_issue_url: r.parent_issue_url,
 });
 
 export function WorkLog({ range, me }: { range: Range; me: CurrentUser["member"] }) {
@@ -222,7 +224,15 @@ export function WorkLog({ range, me }: { range: Range; me: CurrentUser["member"]
                             <span className="muted">—</span>
                           )}
                         </td>
-                        <td className="cell-notes">{r.notes ?? "—"}</td>
+                        <td className="cell-notes">
+                          {r.notes ?? "—"}
+                          {r.parent_issue_key ? (
+                            <a className="tag" href={r.parent_issue_url ?? "#"} target="_blank"
+                               rel="noreferrer" title="Parent ticket" style={{ marginLeft: 6 }}>
+                              ↑ {r.parent_issue_key}
+                            </a>
+                          ) : null}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
