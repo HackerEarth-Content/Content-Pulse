@@ -1,7 +1,7 @@
 """Date helpers. 'Today' is local to the team, not UTC — a 06:00 IST entry is
 still the previous day in UTC, which is how the Django app mis-dated mornings."""
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from core.config import settings
@@ -11,6 +11,18 @@ TZ = ZoneInfo(settings.TIMEZONE)
 
 def today() -> date:
     return datetime.now(TZ).date()
+
+
+def day_bounds_utc(d: date) -> tuple[datetime, datetime]:
+    """The [start, end) of a team-local calendar day, in UTC and tz-naive —
+    what a `timestamp without time zone` column storing UTC instants (e.g.
+    `EntryItemStatusEvent.changed_at`) needs to be compared against. Comparing
+    such a column directly to a bare `date` silently treats it as UTC
+    midnight, which is 5:30 off from midnight IST — the exact mis-dating this
+    module's `today()` already exists to avoid."""
+    start = datetime(d.year, d.month, d.day, tzinfo=TZ).astimezone(UTC).replace(tzinfo=None)
+    end = datetime(d.year, d.month, d.day, tzinfo=TZ) + timedelta(days=1)
+    return start, end.astimezone(UTC).replace(tzinfo=None)
 
 
 def week_bounds(d: date | None = None) -> tuple[date, date]:

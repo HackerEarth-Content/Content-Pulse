@@ -45,7 +45,10 @@ export function RankedBars({
           title={`${r.label} — ${format(r.value)}${r.sub ? ` · ${r.sub}` : ""}`}
         >
           <div>
-            <div className="rank-label">{r.label}</div>
+            <div className="rank-label">
+              {r.label}
+              {r.sub ? <span className="muted"> — {r.sub}</span> : null}
+            </div>
             <div className="rank-track">
               <div
                 className="rank-fill"
@@ -61,9 +64,7 @@ export function RankedBars({
             <div className="rank-share">
               {total ? `${Math.round((r.value / total) * 100)}%` : "—"}
             </div>
-          ) : (
-            <div className="rank-share">{r.sub ?? ""}</div>
-          )}
+          ) : null}
         </div>
       ))}
     </div>

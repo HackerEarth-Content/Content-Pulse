@@ -29,6 +29,9 @@ export interface Item {
   plan_item_id: number | null;
   task_type_id: number;
   task_type: string;
+  title: string;
+  pipeline: string;
+  work_type: string;
   question_type: string | null;
   customer: string | null;
   count: number | null;
@@ -39,6 +42,7 @@ export interface Item {
   jira_issue_key: string | null;
   jira_issue_url: string | null;
   jira_state: "none" | "pending" | "ok" | "failed";
+  jira_missing: boolean;
 }
 
 export interface Entry {
@@ -77,7 +81,9 @@ export interface WorkLogRow {
   kind: Kind;
   member_id: number;
   member: string;
+  task_type_id: number;
   task_type: string;
+  title: string;
   question_type: string | null;
   customer: string | null;
   count: number | null;
@@ -91,6 +97,7 @@ export interface WorkLogRow {
   jira_issue_key: string | null;
   jira_issue_url: string | null;
   jira_state: "none" | "pending" | "ok" | "failed";
+  jira_missing: boolean;
   plan_item_id: number | null;
 }
 
@@ -220,6 +227,8 @@ export interface PlanDailyStatus {
   entry_date: string;
   planned: boolean;
   updated: boolean;
+  created: number;
+  closed: number;
 }
 
 export interface CycleTime {
@@ -353,4 +362,23 @@ export interface SyncStatus {
   last_synced_at: string | null;
   status: string | null;
   error: string | null;
+}
+
+export type WeeklyPlanStatus = "yet_to_start" | "in_progress" | "blocked" | "completed";
+
+export interface WeeklyPlanItem {
+  id: number;
+  member_id: number;
+  member: string;
+  week_start: string;
+  action: string;
+  achievement: string | null;
+  status: WeeklyPlanStatus;
+  updated_at: string;
+}
+
+export interface WeeklyPlanCompletion {
+  active: number;
+  filed: number;
+  updated: number;
 }

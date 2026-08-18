@@ -14,7 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from core.config import settings
-from core.dates import TZ, today
+from core.dates import TZ, today, week_bounds
 from integrations import email, jira, slack
 from services import content_requests
 
@@ -46,6 +46,18 @@ async def _sync_jira_history() -> None:
         log.info("jira history sync: %s", result)
     except Exception:
         log.exception("jira history sync failed")
+
+
+async def _mark_jira_deletions() -> None:
+    """Catches the one thing the incremental sync above structurally can't:
+    an issue Jira no longer returns emits no `updated` event to catch."""
+    from scripts.backfill_jira import DEFAULT_FROM
+    from scripts.reconcile_jira import mark_missing
+
+    try:
+        log.info("jira deletion check: %s", await mark_missing(DEFAULT_FROM))
+    except Exception:
+        log.exception("jira deletion check failed")
 
 
 async def _sweep_jira() -> None:
@@ -120,6 +132,22 @@ def _roll_call(phase: str):
     return run
 
 
+def _weekly_plan_status(phase: str):
+    """Monday 11:59pm: who's filed this week's plan. Friday 11:59pm: who's
+    updated it. `week_bounds` gives the Monday of whichever week `today()`
+    falls in, which on these two days is always the week just being reported."""
+
+    async def run() -> None:
+        try:
+            week_start, _ = week_bounds(today())
+            log.info("slack weekly plan %s: %s", phase,
+                     await slack.post_weekly_plan_status(week_start, phase))
+        except Exception:
+            log.exception("slack weekly plan %s failed", phase)
+
+    return run
+
+
 def start() -> AsyncIOScheduler:
     s = AsyncIOScheduler(timezone=TZ)
     s.add_job(_sync_content_requests, IntervalTrigger(minutes=15),
@@ -131,6 +159,10 @@ def start() -> AsyncIOScheduler:
     # reassignment or an edited effort value stayed wrong for up to a day.
     s.add_job(_sync_jira_history, IntervalTrigger(minutes=30),
               id="jira_history", max_instances=1, coalesce=True)
+    # A full re-fetch, not incremental — a deletion emits no `updated` event,
+    # so this is the only way that drift ever surfaces. Heavier, hence hourly.
+    s.add_job(_mark_jira_deletions, IntervalTrigger(hours=2),
+              id="jira_deletions", max_instances=1, coalesce=True)
     s.add_job(_publish_scheduled, IntervalTrigger(minutes=1),
               id="publish_scheduled", max_instances=1, coalesce=True)
     s.add_job(_remind_to_plan,
@@ -145,5 +177,9 @@ def start() -> AsyncIOScheduler:
                   id="plan_rollcall", max_instances=1, coalesce=True)
         s.add_job(_roll_call("evening"), CronTrigger(hour=19, minute=35, day_of_week="mon-fri"),
                   id="update_rollcall", max_instances=1, coalesce=True)
+        s.add_job(_weekly_plan_status("monday"), CronTrigger(hour=23, minute=59, day_of_week="mon"),
+                  id="weekly_plan_monday", max_instances=1, coalesce=True)
+        s.add_job(_weekly_plan_status("friday"), CronTrigger(hour=23, minute=59, day_of_week="fri"),
+                  id="weekly_plan_friday", max_instances=1, coalesce=True)
     s.start()
     return s

@@ -13,11 +13,12 @@ dashboard's totals drift.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 
 from sqlalchemy import Select, and_, case, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.dates import TZ, day_bounds_utc
 from core.orm import (
     AREA_LABELS,
     ASSESSMENT_REQUEST_TYPES,
@@ -709,6 +710,40 @@ async def plan_daily_status(db: AsyncSession, s: Scope) -> list[dict]:
             .distinct()
         )
     }
+    # Tickets logged for that day — same de-dup as `tasks()`, so an update row
+    # that's just progress on an existing plan item isn't counted twice.
+    created: dict[tuple[int, date], int] = {}
+    for r in await db.execute(
+        select(DailyEntry.member_id, DailyEntry.entry_date)
+        .select_from(EntryItem).join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+        .where(*_item_where(s))
+    ):
+        created[r.member_id, r.entry_date] = created.get((r.member_id, r.entry_date), 0) + 1
+    # Closed *on* that day, not planned that day — a ticket planned Monday and
+    # closed Wednesday belongs to Wednesday's count, not Monday's. `changed_at`
+    # is a naive-UTC instant, so the range and the day it's bucketed into both
+    # have to go through day_bounds_utc — comparing it to a bare date silently
+    # treats the boundary as UTC midnight, 5:30 off from midnight IST.
+    closed: dict[tuple[int, date], int] = {}
+    range_start, _ = day_bounds_utc(s.frm)
+    _, range_end = day_bounds_utc(s.to)
+    closed_where = [
+        EntryItemStatusEvent.to_status == "closed",
+        EntryItemStatusEvent.changed_at >= range_start,
+        EntryItemStatusEvent.changed_at < range_end,
+    ]
+    if s.member_id:
+        closed_where.append(DailyEntry.member_id == s.member_id)
+    for r in await db.execute(
+        select(DailyEntry.member_id, EntryItemStatusEvent.changed_at)
+        .select_from(EntryItemStatusEvent)
+        .join(EntryItem, EntryItem.id == EntryItemStatusEvent.entry_item_id)
+        .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+        .where(*closed_where)
+    ):
+        d = r.changed_at.replace(tzinfo=UTC).astimezone(TZ).date()
+        closed[r.member_id, d] = closed.get((r.member_id, d), 0) + 1
+
     member_where = [Member.is_active.is_(True)]
     if s.member_id:
         member_where.append(Member.id == s.member_id)
@@ -722,6 +757,7 @@ async def plan_daily_status(db: AsyncSession, s: Scope) -> list[dict]:
         {
             "member_id": member_id, "member": member, "entry_date": d.isoformat(),
             "planned": (member_id, d) in planned, "updated": (member_id, d) in updated,
+            "created": created.get((member_id, d), 0), "closed": closed.get((member_id, d), 0),
         }
         for member_id, member in members
         for d in days

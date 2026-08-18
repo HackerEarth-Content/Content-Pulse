@@ -39,6 +39,7 @@ PIPELINES = {
     "HC/HT Feasibility": "hc_ht_feasibility",
     "TCE: Technical writing": "technical_writing",
     "Creation and Review": "creation_and_review",
+    "TCE subtask": "tce_subtask",
 }
 DEFAULT_PIPELINE = "content_task"
 
@@ -56,6 +57,7 @@ AREA_LABELS = {
     "hc_ht_feasibility": "HC/HT Feasibility",
     "technical_writing": "Technical Writing",
     "tce_subtask": "TCE Subtask",
+    "creation_and_review": "Creation and Review",
 }
 
 
@@ -80,6 +82,9 @@ KINDS = ("plan", "update")
 SOURCES = ("web", "slack", "api", "import", "jira")
 ROLES = ("content", "ae", "manager", "admin")
 JIRA_STATES = ("none", "pending", "ok", "failed")
+# Deliberately its own vocabulary, not STATUSES — a weekly plan item is never
+# "open" or "closed", it's yet to start, in progress, blocked, or completed.
+WEEKLY_PLAN_STATUSES = ("yet_to_start", "in_progress", "blocked", "completed")
 
 
 def _enum(col: str, values: tuple[str, ...]) -> CheckConstraint:
@@ -315,6 +320,10 @@ class EntryItem(Timestamps, Base):
     jira_issue_url: Mapped[str | None]
     jira_state: Mapped[str] = mapped_column(default="none")
     jira_error: Mapped[str | None] = mapped_column(Text)
+    # True when a periodic check no longer finds this issue key in Jira — it
+    # was deleted there. We never delete our own row for it: that would erase
+    # history for something that was, at some point, real logged work.
+    jira_missing: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
 
     entry: Mapped[DailyEntry] = relationship(
         back_populates="items", foreign_keys=[entry_id]
@@ -342,6 +351,31 @@ class EntryItemStatusEvent(Base):
         ForeignKey("user.user_id", ondelete="SET NULL")
     )
     changed_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+
+
+class WeeklyPlanItem(Timestamps, Base):
+    """One planned action for one person's week. Deliberately its own table —
+    not an EntryItem — because a weekly plan carries no task type, no Jira
+    ticket, no pipeline. It's a plan and a self-reported outcome, nothing
+    else."""
+
+    __tablename__ = "weekly_plan_items"
+    __table_args__ = (
+        _enum("status", WEEKLY_PLAN_STATUSES),
+        Index("ix_weekly_plan_member_week", "member_id", "week_start"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
+    # The Monday of the week this item belongs to.
+    week_start: Mapped[date]
+    action: Mapped[str] = mapped_column(Text)
+    # Filled in Friday only — null the rest of the week.
+    achievement: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(default="yet_to_start")
+
+    member: Mapped[Member] = relationship(lazy="joined")
+
 
 # ── integrations ──────────────────────────────────────────────────────────────
 

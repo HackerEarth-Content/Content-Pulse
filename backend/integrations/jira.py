@@ -133,7 +133,10 @@ async def option_ids(db, c: httpx.AsyncClient, cfg: dict, issue_type: str) -> di
         return row.value
 
     r = await c.get("/rest/api/3/issue/createmeta/TCE/issuetypes")
-    types = {t["name"]: t["id"] for t in r.json().get("issueTypes", [])}
+    # Jira's own issue type names carry stray whitespace ("HC Request " with a
+    # trailing space) that ours never will, so a bare lookup missed real types.
+    types = {t["name"].strip(): t["id"] for t in r.json().get("issueTypes", [])}
+    issue_type = issue_type.strip()
     if issue_type not in types:
         raise RuntimeError(f"Jira has no issue type {issue_type!r}")
     r = await c.get(f"/rest/api/3/issue/createmeta/TCE/issuetypes/{types[issue_type]}")
@@ -147,6 +150,18 @@ async def option_ids(db, c: httpx.AsyncClient, cfg: dict, issue_type: str) -> di
     db.add(IntegrationSetting(key=key, value=value))
     await db.commit()
     return value
+
+
+def _find_option(options: dict[str, str], name: str) -> str | None:
+    """Exact match first, then case/whitespace-insensitive — Jira's picklist
+    label and our stored name have drifted before (`Other` vs `Others`)."""
+    if (id_ := options.get(name)) is not None:
+        return id_
+    folded = name.strip().casefold()
+    for label, id_ in options.items():
+        if label.strip().casefold() == folded:
+            return id_
+    return None
 
 
 async def _account_id(db, c: httpx.AsyncClient, member) -> str | None:
@@ -235,9 +250,14 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
             fields["assignee"] = {"id": account_id}
         options = await option_ids(db, c, cfg, issue_type)
         # Task Type is required on Content Tasks; an unmapped name would 400.
-        if tt := options["task_type"].get(item.task_type.name):
+        if tt := _find_option(options["task_type"], item.task_type.name):
             fields[f["task_type"]] = {"id": tt}
-        if item.question_type and (qt := options["question_type"].get(item.question_type.name)):
+        else:
+            log.warning(
+                "no Jira task-type option matches %r for issue type %r — field left unset",
+                item.task_type.name, issue_type,
+            )
+        if item.question_type and (qt := _find_option(options["question_type"], item.question_type.name)):
             fields[f["question_type"]] = [{"id": qt}]
 
         r = await _send(c, "POST", "/rest/api/3/issue", json={"fields": fields})
@@ -410,6 +430,71 @@ async def push_status(item_id: int, status: str, note: str | None = None) -> Non
             item.jira_state, item.jira_error = "failed", str(e)[:500]
             log.warning("jira transition failed for item %s: %s", item_id, e)
         await db.commit()
+
+
+async def push_fields(item_id: int) -> None:
+    """Re-syncs summary and task type onto an existing issue after an edit.
+    Without this, editing notes or task type only ever updated our own
+    dashboard — the Jira issue silently drifted out of date."""
+    async with Session() as db:
+        item = await db.get(EntryItem, item_id)
+        if item is None or not item.jira_issue_key:
+            return
+        entry = await db.get(DailyEntry, item.entry_id)
+        try:
+            cfg = await config(db)
+            _writes_allowed()
+            f = cfg["done_fields"]
+            issue_type = ISSUE_TYPES.get(item.pipeline, cfg["issue_type"])
+            fields: dict[str, Any] = {"summary": _title(entry, item)}
+            async with _client() as c:
+                options = await option_ids(db, c, cfg, issue_type)
+                if tt := _find_option(options["task_type"], item.task_type.name):
+                    fields[f["task_type"]] = {"id": tt}
+                r = await _send(
+                    c, "PUT", f"/rest/api/3/issue/{item.jira_issue_key}", json={"fields": fields}
+                )
+            if r.status_code >= 400:
+                raise RuntimeError(_explain(r))
+            item.jira_state, item.jira_error = "ok", None
+            await _audit(db, "jira.update_fields", item, {"summary": fields["summary"]})
+        except JiraDisabled:
+            return
+        except Exception as e:
+            item.jira_state, item.jira_error = "failed", str(e)[:500]
+            log.warning("jira field sync failed for item %s: %s", item_id, e)
+        await db.commit()
+
+
+async def cancel_issue(key: str) -> None:
+    """Best-effort: transition the Jira issue when its ContentOps ticket is
+    deleted, so the delete doesn't leave an orphaned issue behind. The item
+    row is already gone by the time this runs, so it takes the issue key
+    directly rather than an item id."""
+    async with Session() as db:
+        try:
+            cfg = await config(db)
+            _writes_allowed()
+        except JiraDisabled:
+            return
+        try:
+            async with _client() as c:
+                r = await _send(c, "GET", f"/rest/api/3/issue/{key}/transitions")
+                if r.status_code >= 400:
+                    raise RuntimeError(_explain(r))
+                available = r.json().get("transitions", [])
+                chosen = _pick(available, {"cancelled", "canceled", "won't do", "wont do", "rejected"})
+                if chosen is None:
+                    chosen = _pick(available, {n.lower() for n in cfg["status_names"]["closed"]})
+                if chosen is None:
+                    log.warning("no cancel/close transition available for %s after delete", key)
+                    return
+                r = await _send(c, "POST", f"/rest/api/3/issue/{key}/transitions",
+                                json={"transition": {"id": chosen["id"]}})
+                if r.status_code >= 400:
+                    raise RuntimeError(_explain(r))
+        except Exception as e:
+            log.warning("jira cancel failed for %s: %s", key, e)
 
 
 async def sweep_pending(limit: int = 25) -> int:

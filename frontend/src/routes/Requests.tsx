@@ -27,7 +27,7 @@ const GROUPS: { key: string; label: string; areas: string[] }[] = [
 
 /** Assessments are a Jira request *type* inside Content Requests, not a
  * different kind of work — shown as one area rather than two. */
-function mergeAssessments(rows: AreaStat[]): AreaStat[] {
+export function mergeAssessments(rows: AreaStat[]): AreaStat[] {
   const request = rows.find((r) => r.area === "content_request");
   const assessment = rows.find((r) => r.area === "content_assessment");
   if (!assessment) return rows;

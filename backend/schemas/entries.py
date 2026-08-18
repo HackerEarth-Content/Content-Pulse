@@ -4,9 +4,11 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.orm import STATUSES
+from core.orm import PIPELINES, STATUSES
 
 Status = Field(default="open", pattern="^(" + "|".join(STATUSES) + ")$")
+Pipeline = Field(default="content_task", pattern="^(" + "|".join(PIPELINES.values()) + ")$")
+PIPELINE_LABELS = {slug: label for label, slug in PIPELINES.items()}
 
 
 class ORMModel(BaseModel):
@@ -25,11 +27,16 @@ class Page[T](BaseModel):
 
 class ItemIn(BaseModel):
     task_type_id: int
+    # The Work Type a ticket is filed under. Defaults to Content Tasks, the
+    # only pipeline this form has ever created — see PIPELINES in core.orm.
+    pipeline: str = Pipeline
     question_type_id: int | None = None
     customer: str | None = None
     count: int | None = Field(default=None, gt=0)
-    notes: str | None = None
-    due_at: date | None = None
+    # Mandatory, same as PlanLineIn below — a ticket with no summary or due
+    # date isn't scannable later, and both slipped through as optional here.
+    notes: str = Field(min_length=1)
+    due_at: date
     effort_minutes: int | None = Field(default=None, ge=0)
     status: str = Status
     # Opt in, not out. Every planned item used to be pushed to Jira whether
@@ -79,6 +86,7 @@ class UpdateIn(Scheduled):
 
 class ItemPatch(BaseModel):
     status: str | None = Field(default=None, pattern="^(" + "|".join(STATUSES) + ")$")
+    task_type_id: int | None = None
     count: int | None = Field(default=None, gt=0)
     notes: str | None = None
     due_at: date | None = None
@@ -89,11 +97,30 @@ class ItemPatch(BaseModel):
 # ── out ───────────────────────────────────────────────────────────────────────
 
 
+def _title(it) -> str:
+    """Task type first, customer next, then a one-line summary excerpt — a
+    ticket list should be scannable without opening each one. Mirrors
+    integrations.jira._title, minus the entry-dependent fallback for empty
+    notes: notes is mandatory on every ticket created through this API now,
+    so that branch only exists for legacy or Jira-imported rows."""
+    lead = it.task_type.name
+    if it.customer:
+        lead += f" — {it.customer}"
+    if not it.notes:
+        return lead[:254]
+    snippet = it.notes.strip().splitlines()[0]
+    tail = snippet if len(snippet) <= 80 else snippet[:79] + "…"
+    return f"{lead}: {tail}"[:254]
+
+
 class ItemOut(ORMModel):
     id: int
     plan_item_id: int | None
     task_type_id: int
     task_type: str
+    title: str
+    pipeline: str
+    work_type: str
     question_type: str | None
     customer: str | None
     count: int | None
@@ -105,15 +132,18 @@ class ItemOut(ORMModel):
     jira_issue_key: str | None
     jira_issue_url: str | None
     jira_state: str
+    jira_missing: bool
 
     @classmethod
     def of(cls, it) -> ItemOut:
         return cls(
             **{k: getattr(it, k) for k in
-               ("id", "plan_item_id", "task_type_id", "customer", "count", "notes",
+               ("id", "plan_item_id", "task_type_id", "pipeline", "customer", "count", "notes",
                 "due_at", "effort_minutes", "status", "jira_wanted",
-                "jira_issue_key", "jira_issue_url", "jira_state")},
+                "jira_issue_key", "jira_issue_url", "jira_state", "jira_missing")},
             task_type=it.task_type.name,
+            title=_title(it),
+            work_type=PIPELINE_LABELS.get(it.pipeline, it.pipeline),
             question_type=it.question_type.name if it.question_type else None,
         )
 
@@ -152,7 +182,9 @@ class WorkLogRow(ORMModel):
     kind: str
     member_id: int
     member: str
+    task_type_id: int
     task_type: str
+    title: str
     question_type: str | None
     customer: str | None
     count: int | None
@@ -166,18 +198,20 @@ class WorkLogRow(ORMModel):
     jira_issue_key: str | None
     jira_issue_url: str | None
     jira_state: str
+    jira_missing: bool
     plan_item_id: int | None
 
     @classmethod
     def of(cls, item, entry) -> WorkLogRow:
         return cls(
             **{k: getattr(item, k) for k in
-               ("id", "entry_id", "customer", "count", "effort_minutes", "notes",
+               ("id", "entry_id", "task_type_id", "customer", "count", "effort_minutes", "notes",
                 "due_at", "status", "pipeline", "external_issue_type", "request_type",
-                "jira_issue_key", "jira_issue_url", "jira_state", "plan_item_id")},
+                "jira_issue_key", "jira_issue_url", "jira_state", "jira_missing", "plan_item_id")},
             entry_date=entry.entry_date, kind=entry.kind,
             member_id=entry.member_id, member=entry.member.display_name,
             task_type=item.task_type.name,
+            title=_title(item),
             question_type=item.question_type.name if item.question_type else None,
         )
 

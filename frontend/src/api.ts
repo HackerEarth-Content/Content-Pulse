@@ -26,6 +26,8 @@ import type {
   TaskTypeStat,
   TodayStatus,
   TrendPoint,
+  WeeklyPlanCompletion,
+  WeeklyPlanItem,
   WorkLogRow,
 } from "./types";
 
@@ -123,6 +125,7 @@ export const api = {
   removeMember: (id: number) =>
     send<{ deleted: boolean; entries: number; detail: string }>("DELETE", `/members/${id}`),
   taskTypes: () => get<Lookup[]>("/meta/lookups/task-types"),
+  workTypes: () => get<{ key: string; label: string }[]>("/meta/work-types"),
   questionTypes: () => get<Lookup[]>("/meta/lookups/question-types"),
   lookups: (kind: string, includeInactive = false) =>
     get<Lookup[]>(`/meta/lookups/${kind}`, { include_inactive: includeInactive }),
@@ -138,6 +141,7 @@ export const api = {
   createPlan: (body: unknown) => send<Entry>("POST", "/entries/plans", body),
   createUpdate: (body: unknown) => send<Entry>("POST", "/entries/updates", body),
   patchItem: (id: number, body: unknown) => send<unknown>("PATCH", `/entry-items/${id}`, body),
+  deleteItem: (id: number) => send<void>("DELETE", `/entry-items/${id}`),
   itemHistory: (id: number) =>
     get<{ from_status: Status | null; to_status: Status; changed_at: string; note: string | null }[]>(
       `/entry-items/${id}/history`
@@ -214,4 +218,13 @@ export const api = {
   exportAnalytics: (p: Params) =>
     download("/exports/analytics.xlsx", p, `analytics-${p.from}_${p.to}.xlsx`),  exportContentRequests: (p: Params) =>
     download("/exports/content-requests.xlsx", p, "content-requests.xlsx"),
+
+  weeklyPlan: (week: string, memberId?: number) =>
+    get<WeeklyPlanItem[]>("/weekly-plan", { week, member_id: memberId }),
+  createWeeklyPlanItem: (week_start: string, action: string) =>
+    send<WeeklyPlanItem>("POST", "/weekly-plan/items", { week_start, action }),
+  patchWeeklyPlanItem: (id: number, body: { status?: string; achievement?: string }) =>
+    send<WeeklyPlanItem>("PATCH", `/weekly-plan/items/${id}`, body),
+  weeklyPlanCompletion: (week: string) =>
+    get<WeeklyPlanCompletion>("/weekly-plan/completion", { week }),
 };

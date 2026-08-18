@@ -34,7 +34,7 @@ async def logged(client, member, task_type):
     plan = (await client.post("/api/entries/plans", json={
         "member_id": member, "entry_date": DAY,
         "items": [{"task_type_id": task_type, "count": 4, "customer": "Acme",
-                   "notes": '=cmd|calc'}],
+                   "notes": '=cmd|calc', "due_at": DAY}],
     })).json()
     return plan
 

@@ -56,6 +56,8 @@ export function PlanBoard() {
                       <tr>
                         <th>Member</th>
                         <th className="num">Plan / Update</th>
+                        <th className="num">Created</th>
+                        <th className="num">Closed</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -68,6 +70,8 @@ export function PlanBoard() {
                             <Mark yes={r.updated}
                                   label={`${r.member} · Update ${r.updated ? "logged" : "not logged"}`} />
                           </td>
+                          <td className="num">{r.created}</td>
+                          <td className="num">{r.closed}</td>
                         </tr>
                       ))}
                     </tbody>

@@ -164,11 +164,16 @@ async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -
 async def patch_item(
     db: AsyncSession, item_id: int, *, status_: str | None, count: int | None,
     notes: str | None, due_at: date | None, user_id: str | None,
-    effort_minutes: int | None = None,
+    effort_minutes: int | None = None, task_type_id: int | None = None,
 ) -> EntryItem:
     item = await db.get(EntryItem, item_id)
     if item is None:
         raise err(404, "not_found", "No such item.")
+
+    if task_type_id is not None and task_type_id != item.task_type_id:
+        if not await db.get(TaskType, task_type_id):
+            raise err(422, "unknown_task_type", f"No task type with id {task_type_id}.")
+        item.task_type_id = task_type_id
 
     if status_ and status_ != item.status:
         await record_status(db, item, status_, note=notes, user_id=user_id)

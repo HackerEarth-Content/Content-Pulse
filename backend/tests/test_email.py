@@ -35,7 +35,7 @@ async def test_only_people_without_a_plan_are_nudged(target, client, task_type):
 
     await client.post("/api/entries/plans", json={
         "member_id": target, "entry_date": today().isoformat(),
-        "items": [{"task_type_id": task_type}],
+        "items": [{"task_type_id": task_type, "notes": "n", "due_at": today().isoformat()}],
     })
 
     async with Session() as db:
