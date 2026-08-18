@@ -39,6 +39,7 @@ PIPELINES = {
     "HC/HT Feasibility": "hc_ht_feasibility",
     "TCE: Technical writing": "technical_writing",
     "Creation and Review": "creation_and_review",
+    "TCE subtask": "tce_subtask",
 }
 DEFAULT_PIPELINE = "content_task"
 
@@ -56,6 +57,7 @@ AREA_LABELS = {
     "hc_ht_feasibility": "HC/HT Feasibility",
     "technical_writing": "Technical Writing",
     "tce_subtask": "TCE Subtask",
+    "creation_and_review": "Creation and Review",
 }
 
 
@@ -315,6 +317,10 @@ class EntryItem(Timestamps, Base):
     jira_issue_url: Mapped[str | None]
     jira_state: Mapped[str] = mapped_column(default="none")
     jira_error: Mapped[str | None] = mapped_column(Text)
+    # True when a periodic check no longer finds this issue key in Jira — it
+    # was deleted there. We never delete our own row for it: that would erase
+    # history for something that was, at some point, real logged work.
+    jira_missing: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
 
     entry: Mapped[DailyEntry] = relationship(
         back_populates="items", foreign_keys=[entry_id]

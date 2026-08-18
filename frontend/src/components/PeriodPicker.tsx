@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { DateField } from "./DateField";
-import { dmy, today } from "../format";
+import { addDays, dmy, today } from "../format";
 import type { Range } from "../hooks/usePeriod";
 import type { Period } from "../types";
 
@@ -19,6 +19,9 @@ const pretty = dmy;
 export function PeriodPicker({ range }: { range: Range }) {
   const id = useId();
   const t = today();
+  // A year back is plenty of history to look at; further than that has never
+  // once been a real request and just invites picking a meaningless range.
+  const earliest = addDays(t, -365);
   const index = PERIODS.findIndex((p) => p.key === range.period);
 
   /** Arrow keys move and select, Home/End jump to the ends — the standard radio
@@ -80,6 +83,7 @@ export function PeriodPicker({ range }: { range: Range }) {
             id={`${id}-from`}
             label="from date"
             value={range.from}
+            min={earliest}
             max={range.to < t ? range.to : t}
             onChange={(iso) => iso && range.setCustom(iso, range.to)}
           />

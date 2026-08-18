@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_session
 from core.dates import resolve_range
 from core.deps import ADMINS, Viewer, get_viewer, require_role
-from core.orm import DailyEntry, Member, QuestionType, TaskType
+from core.orm import DailyEntry, Member, PIPELINES, QuestionType, TaskType
 from core.users import current_user
 from schemas.entries import (
     LookupIn,
@@ -156,6 +156,17 @@ def _model(kind: str):
     if (model := LOOKUPS.get(kind)) is None:
         raise err(404, "unknown_lookup", f"No lookup called {kind!r}.")
     return model
+
+
+# The only two pipelines this form has ever reliably created — the rest
+# either have no Task Type field in Jira at all, or an issue-type name Jira
+# itself stores with stray whitespace, unverified against a live create.
+CREATABLE_WORK_TYPES = ("Content Tasks", "Content Requests")
+
+
+@router.get("/meta/work-types")
+async def list_work_types():
+    return [{"key": PIPELINES[name], "label": name} for name in CREATABLE_WORK_TYPES]
 
 
 @router.get("/meta/lookups/{kind}", response_model=list[LookupOut])

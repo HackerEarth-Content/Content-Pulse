@@ -24,8 +24,8 @@ async def dataset(client, member, task_type):
     plan = (await client.post("/api/entries/plans", json={
         "member_id": member, "entry_date": DAY,
         "items": [
-            {"task_type_id": task_type, "count": 2, "notes": "one", "customer": "Acme"},
-            {"task_type_id": task_type, "count": 5, "notes": "two"},
+            {"task_type_id": task_type, "count": 2, "notes": "one", "customer": "Acme", "due_at": DAY},
+            {"task_type_id": task_type, "count": 5, "notes": "two", "due_at": DAY},
         ],
     })).json()
     await client.post("/api/entries/updates", json={
@@ -36,7 +36,7 @@ async def dataset(client, member, task_type):
         # now, but this fixture's "2 closed" scenario predates that and still
         # wants this one closed.
         "extra_items": [{"task_type_id": task_type, "count": 1, "notes": "unplanned",
-                         "status": "closed"}],
+                         "status": "closed", "due_at": DAY}],
     })
     return plan
 
@@ -202,8 +202,8 @@ async def test_assessments_split_out_of_content_requests(client, member, task_ty
 
     plan = (await client.post("/api/entries/plans", json={
         "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "effort_minutes": 60},
-                  {"task_type_id": task_type, "effort_minutes": 30}],
+        "items": [{"task_type_id": task_type, "effort_minutes": 60, "notes": "a", "due_at": DAY},
+                  {"task_type_id": task_type, "effort_minutes": 30, "notes": "b", "due_at": DAY}],
     })).json()
     async with Session() as db:
         for i, (rt) in enumerate(("Assessment Review", "Content Issue")):

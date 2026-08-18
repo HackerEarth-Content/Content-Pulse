@@ -23,8 +23,11 @@ const STREAMS = [
 const asItem = (r: WorkLogRow): Item => ({
   id: r.id,
   plan_item_id: r.plan_item_id,
-  task_type_id: 0,
+  task_type_id: r.task_type_id,
   task_type: r.task_type,
+  title: r.title,
+  pipeline: r.pipeline,
+  work_type: r.pipeline,
   question_type: r.question_type,
   customer: r.customer,
   count: r.count,
@@ -35,6 +38,7 @@ const asItem = (r: WorkLogRow): Item => ({
   jira_issue_key: r.jira_issue_key,
   jira_issue_url: r.jira_issue_url,
   jira_state: r.jira_state,
+  jira_missing: r.jira_missing,
 });
 
 export function WorkLog({ range, me }: { range: Range; me: CurrentUser["member"] }) {
@@ -99,7 +103,7 @@ export function WorkLog({ range, me }: { range: Range; me: CurrentUser["member"]
       <div className="filter-bar">
         <input
           className="field"
-          placeholder="Search notes, customer, work type, TCE-…"
+          placeholder="Search summary, customer, work type, TCE-…"
           defaultValue={filters.q ?? ""}
           onKeyDown={(e) => e.key === "Enter" && set({ q: e.currentTarget.value })}
           onBlur={(e) => set({ q: e.currentTarget.value })}
@@ -174,7 +178,7 @@ export function WorkLog({ range, me }: { range: Range; me: CurrentUser["member"]
                       <th>Status</th>
                       <th>Due</th>
                       <th>Jira</th>
-                      <th>Notes</th>
+                      <th>Summary</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -203,7 +207,11 @@ export function WorkLog({ range, me }: { range: Range; me: CurrentUser["member"]
                         </td>
                         <td className="mono muted">{r.due_at ?? "—"}</td>
                         <td>
-                          {r.jira_issue_key ? (
+                          {r.jira_issue_key && r.jira_missing ? (
+                            <span className="pill pill-blocked" title="No longer found in Jira — it was deleted there">
+                              {r.jira_issue_key} removed
+                            </span>
+                          ) : r.jira_issue_key ? (
                             <a className="tag" href={r.jira_issue_url ?? "#"} target="_blank"
                                rel="noreferrer">{r.jira_issue_key}</a>
                           ) : r.jira_state === "pending" ? (

@@ -48,6 +48,18 @@ async def _sync_jira_history() -> None:
         log.exception("jira history sync failed")
 
 
+async def _mark_jira_deletions() -> None:
+    """Catches the one thing the incremental sync above structurally can't:
+    an issue Jira no longer returns emits no `updated` event to catch."""
+    from scripts.backfill_jira import DEFAULT_FROM
+    from scripts.reconcile_jira import mark_missing
+
+    try:
+        log.info("jira deletion check: %s", await mark_missing(DEFAULT_FROM))
+    except Exception:
+        log.exception("jira deletion check failed")
+
+
 async def _sweep_jira() -> None:
     try:
         if n := await jira.sweep_pending():
@@ -131,6 +143,10 @@ def start() -> AsyncIOScheduler:
     # reassignment or an edited effort value stayed wrong for up to a day.
     s.add_job(_sync_jira_history, IntervalTrigger(minutes=30),
               id="jira_history", max_instances=1, coalesce=True)
+    # A full re-fetch, not incremental — a deletion emits no `updated` event,
+    # so this is the only way that drift ever surfaces. Heavier, hence hourly.
+    s.add_job(_mark_jira_deletions, IntervalTrigger(hours=2),
+              id="jira_deletions", max_instances=1, coalesce=True)
     s.add_job(_publish_scheduled, IntervalTrigger(minutes=1),
               id="publish_scheduled", max_instances=1, coalesce=True)
     s.add_job(_remind_to_plan,

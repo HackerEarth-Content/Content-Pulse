@@ -121,7 +121,7 @@ async def test_member_cannot_file_work_as_someone_else(as_ada, task_type):
     c, ids = as_ada
     r = await c.post("/api/entries/plans", json={
         "member_id": ids["RBAC Grace"], "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "notes": "not mine to file"}],
+        "items": [{"task_type_id": task_type, "notes": "not mine to file", "due_at": DAY}],
     })
     assert r.status_code == 201
     assert r.json()["member_id"] == ids["RBAC Ada"], "must be filed as Ada regardless"

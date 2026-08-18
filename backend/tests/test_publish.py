@@ -14,7 +14,7 @@ DAY = "2030-05-06"
 
 async def _plan(client, member, task_type, **extra):
     body = {"member_id": member, "entry_date": DAY,
-            "items": [{"task_type_id": task_type, "notes": "a"}], **extra}
+            "items": [{"task_type_id": task_type, "notes": "a", "due_at": DAY}], **extra}
     r = await client.post("/api/entries/plans", json=body)
     assert r.status_code == 201, r.text
     return r.json()
@@ -34,7 +34,7 @@ async def test_asking_for_a_ticket_attempts_one(client, member, task_type):
     'none' and records why, so asserting on `jira_state` here would be asserting
     on the guard rather than on the opt-in."""
     entry = await _plan(client, member, task_type, items=[
-        {"task_type_id": task_type, "notes": "a", "create_jira": True},
+        {"task_type_id": task_type, "notes": "a", "due_at": DAY, "create_jira": True},
     ])
     assert entry["items"][0]["jira_wanted"] is True
     async with Session() as db:
@@ -64,8 +64,8 @@ def test_mark_pending_queues_only_what_was_asked_for():
 
 async def test_only_the_items_that_asked_are_queued(client, member, task_type):
     entry = await _plan(client, member, task_type, items=[
-        {"task_type_id": task_type, "notes": "ticket me", "create_jira": True},
-        {"task_type_id": task_type, "notes": "leave me alone"},
+        {"task_type_id": task_type, "notes": "ticket me", "due_at": DAY, "create_jira": True},
+        {"task_type_id": task_type, "notes": "leave me alone", "due_at": DAY},
     ])
     states = {i["notes"]: i["jira_state"] for i in entry["items"]}
     assert states == {"ticket me": "pending", "leave me alone": "none"}
@@ -75,7 +75,7 @@ async def test_a_scheduled_plan_is_held_back(client, member, task_type):
     """Written at 18:00, released at 20:00 — nothing reaches Jira in between."""
     later = (datetime.now() + timedelta(hours=2)).isoformat()
     entry = await _plan(client, member, task_type, post_at=later, items=[
-        {"task_type_id": task_type, "notes": "a", "create_jira": True},
+        {"task_type_id": task_type, "notes": "a", "due_at": DAY, "create_jira": True},
     ])
     assert entry["posted_at"] is None
     assert entry["items"][0]["jira_state"] == "none", "held, so not queued yet"
@@ -85,14 +85,14 @@ async def test_a_past_schedule_publishes_immediately(client, member, task_type):
     """A time that has already come is not an error — clock skew shouldn't 422."""
     entry = await _plan(client, member, task_type,
                         post_at=(datetime.now() - timedelta(minutes=5)).isoformat(),
-                        items=[{"task_type_id": task_type, "notes": "a", "create_jira": True}])
+                        items=[{"task_type_id": task_type, "notes": "a", "due_at": DAY, "create_jira": True}])
     assert entry["items"][0]["jira_state"] == "pending"
 
 
 async def test_publish_due_releases_only_what_is_due(client, member, task_type, monkeypatch):
     later = datetime.now() + timedelta(hours=2)
     entry = await _plan(client, member, task_type, post_at=later.isoformat(), items=[
-        {"task_type_id": task_type, "notes": "a", "create_jira": True},
+        {"task_type_id": task_type, "notes": "a", "due_at": DAY, "create_jira": True},
     ])
 
     async with Session() as db:

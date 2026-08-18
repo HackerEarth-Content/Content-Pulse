@@ -95,6 +95,28 @@ def _map(who: str, alias: dict[str, str]) -> str:
     return alias.get(who.strip().lower(), who)
 
 
+async def mark_missing(frm: date) -> dict:
+    """The one place this module stops being read-only: flags rows whose Jira
+    issue has vanished (deleted there), and clears the flag on anything that
+    reappears. We never delete our own row for it — that would erase history
+    for something that was, at some point, real logged work."""
+    jira = await jira_side(frm)
+    async with Session() as db:
+        items = list(await db.scalars(
+            select(EntryItem)
+            .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+            .where(EntryItem.jira_issue_key.isnot(None), DailyEntry.entry_date >= frm)
+        ))
+        changed = {"flagged": 0, "cleared": 0}
+        for item in items:
+            missing = item.jira_issue_key not in jira
+            if missing != item.jira_missing:
+                item.jira_missing = missing
+                changed["flagged" if missing else "cleared"] += 1
+        await db.commit()
+    return changed
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--from", dest="frm", default=DEFAULT_FROM.isoformat())

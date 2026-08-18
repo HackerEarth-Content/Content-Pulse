@@ -179,10 +179,12 @@ async def patch_item(item_id: int, patch: ItemPatch, background: BackgroundTasks
     item = await svc.patch_item(
         db, item_id, status_=patch.status, count=patch.count,
         notes=patch.notes, due_at=patch.due_at, user_id=user.id,
-        effort_minutes=patch.effort_minutes,
+        effort_minutes=patch.effort_minutes, task_type_id=patch.task_type_id,
     )
     if patch.status and item.jira_issue_key:
         background.add_task(jira.push_status, item.id, item.status, patch.notes)
+    if (patch.task_type_id is not None or patch.notes is not None) and item.jira_issue_key:
+        background.add_task(jira.push_fields, item.id)
     return ItemOut.of(item)
 
 
@@ -205,6 +207,20 @@ async def _owned(db: AsyncSession, viewer: Viewer, item_id: int) -> EntryItem:
     if entry is None or not viewer.may_write_for(entry.member_id):
         raise svc.err(404, "not_found", "No such item.")
     return item
+
+
+@router.delete("/entry-items/{item_id}", status_code=204)
+async def delete_item(item_id: int, background: BackgroundTasks,
+                      db: AsyncSession = Depends(get_session),
+                      viewer: Viewer = Depends(get_viewer)):
+    """Unlike deleting a whole entry, deleting one ticket also cancels its
+    linked Jira issue — this is the explicit 'get rid of this ticket' action."""
+    item = await _owned(db, viewer, item_id)
+    key = item.jira_issue_key
+    await db.delete(item)
+    await db.commit()
+    if key:
+        background.add_task(jira.cancel_issue, key)
 
 
 @router.delete("/entries/{entry_id}", status_code=204)

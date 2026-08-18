@@ -57,7 +57,7 @@ async def cached_options():
 async def test_push_item_stores_key_and_marks_ok(client, member, task_type, monkeypatch):
     plan = (await client.post("/api/entries/plans", json={
         "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "notes": "n"}],
+        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
     })).json()
     item_id = plan["items"][0]["id"]
 
@@ -76,7 +76,7 @@ async def test_push_item_records_failure_without_losing_the_task(
 ):
     plan = (await client.post("/api/entries/plans", json={
         "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type}],
+        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
     })).json()
     item_id = plan["items"][0]["id"]
 
@@ -88,6 +88,54 @@ async def test_push_item_records_failure_without_losing_the_task(
         item = await db.get(EntryItem, item_id)
         assert item.jira_state == "failed" and "no permission" in item.jira_error
         assert item.id and item.task_type_id  # the task itself survived
+
+
+async def test_editing_summary_after_create_updates_jiras_summary_field(
+    client, member, task_type, monkeypatch
+):
+    """Editing the ticket's summary/task type post-creation must reach Jira's
+    actual summary field, not just sit in our own notes column — a status
+    change already pushed a comment, but that's not the same as the issue's
+    title actually changing to match."""
+    plan = (await client.post("/api/entries/plans", json={
+        "member_id": member, "entry_date": DAY,
+        "items": [{"task_type_id": task_type, "notes": "first draft", "due_at": DAY}],
+    })).json()
+    item_id = plan["items"][0]["id"]
+
+    async with Session() as db:
+        item = await db.get(EntryItem, item_id)
+        item.jira_issue_key, item.jira_issue_url = "TCE-9", "https://jira.test/browse/TCE-9"
+        await db.commit()
+
+    sent = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT":
+            sent["fields"] = httpx.Response(200, content=request.content).json()["fields"]
+            sent["path"] = request.url.path
+            return httpx.Response(204)
+        return httpx.Response(200, json={"fields": {}})
+
+    monkeypatch.setattr(jira, "_client", transport(handler))
+    await client.patch(f"/api/entry-items/{item_id}", json={"notes": "the real summary now"})
+    await asyncio.sleep(0.05)  # the sync runs as a BackgroundTask after the response
+
+    assert sent["path"] == "/rest/api/3/issue/TCE-9"
+    assert "the real summary now" in sent["fields"]["summary"]
+
+
+async def test_push_fields_is_a_noop_without_a_jira_key(client, member, task_type, monkeypatch):
+    plan = (await client.post("/api/entries/plans", json={
+        "member_id": member, "entry_date": DAY,
+        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
+    })).json()
+    item_id = plan["items"][0]["id"]
+
+    calls = []
+    monkeypatch.setattr(jira, "_client", transport(lambda r: calls.append(r) or httpx.Response(200)))
+    await jira.push_fields(item_id)
+    assert calls == [], "no jira_issue_key — nothing to sync"
 
 
 async def test_closed_transition_steps_through_in_progress(monkeypatch):
@@ -125,7 +173,7 @@ async def test_transition_without_a_matching_target_raises(monkeypatch):
 async def test_jira_disabled_is_not_a_failure(client, member, task_type, monkeypatch):
     plan = (await client.post("/api/entries/plans", json={
         "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type}],
+        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
     })).json()
     monkeypatch.setattr(settings, "JIRA_API_TOKEN", "")
     await jira.push_item(plan["items"][0]["id"])
@@ -140,7 +188,7 @@ async def test_jira_disabled_is_not_a_failure(client, member, task_type, monkeyp
 async def test_entry_posts_once_and_is_idempotent(client, member, task_type, monkeypatch):
     plan = (await client.post("/api/entries/plans", json={
         "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "notes": "n"}],
+        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
     })).json()
 
     sent = []
@@ -160,7 +208,7 @@ async def test_entry_posts_once_and_is_idempotent(client, member, task_type, mon
 
 async def test_slack_failure_never_raises(client, member, task_type, monkeypatch):
     plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY, "items": [{"task_type_id": task_type}],
+        "member_id": member, "entry_date": DAY, "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
     })).json()
 
     async def boom(method, payload):
@@ -210,7 +258,7 @@ async def test_roll_call_excludes_test_fixtures_and_reports_status(
     try:
         await client.post("/api/entries/plans", json={
             "member_id": planned_id, "entry_date": DAY,
-            "items": [{"task_type_id": task_type, "notes": "n"}],
+            "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
         })
 
         sent = []
@@ -306,7 +354,7 @@ async def test_writes_are_off_by_default(client, member, task_type, monkeypatch)
     """The guard that stops a test run minting tickets in a live project."""
     monkeypatch.setattr(settings, "JIRA_WRITES_ENABLED", False)
     plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY, "items": [{"task_type_id": task_type}],
+        "member_id": member, "entry_date": DAY, "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
     })).json()
 
     called = []
@@ -337,7 +385,7 @@ async def test_created_issue_carries_every_field(client, member, task_type, monk
     plan = (await client.post("/api/entries/plans", json={
         "member_id": member, "entry_date": DAY,
         "items": [{"task_type_id": task_type, "question_type_id": qt_id, "count": 4,
-                   "customer": "Entri", "due_at": DAY, "effort_minutes": 90}],
+                   "customer": "Entri", "due_at": DAY, "effort_minutes": 90, "notes": "n"}],
     })).json()
 
     sent = {}
@@ -355,7 +403,7 @@ async def test_created_issue_carries_every_field(client, member, task_type, monk
     assert sent["customfield_10526"] == 90, "effort minutes"
     assert sent["customfield_10521"] == DAY, "due at"
     assert sent["assignee"] == {"id": "acct-123"}, "must not land unassigned"
-    assert sent["customfield_10235"] == [{"id": "10247"}], "question type by option id"
+    assert sent["customfield_10235"] == [{"id": "10248"}], "question type by option id"
     assert sent["issuetype"]["name"] == "Content Tasks"
 
 
@@ -375,7 +423,7 @@ async def test_assignee_resolved_from_email_and_cached(client, member, task_type
 
     plan = (await client.post("/api/entries/plans", json={
         "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "notes": "n"}],
+        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
     })).json()
 
     sent = {}

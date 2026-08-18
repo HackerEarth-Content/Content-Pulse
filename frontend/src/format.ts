@@ -98,7 +98,12 @@ export function addDays(iso: string, days: number): string {
 
 export function relativeTime(iso: string | null): string {
   if (!iso) return "never";
-  const secs = (Date.now() - new Date(iso).getTime()) / 1000;
+  // The API sends naive-UTC timestamps (no trailing Z) — Postgres columns are
+  // `timestamp without time zone` storing UTC instants. Without a Z or offset,
+  // the browser parses the string as *local* time, which silently turned
+  // "just synced" into "5h ago" for anyone in IST (UTC+5:30).
+  const utc = /[Zz]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`;
+  const secs = (Date.now() - new Date(utc).getTime()) / 1000;
   if (secs < 60) return "just now";
   if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
   if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;

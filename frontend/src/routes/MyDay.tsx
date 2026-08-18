@@ -18,6 +18,7 @@ import type { CurrentUser, Entry, Item, Lookup, Status } from "../types";
 export function MyDay({ me }: { me: CurrentUser["member"] }) {
   const [date, setDate] = useState(today());
   const [memberId, setMemberId] = useState<number | null>(me?.id ?? null);
+  const [justCreated, setJustCreated] = useState<Item[]>([]);
   const isLead = me?.role === "admin" || me?.role === "manager";
   const members = useApi(() => (isLead ? api.members() : Promise.resolve([])), [isLead]);
 
@@ -75,9 +76,20 @@ export function MyDay({ me }: { me: CurrentUser["member"] }) {
       <Async loading={plan.loading} error={plan.error} data={{ plan: plan.data }}>
         {({ plan: existing }) =>
           existing ? (
-            <DayInProgress plan={existing} date={date} memberId={who!} onChange={plan.reload} />
+            <DayInProgress
+              plan={existing}
+              date={date}
+              memberId={who!}
+              onChange={plan.reload}
+              justCreated={justCreated}
+              setJustCreated={setJustCreated}
+            />
           ) : (
-            <StartTheDay memberId={who!} date={date} onCreated={plan.reload} />
+            <StartTheDay
+              memberId={who!}
+              date={date}
+              onCreated={(items) => { setJustCreated(items); plan.reload(); }}
+            />
           )
         }
       </Async>
@@ -88,6 +100,7 @@ export function MyDay({ me }: { me: CurrentUser["member"] }) {
 /* ── morning: write the list ─────────────────────────────────────────────── */
 
 interface Draft {
+  pipeline: string;
   task_type_id: string;
   question_type_id: string;
   customer: string;
@@ -98,6 +111,7 @@ interface Draft {
 }
 
 const blank = (): Draft => ({
+  pipeline: "content_task",
   task_type_id: "", question_type_id: "", customer: "", count: "", due_at: "", notes: "",
   // Off by default. Plenty of logged work has no business being a ticket, and
   // an unwanted ticket is far more annoying to undo than a wanted one is to ask for.
@@ -106,7 +120,8 @@ const blank = (): Draft => ({
 
 function StartTheDay({
   memberId, date, onCreated,
-}: { memberId: number; date: string; onCreated: () => void }) {
+}: { memberId: number; date: string; onCreated: (items: Item[]) => void }) {
+  const workTypes = useApi(() => api.workTypes(), []);
   const taskTypes = useApi(() => api.taskTypes(), []);
   const questionTypes = useApi(() => api.questionTypes(), []);
   const [rows, setRows] = useState<Draft[]>([blank()]);
@@ -118,17 +133,20 @@ function StartTheDay({
   const patch = (i: number, key: keyof Draft, value: string | boolean) =>
     setRows((rs) => rs.map((r, j) => (i === j ? { ...r, [key]: value } : r)));
   const filled = rows.filter((r) => r.task_type_id);
+  const incomplete = (r: Draft) => Boolean(r.task_type_id) && (!r.due_at || !r.notes.trim());
+  const hasIncomplete = rows.some(incomplete);
 
   async function save() {
     setError(null);
     setSaving(true);
     try {
-      await api.createPlan({
+      const entry = await api.createPlan({
         member_id: memberId,
         entry_date: date,
         post_at: postAt || null,
         items: filled.map((r) => ({
           task_type_id: Number(r.task_type_id),
+          pipeline: r.pipeline,
           question_type_id: r.question_type_id ? Number(r.question_type_id) : null,
           customer: r.customer || null,
           count: r.count ? Number(r.count) : null,
@@ -137,7 +155,7 @@ function StartTheDay({
           create_jira: r.create_jira,
         })),
       });
-      onCreated();
+      onCreated(entry.items);
     } catch (e) {
       setError(e as ApiError);
     } finally {
@@ -157,10 +175,19 @@ function StartTheDay({
       {rows.map((row, i) => (
         <div className="task-row plan-line" key={i}>
           <div>
-            <label className="label">What *</label>
+            <label className="label">Work type *</label>
+            <select className="field" value={row.pipeline}
+                    onChange={(e) => patch(i, "pipeline", e.target.value)}>
+              {(workTypes.data ?? []).map((w) => (
+                <option key={w.key} value={w.key}>{w.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Task type *</label>
             <select className="field" value={row.task_type_id}
                     onChange={(e) => patch(i, "task_type_id", e.target.value)}>
-              <option value="">Pick a work type…</option>
+              <option value="">Pick a task type…</option>
               {(taskTypes.data ?? []).map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
@@ -187,7 +214,7 @@ function StartTheDay({
                    onChange={(e) => patch(i, "count", e.target.value)} />
           </div>
           <div>
-            <label className="label">Due</label>
+            <label className="label">Due date *</label>
             <DateField
               value={row.due_at}
               ariaLabel="Due date"
@@ -195,10 +222,17 @@ function StartTheDay({
             />
           </div>
           <div className="task-row-wide">
-            <label className="label">Notes</label>
+            <label className="label">Summary *</label>
             <textarea className="field" rows={2} value={row.notes}
                       onChange={(e) => patch(i, "notes", e.target.value)} />
           </div>
+          {incomplete(row) ? (
+            <div className="task-row-wide">
+              <span className="hint" style={{ color: "var(--status-critical)" }}>
+                Due date and summary are required before this can be saved.
+              </span>
+            </div>
+          ) : null}
           <div className="task-row-wide">
             <label className="check">
               <input type="checkbox" checked={row.create_jira}
@@ -223,7 +257,11 @@ function StartTheDay({
         ) : null}
         <span className="topbar-spacer" />
         <span className="muted">{filled.length} ready</span>
-        <button className="btn btn-primary" disabled={saving || !filled.length} onClick={save}>
+        <button
+          className="btn btn-primary"
+          disabled={saving || !filled.length || hasIncomplete}
+          onClick={save}
+        >
           {saving ? "Saving…" : "Start the day"}
         </button>
       </div>
@@ -236,8 +274,11 @@ function StartTheDay({
 interface Line { status: Status; notes: string; effort_minutes: string; due_at: string }
 
 function DayInProgress({
-  plan, date, memberId, onChange,
-}: { plan: Entry; date: string; memberId: number; onChange: () => void }) {
+  plan, date, memberId, onChange, justCreated, setJustCreated,
+}: {
+  plan: Entry; date: string; memberId: number; onChange: () => void;
+  justCreated: Item[]; setJustCreated: (items: Item[]) => void;
+}) {
   const taskTypes = useApi(() => api.taskTypes(), []);
   const [lines, setLines] = useState<Record<number, Line>>({});
   const [error, setError] = useState<ApiError | null>(null);
@@ -338,6 +379,29 @@ function DayInProgress({
       {error ? <Banner tone="error">{error.message}</Banner> : null}
       {saved ? <Banner tone="info">Update logged.</Banner> : null}
 
+      {justCreated.length ? (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="card-head">
+            <div className="card-title">Just created</div>
+            <button className="section-action" onClick={() => setJustCreated([])} aria-label="Dismiss">✕</button>
+          </div>
+          {justCreated.map((it) => (
+            <p key={it.id} className="insight" style={{ marginTop: 4 }}>
+              <strong>{it.title}</strong>
+              <br />
+              {it.work_type} · {it.task_type}
+              {it.customer ? ` · ${it.customer}` : ""}
+              {it.due_at ? ` · due ${it.due_at}` : ""}
+              {it.jira_issue_key ? (
+                <> · <a className="tag" href={it.jira_issue_url ?? "#"} target="_blank" rel="noreferrer">
+                  {it.jira_issue_key}
+                </a></>
+              ) : null}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
       <SectionHeading
         title="How today's going"
         color="var(--accent-indigo)"
@@ -378,7 +442,11 @@ function DayInProgress({
                   </td>
                   <td className="text">
                     <span className="day-task">{item.task_type}</span>
-                    {item.jira_issue_key ? (
+                    {item.jira_issue_key && item.jira_missing ? (
+                      <span className="pill pill-blocked" title="No longer found in Jira — it was deleted there">
+                        removed in Jira
+                      </span>
+                    ) : item.jira_issue_key ? (
                       <a className="tag" href={item.jira_issue_url ?? "#"} target="_blank"
                          rel="noreferrer">{item.jira_issue_key}</a>
                     ) : item.jira_state === "pending" ? (
@@ -456,7 +524,7 @@ function DayInProgress({
           date={date}
           taskTypes={taskTypes.data ?? []}
           onClose={() => setTicketing(false)}
-          onCreated={() => { onChange(); updates.reload(); }}
+          onCreated={(items) => { setJustCreated(items); onChange(); updates.reload(); }}
         />
       ) : null}
     </>
@@ -504,7 +572,11 @@ function ExtraRow({
       </td>
       <td className="text">
         <span className="day-task">{item.task_type}</span>
-        {item.jira_issue_key ? (
+        {item.jira_issue_key && item.jira_missing ? (
+          <span className="pill pill-blocked" title="No longer found in Jira — it was deleted there">
+            removed in Jira
+          </span>
+        ) : item.jira_issue_key ? (
           <a className="tag" href={item.jira_issue_url ?? "#"} target="_blank"
              rel="noreferrer">{item.jira_issue_key}</a>
         ) : item.jira_state === "pending" ? (
@@ -544,10 +616,13 @@ function ExtraRow({
 function NewTicketDialog({
   memberId, date, taskTypes, onClose, onCreated,
 }: {
-  memberId: number; date: string; taskTypes: Lookup[]; onClose: () => void; onCreated: () => void;
+  memberId: number; date: string; taskTypes: Lookup[]; onClose: () => void;
+  onCreated: (items: Item[]) => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const workTypes = useApi(() => api.workTypes(), []);
   const questionTypes = useApi(() => api.questionTypes(), []);
+  const [pipeline, setPipeline] = useState("content_task");
   const [taskTypeId, setTaskTypeId] = useState("");
   const [questionTypeId, setQuestionTypeId] = useState("");
   const [customer, setCustomer] = useState("");
@@ -569,23 +644,24 @@ function NewTicketDialog({
     setError(null);
     setSaving(true);
     try {
-      await api.createUpdate({
+      const entry = await api.createUpdate({
         member_id: memberId,
         entry_date: date,
         post_at: postAt || null,
         plan_lines: [],
         extra_items: [{
           task_type_id: Number(taskTypeId),
+          pipeline,
           question_type_id: questionTypeId ? Number(questionTypeId) : null,
           customer: customer || null,
           count: count ? Number(count) : null,
-          due_at: dueAt || null,
-          notes: notes || null,
+          due_at: dueAt,
+          notes: notes.trim(),
           effort_minutes: null,
           create_jira: createJira,
         }],
       });
-      onCreated();
+      onCreated(entry.items);
       onClose();
     } catch (e) {
       setError(e as ApiError);
@@ -605,9 +681,16 @@ function NewTicketDialog({
 
       {error ? <Banner tone="error">{error.message}</Banner> : null}
 
-      <label className="label">What *</label>
+      <label className="label">Work type *</label>
+      <select className="field" value={pipeline} onChange={(e) => setPipeline(e.target.value)}>
+        {(workTypes.data ?? []).map((w) => (
+          <option key={w.key} value={w.key}>{w.label}</option>
+        ))}
+      </select>
+
+      <label className="label" style={{ marginTop: 12 }}>Task type *</label>
       <select className="field" value={taskTypeId} onChange={(e) => setTaskTypeId(e.target.value)}>
-        <option value="">Pick a work type…</option>
+        <option value="">Pick a task type…</option>
         {taskTypes.map((t) => (
           <option key={t.id} value={t.id}>{t.name}</option>
         ))}
@@ -627,10 +710,10 @@ function NewTicketDialog({
       <label className="label" style={{ marginTop: 12 }}>Count</label>
       <input className="field" type="number" min={1} value={count} onChange={(e) => setCount(e.target.value)} />
 
-      <label className="label" style={{ marginTop: 12 }}>Due</label>
+      <label className="label" style={{ marginTop: 12 }}>Due date *</label>
       <DateField value={dueAt} ariaLabel="Due date" onChange={setDueAt} />
 
-      <label className="label" style={{ marginTop: 12 }}>Notes</label>
+      <label className="label" style={{ marginTop: 12 }}>Summary *</label>
       <textarea className="field" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
 
       <label className="check" style={{ marginTop: 12 }}>
@@ -644,7 +727,11 @@ function NewTicketDialog({
       <div className="btn-row">
         <span className="topbar-spacer" />
         <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" disabled={saving || !taskTypeId} onClick={create}>
+        <button
+          className="btn btn-primary"
+          disabled={saving || !taskTypeId || !dueAt || !notes.trim()}
+          onClick={create}
+        >
           {saving ? "Creating…" : "Create ticket"}
         </button>
       </div>

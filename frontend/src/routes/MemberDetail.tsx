@@ -267,7 +267,7 @@ export function MemberDetail({ range }: { range: Range }) {
           </Async>
         </Card>
 
-        <Card title="What they worked on" sub="by work type, this range">
+        <Card title="What they worked on" sub="by task type, this range">
           <Async loading={types.loading} error={types.error} data={types.data}
                  empty={{ title: "Nothing logged" }}>
             {(rows) => (
@@ -275,7 +275,7 @@ export function MemberDetail({ range }: { range: Range }) {
                 <table>
                   <thead>
                     <tr>
-                      <th>Work type</th>
+                      <th>Task type</th>
                       <th className="num">Tasks</th>
                       <th className="num">Items</th>
                       <th className="num">Effort</th>
@@ -340,7 +340,7 @@ export function MemberDetail({ range }: { range: Range }) {
                     <th className="num">Effort</th>
                     <th>Status</th>
                     <th>Due</th>
-                    <th>Notes</th>
+                    <th>Summary</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -362,7 +362,7 @@ export function MemberDetail({ range }: { range: Range }) {
                         ) : (
                           <button
                             className={`pill pill-${r.status} pill-button`}
-                            onClick={() => setMoving({ ...r, task_type_id: 0 })}
+                            onClick={() => setMoving({ ...r, work_type: r.pipeline })}
                             title="Move status"
                           >
                             {statusLabel(r.status)}
@@ -370,7 +370,15 @@ export function MemberDetail({ range }: { range: Range }) {
                         )}
                       </td>
                       <td className="mono muted">{r.due_at ?? "—"}</td>
-                      <td className="cell-notes">{r.notes ?? "—"}</td>
+                      <td className="cell-notes">
+                        {r.notes ?? "—"}
+                        {r.jira_issue_key && r.jira_missing ? (
+                          <span className="pill pill-blocked" style={{ marginLeft: 6 }}
+                                title="No longer found in Jira — it was deleted there">
+                            removed in Jira
+                          </span>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

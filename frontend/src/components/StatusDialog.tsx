@@ -4,6 +4,7 @@ import { ApiError, api } from "../api";
 import { statusLabel } from "../format";
 import type { Item, Status } from "../types";
 import { Banner } from "./ui";
+import { useApi } from "../hooks/useApi";
 
 const OPTIONS: Status[] = ["open", "in_progress", "blocked", "closed"];
 
@@ -19,8 +20,10 @@ export function StatusDialog({
   onSaved: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const taskTypes = useApi(() => api.taskTypes(), []);
+  const [taskTypeId, setTaskTypeId] = useState(String(item.task_type_id));
   const [status, setStatus] = useState<Status>(item.status);
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(item.notes ?? "");
   const [dueAt, setDueAt] = useState(item.due_at ?? "");
   const [effort, setEffort] = useState(item.effort_minutes?.toString() ?? "");
   const [error, setError] = useState<ApiError | null>(null);
@@ -37,6 +40,7 @@ export function StatusDialog({
     try {
       await api.patchItem(item.id, {
         status,
+        task_type_id: Number(taskTypeId),
         notes: notes.trim() || null,
         due_at: dueAt || null,
         effort_minutes: effort === "" ? null : Number(effort),
@@ -46,6 +50,23 @@ export function StatusDialog({
     } catch (e) {
       setError(e as ApiError);
     } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    const warning = item.jira_issue_key
+      ? `Delete this ticket and cancel ${item.jira_issue_key} in Jira? This can't be undone.`
+      : "Delete this ticket? This can't be undone.";
+    if (!window.confirm(warning)) return;
+    setError(null);
+    setSaving(true);
+    try {
+      await api.deleteItem(item.id);
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError(e as ApiError);
       setSaving(false);
     }
   }
@@ -66,7 +87,19 @@ export function StatusDialog({
 
       {error ? <Banner tone="error">{error.message}</Banner> : null}
 
-      <label className="label">Move to</label>
+      <label className="label" htmlFor="dlg-task-type">Task type</label>
+      <select
+        id="dlg-task-type"
+        className="field"
+        value={taskTypeId}
+        onChange={(e) => setTaskTypeId(e.target.value)}
+      >
+        {(taskTypes.data ?? []).map((t) => (
+          <option key={t.id} value={t.id}>{t.name}</option>
+        ))}
+      </select>
+
+      <label className="label" style={{ marginTop: 12 }}>Move to</label>
       <div className="period-group" style={{ marginBottom: 12, width: "fit-content" }}>
         {OPTIONS.map((s) => (
           <button
@@ -99,7 +132,7 @@ export function StatusDialog({
       />
 
       <label className="label" style={{ marginTop: 12 }} htmlFor="dlg-note">
-        Comment
+        Summary
       </label>
       <textarea
         id="dlg-note"
@@ -107,7 +140,7 @@ export function StatusDialog({
         rows={3}
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="Posted to Jira as a comment"
+        placeholder="Shown on the dashboard, and synced to Jira"
       />
 
       <div className="btn-row">
@@ -115,12 +148,21 @@ export function StatusDialog({
           {item.jira_issue_key ? `Syncs ${item.jira_issue_key}` : "Not linked to Jira"}
         </span>
         <span className="topbar-spacer" />
+        <button className="btn btn-danger" disabled={saving} onClick={remove}>
+          Delete
+        </button>
         <button className="btn btn-secondary" onClick={onClose}>
           Cancel
         </button>
         <button
           className="btn btn-primary"
-          disabled={saving || (status === item.status && effort === (item.effort_minutes?.toString() ?? ""))}
+          disabled={
+            saving ||
+            (status === item.status &&
+              taskTypeId === String(item.task_type_id) &&
+              notes === (item.notes ?? "") &&
+              effort === (item.effort_minutes?.toString() ?? ""))
+          }
           onClick={save}
         >
           {saving ? "Saving…" : "Move"}

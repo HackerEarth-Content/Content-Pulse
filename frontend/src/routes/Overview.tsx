@@ -16,6 +16,7 @@ import { Donut } from "../components/Donut";
 import { RankedBars } from "../components/RankedBars";
 import { Async, Card, SectionHeading, StatTile } from "../components/ui";
 import { hours, mins, num, pct } from "../format";
+import { mergeAssessments } from "./Requests";
 import { bucketFor, bucketNoun, bucketTick, groupSeries } from "../series";
 import { useApi } from "../hooks/useApi";
 import { rangeQuery, type Range } from "../hooks/usePeriod";
@@ -102,11 +103,11 @@ export function Overview({ range }: { range: Range }) {
             }}
           </Async>
         </Card>
-        <Card title="Busiest areas" sub="hours logged">
+        <Card title="Busiest areas" sub="by work type">
           <Async loading={areas.loading} error={areas.error} data={areas.data}>
             {(list) => (
               <RankedBars
-                items={list.map((a) => ({ key: a.area, label: a.label,
+                items={mergeAssessments(list).map((a) => ({ key: a.area, label: a.label,
                                           value: a.effort_minutes, sub: `${a.tasks} tickets` }))}
                 format={(n) => mins(n)}
               />
@@ -152,32 +153,24 @@ export function Overview({ range }: { range: Range }) {
         </Async>
       </Card>
 
-      <div className="grid cols-2" style={{ marginTop: 12 }}>
-        <Card title="By member" sub="full ranking lives on the Leaderboard">
-          <p className="hint">
-            <Link className="tag" to={`/leaderboard?${rangeQuery(range)}`}>View the leaderboard →</Link>
-          </p>
-        </Card>
-
-        <Card title="By work type" sub="hours in this range">
-          <Async
-            loading={types.loading}
-            error={types.error}
-            data={types.data}
-            empty={{ title: "No work types yet" }}
-          >
-            {(rows) => (
-              <RankedBars
-                items={rows.slice(0, 8).map((r) => ({
-                  key: r.task_type, label: r.task_type,
-                  value: r.effort_minutes, sub: `${r.tasks} tickets`,
-                }))}
-                format={(n) => mins(n)}
-              />
-            )}
-          </Async>
-        </Card>
-      </div>
+      <Card title="By task type" sub="hours in this range">
+        <Async
+          loading={types.loading}
+          error={types.error}
+          data={types.data}
+          empty={{ title: "No work types yet" }}
+        >
+          {(rows) => (
+            <RankedBars
+              items={rows.slice(0, 8).map((r) => ({
+                key: r.task_type, label: r.task_type,
+                value: r.effort_minutes, sub: `${r.tasks} tickets`,
+              }))}
+              format={(n) => mins(n)}
+            />
+          )}
+        </Async>
+      </Card>
 
       <SectionHeading title="Risk & timing" color="var(--accent-yellow)" />
       <div className="grid cols-2">

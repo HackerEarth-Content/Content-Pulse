@@ -35,7 +35,9 @@ export function Leaderboard({ range }: { range: Range }) {
       >
         {(rows) => {
           // Area-major -> member-major: one row per member, one cell per area.
-          const byMember = new Map<number, { member: string; byArea: Map<string, number> }>();
+          const byMember = new Map<
+            number, { member: string; byArea: Map<string, { minutes: number; tasks: number }> }
+          >();
           for (const area of rows) {
             for (const m of area.members) {
               // Jira issues with no assignee land on a placeholder "Unassigned"
@@ -43,7 +45,11 @@ export function Leaderboard({ range }: { range: Range }) {
               if (m.member === "Unassigned") continue;
               const key = AREA_KEY[area.area] ?? area.area;
               const entry = byMember.get(m.member_id) ?? { member: m.member, byArea: new Map() };
-              entry.byArea.set(key, (entry.byArea.get(key) ?? 0) + m.effort_minutes);
+              const cell = entry.byArea.get(key) ?? { minutes: 0, tasks: 0 };
+              entry.byArea.set(key, {
+                minutes: cell.minutes + m.effort_minutes,
+                tasks: cell.tasks + m.tasks,
+              });
               byMember.set(m.member_id, entry);
             }
           }
@@ -51,7 +57,8 @@ export function Leaderboard({ range }: { range: Range }) {
           const leaders = [...byMember.entries()]
             .map(([id, v]) => ({
               id, member: v.member, byArea: v.byArea,
-              total: COLUMNS.reduce((s, c) => s + (v.byArea.get(c.key) ?? 0), 0),
+              total: COLUMNS.reduce((s, c) => s + (v.byArea.get(c.key)?.minutes ?? 0), 0),
+              totalTasks: COLUMNS.reduce((s, c) => s + (v.byArea.get(c.key)?.tasks ?? 0), 0),
             }))
             .sort((a, b) => b.total - a.total);
 
@@ -72,14 +79,26 @@ export function Leaderboard({ range }: { range: Range }) {
                     <tr key={r.id}>
                       <td className="strong">{r.member}</td>
                       {COLUMNS.map((c) => {
-                        const n = r.byArea.get(c.key);
+                        const cell = r.byArea.get(c.key);
                         return (
                           <td key={c.key} className="num">
-                            {n ? mins(n) : <span className="muted">—</span>}
+                            {cell ? (
+                              <>
+                                {mins(cell.minutes)}
+                                <div className="muted">
+                                  {cell.tasks} ticket{cell.tasks === 1 ? "" : "s"}
+                                </div>
+                              </>
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
                           </td>
                         );
                       })}
-                      <td className="num strong">{mins(r.total)}</td>
+                      <td className="num strong">
+                        {mins(r.total)}
+                        <div className="muted">{r.totalTasks} tickets</div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

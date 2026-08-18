@@ -6,7 +6,7 @@ DAY = "2030-01-07"
 async def plan(client, member, task_type, **over):
     body = {
         "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "count": 2, "notes": "planned"}],
+        "items": [{"task_type_id": task_type, "count": 2, "notes": "planned", "due_at": DAY}],
     } | over
     return await client.post("/api/entries/plans", json=body)
 
@@ -65,7 +65,7 @@ async def test_extra_work_starts_open_and_can_move(client, member, task_type):
     list — it starts open like any other, and moves the same way."""
     r = await client.post("/api/entries/updates", json={
         "member_id": member, "entry_date": DAY,
-        "extra_items": [{"task_type_id": task_type, "notes": "unplanned"}],
+        "extra_items": [{"task_type_id": task_type, "notes": "unplanned", "due_at": DAY}],
     })
     extra = r.json()["items"][0]
     assert extra["status"] == "open" and extra["plan_item_id"] is None
@@ -85,7 +85,7 @@ async def test_extra_work_can_raise_a_jira_ticket_too(client, member, task_type)
     before it ever reached this endpoint."""
     r = await client.post("/api/entries/updates", json={
         "member_id": member, "entry_date": DAY,
-        "extra_items": [{"task_type_id": task_type, "notes": "unplanned", "create_jira": True}],
+        "extra_items": [{"task_type_id": task_type, "notes": "unplanned", "due_at": DAY, "create_jira": True}],
     })
     extra = r.json()["items"][0]
     assert extra["jira_wanted"] is True
@@ -120,7 +120,7 @@ async def test_count_must_be_positive(client, member, task_type):
 
 async def test_search_and_filters(client, member, task_type):
     await plan(client, member, task_type,
-               items=[{"task_type_id": task_type, "notes": "zqxwv marker"}])
+               items=[{"task_type_id": task_type, "notes": "zqxwv marker", "due_at": DAY}])
     params = {"from": DAY, "to": DAY, "member_id": member}
     assert (await client.get("/api/entries", params=params | {"q": "zqxwv"})).json()["total"] == 1
     assert (await client.get("/api/entries", params=params | {"q": "nomatch"})).json()["total"] == 0
@@ -180,8 +180,8 @@ async def test_work_log_filters_the_rows_it_returns(client, member, task_type):
     tickets. Filtering by entry meant `status=closed` returned entries holding
     one closed ticket and still rendered their open ones."""
     p = (await plan(client, member, task_type, items=[
-        {"task_type_id": task_type, "notes": "first"},
-        {"task_type_id": task_type, "notes": "second"},
+        {"task_type_id": task_type, "notes": "first", "due_at": DAY},
+        {"task_type_id": task_type, "notes": "second", "due_at": DAY},
     ])).json()
     await client.patch(f"/api/entry-items/{p['items'][0]['id']}", json={"status": "closed"})
 
@@ -203,7 +203,7 @@ async def test_work_log_filters_the_rows_it_returns(client, member, task_type):
 
 async def test_work_log_search_covers_the_jira_key(client, member, task_type):
     p = (await plan(client, member, task_type,
-                    items=[{"task_type_id": task_type, "notes": "findme-zz"}])).json()
+                    items=[{"task_type_id": task_type, "notes": "findme-zz", "due_at": DAY}])).json()
     params = {"from": DAY, "to": DAY, "member_id": member}
     assert (await client.get("/api/work-log", params=params | {"q": "findme-zz"})).json()["total"] == 1
     assert (await client.get("/api/work-log", params=params | {"q": "nope"})).json()["total"] == 0
@@ -222,7 +222,7 @@ async def test_today_strip_reports_who_still_owes_an_update(client, member, task
 
     plan = (await client.post("/api/entries/plans", json={
         "member_id": member, "entry_date": on,
-        "items": [{"task_type_id": task_type, "notes": "today"}],
+        "items": [{"task_type_id": task_type, "notes": "today", "due_at": on}],
     })).json()
 
     mid = (await client.get("/api/today")).json()

@@ -38,7 +38,6 @@ TASK_TYPES = [
     "Content manual-audit",
     "Content feedback analysis",
     "Others",
-    "Other",
 ]
 
 QUESTION_TYPES = [

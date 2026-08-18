@@ -123,6 +123,7 @@ export const api = {
   removeMember: (id: number) =>
     send<{ deleted: boolean; entries: number; detail: string }>("DELETE", `/members/${id}`),
   taskTypes: () => get<Lookup[]>("/meta/lookups/task-types"),
+  workTypes: () => get<{ key: string; label: string }[]>("/meta/work-types"),
   questionTypes: () => get<Lookup[]>("/meta/lookups/question-types"),
   lookups: (kind: string, includeInactive = false) =>
     get<Lookup[]>(`/meta/lookups/${kind}`, { include_inactive: includeInactive }),
@@ -138,6 +139,7 @@ export const api = {
   createPlan: (body: unknown) => send<Entry>("POST", "/entries/plans", body),
   createUpdate: (body: unknown) => send<Entry>("POST", "/entries/updates", body),
   patchItem: (id: number, body: unknown) => send<unknown>("PATCH", `/entry-items/${id}`, body),
+  deleteItem: (id: number) => send<void>("DELETE", `/entry-items/${id}`),
   itemHistory: (id: number) =>
     get<{ from_status: Status | null; to_status: Status; changed_at: string; note: string | null }[]>(
       `/entry-items/${id}/history`
