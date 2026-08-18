@@ -16,10 +16,16 @@ async def test_plan_then_update_links_and_closes(client, member, task_type):
     item_id = p["items"][0]["id"]
     assert p["items"][0]["status"] == "open"
 
+    # Open can't jump straight to closed — it has to pass through in_progress.
+    await client.post("/api/entries/updates", json={
+        "member_id": member, "entry_date": DAY,
+        "plan_lines": [{"plan_item_id": item_id, "status": "in_progress",
+                        "notes": "starting", "due_at": DAY}],
+    })
     r = await client.post("/api/entries/updates", json={
         "member_id": member, "entry_date": DAY,
         "plan_lines": [{"plan_item_id": item_id, "status": "closed",
-                        "notes": "shipped", "due_at": DAY, "count": 3}],
+                        "notes": "shipped", "due_at": DAY, "count": 3, "effort_minutes": 30}],
     })
     assert r.status_code == 201
     mirror = r.json()["items"][0]
@@ -29,7 +35,7 @@ async def test_plan_then_update_links_and_closes(client, member, task_type):
     assert (await client.get(f"/api/entries/{p['id']}")).json()["items"][0]["status"] == "closed"
 
     history = (await client.get(f"/api/entry-items/{item_id}/history")).json()
-    assert [h["to_status"] for h in history] == ["open", "closed"]
+    assert [h["to_status"] for h in history] == ["open", "in_progress", "closed"]
 
 
 async def test_second_plan_same_day_conflicts(client, member, task_type):
@@ -74,7 +80,9 @@ async def test_extra_work_starts_open_and_can_move(client, member, task_type):
     assert moved.status_code == 200
     assert moved.json()["status"] == "in_progress"
 
-    closed = await client.patch(f"/api/entry-items/{extra['id']}", json={"status": "closed"})
+    # Leaving in_progress requires effort on the record.
+    closed = await client.patch(f"/api/entry-items/{extra['id']}",
+                                json={"status": "closed", "effort_minutes": 15})
     assert closed.status_code == 200
     assert closed.json()["status"] == "closed"
 
@@ -101,7 +109,8 @@ async def test_patch_plan_item_cascades_to_its_update_rows(client, member, task_
                         "notes": "wip", "due_at": DAY}],
     })).json()
 
-    await client.patch(f"/api/entry-items/{item_id}", json={"status": "blocked"})
+    # Leaving in_progress requires effort on the record.
+    await client.patch(f"/api/entry-items/{item_id}", json={"status": "blocked", "effort_minutes": 20})
     assert (await client.get(f"/api/entries/{upd['id']}")).json()["items"][0]["status"] == "blocked"
 
 
@@ -183,7 +192,10 @@ async def test_work_log_filters_the_rows_it_returns(client, member, task_type):
         {"task_type_id": task_type, "notes": "first", "due_at": DAY},
         {"task_type_id": task_type, "notes": "second", "due_at": DAY},
     ])).json()
-    await client.patch(f"/api/entry-items/{p['items'][0]['id']}", json={"status": "closed"})
+    # Open can't jump straight to closed — pass through in_progress first.
+    item_id = p["items"][0]["id"]
+    await client.patch(f"/api/entry-items/{item_id}", json={"status": "in_progress"})
+    await client.patch(f"/api/entry-items/{item_id}", json={"status": "closed", "effort_minutes": 10})
 
     params = {"from": DAY, "to": DAY, "member_id": member}
     all_rows = (await client.get("/api/work-log", params=params)).json()
@@ -231,10 +243,16 @@ async def test_today_strip_reports_who_still_owes_an_update(client, member, task
         "planned but not updated"
     assert not any(m["member_id"] == member for m in mid["no_plan_yet"])
 
+    # Open can't jump straight to closed — pass through in_progress first.
+    await client.post("/api/entries/updates", json={
+        "member_id": member, "entry_date": on,
+        "plan_lines": [{"plan_item_id": plan["items"][0]["id"], "status": "in_progress",
+                        "notes": "starting", "due_at": on}],
+    })
     await client.post("/api/entries/updates", json={
         "member_id": member, "entry_date": on,
         "plan_lines": [{"plan_item_id": plan["items"][0]["id"], "status": "closed",
-                        "notes": "done", "due_at": on}],
+                        "notes": "done", "due_at": on, "effort_minutes": 5}],
     })
 
     after = (await client.get("/api/today")).json()

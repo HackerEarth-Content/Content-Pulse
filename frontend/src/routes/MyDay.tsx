@@ -6,7 +6,9 @@ import { StatusDialog } from "../components/StatusDialog";
 import { Async, Banner, SectionHeading, StatTile } from "../components/ui";
 import { dmy, mins, statusLabel, today } from "../format";
 import { useApi } from "../hooks/useApi";
-import type { CurrentUser, Entry, Item, Lookup, Status } from "../types";
+import type { CurrentUser, Entry, Item, Lookup } from "../types";
+
+const PARENT_KEY_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
 
 /** One screen for the whole day, instead of a Plan form and an Update form.
  *
@@ -107,12 +109,14 @@ interface Draft {
   count: string;
   due_at: string;
   notes: string;
+  parent_issue_key: string;
   create_jira: boolean;
 }
 
 const blank = (): Draft => ({
   pipeline: "content_task",
-  task_type_id: "", question_type_id: "", customer: "", count: "", due_at: "", notes: "",
+  task_type_id: "", question_type_id: "", customer: "", count: "",
+  due_at: today(), notes: "", parent_issue_key: "",
   // Off by default. Plenty of logged work has no business being a ticket, and
   // an unwanted ticket is far more annoying to undo than a wanted one is to ask for.
   create_jira: false,
@@ -133,7 +137,10 @@ function StartTheDay({
   const patch = (i: number, key: keyof Draft, value: string | boolean) =>
     setRows((rs) => rs.map((r, j) => (i === j ? { ...r, [key]: value } : r)));
   const filled = rows.filter((r) => r.task_type_id);
-  const incomplete = (r: Draft) => Boolean(r.task_type_id) && (!r.due_at || !r.notes.trim());
+  const incomplete = (r: Draft) =>
+    Boolean(r.task_type_id) &&
+    (!r.due_at || !r.notes.trim() ||
+      (r.pipeline === "content_request" && !PARENT_KEY_PATTERN.test(r.parent_issue_key.trim())));
   const hasIncomplete = rows.some(incomplete);
 
   async function save() {
@@ -152,6 +159,7 @@ function StartTheDay({
           count: r.count ? Number(r.count) : null,
           due_at: r.due_at || null,
           notes: r.notes || null,
+          parent_issue_key: r.pipeline === "content_request" ? r.parent_issue_key.trim() : null,
           create_jira: r.create_jira,
         })),
       });
@@ -221,6 +229,13 @@ function StartTheDay({
               onChange={(iso) => patch(i, "due_at", iso)}
             />
           </div>
+          {row.pipeline === "content_request" ? (
+            <div>
+              <label className="label">Parent ticket *</label>
+              <input className="field" value={row.parent_issue_key} placeholder="e.g. TCE-1234"
+                     onChange={(e) => patch(i, "parent_issue_key", e.target.value)} />
+            </div>
+          ) : null}
           <div className="task-row-wide">
             <label className="label">Summary *</label>
             <textarea className="field" rows={2} value={row.notes}
@@ -229,7 +244,9 @@ function StartTheDay({
           {incomplete(row) ? (
             <div className="task-row-wide">
               <span className="hint" style={{ color: "var(--status-critical)" }}>
-                Due date and summary are required before this can be saved.
+                Due date, summary
+                {row.pipeline === "content_request" ? ", and a valid parent ticket (e.g. TCE-1234)" : ""}
+                {" "}are required before this can be saved.
               </span>
             </div>
           ) : null}
@@ -243,7 +260,7 @@ function StartTheDay({
         </div>
       ))}
 
-      {/* Written now, announced later — the 6pm-for-8pm case. */}
+      {/* Written now, announced later. */}
       <SchedulePicker value={postAt} onChange={setPostAt} />
 
       <div className="btn-row">
@@ -271,8 +288,6 @@ function StartTheDay({
 
 /* ── later: report against it ────────────────────────────────────────────── */
 
-interface Line { status: Status; notes: string; effort_minutes: string; due_at: string }
-
 function DayInProgress({
   plan, date, memberId, onChange, justCreated, setJustCreated,
 }: {
@@ -280,10 +295,6 @@ function DayInProgress({
   justCreated: Item[]; setJustCreated: (items: Item[]) => void;
 }) {
   const taskTypes = useApi(() => api.taskTypes(), []);
-  const [lines, setLines] = useState<Record<number, Line>>({});
-  const [error, setError] = useState<ApiError | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [moving, setMoving] = useState<Item | null>(null);
   const [ticketing, setTicketing] = useState(false);
 
@@ -320,47 +331,13 @@ function DayInProgress({
     return () => clearInterval(id);
   }, [extrasPending, updates.reload]);
 
-  const lineFor = (item: Item): Line =>
-    lines[item.id] ?? {
-      status: item.status, notes: "", effort_minutes: "", due_at: item.due_at ?? date,
-    };
-  const patch = (item: Item, key: keyof Line, value: string) =>
-    setLines((l) => ({ ...l, [item.id]: { ...lineFor(item), [key]: value } }));
-
-  const touched = plan.items.filter((i) => {
-    const l = lines[i.id];
-    return l && (l.notes.trim() || l.effort_minutes || l.status !== i.status);
-  });
   const allItems = [...plan.items, ...loggedExtras];
   const done = allItems.filter((i) => i.status === "closed").length;
 
-  async function submit() {
-    setError(null);
-    setSaving(true);
-    try {
-      await api.createUpdate({
-        member_id: memberId,
-        entry_date: date,
-        plan_lines: touched.map((i) => {
-          const l = lineFor(i);
-          return {
-            plan_item_id: i.id,
-            status: l.status,
-            notes: l.notes.trim() || `Moved to ${statusLabel(l.status)}`,
-            due_at: l.due_at || date,
-            effort_minutes: l.effort_minutes ? Number(l.effort_minutes) : null,
-          };
-        }),
-      });
-      setLines({});
-      setSaved(true);
-      updates.reload();
-      onChange();
-    } catch (e) {
-      setError(e as ApiError);
-    } finally {
-      setSaving(false);
-    }
+  function onSaved() {
+    setMoving(null);
+    onChange();
+    updates.reload();
   }
 
   return (
@@ -373,11 +350,7 @@ function DayInProgress({
           value={mins(allItems.reduce((s, i) => s + (i.effort_minutes ?? 0), 0) || null)}
           accent="var(--accent-orange)"
         />
-        <StatTile label="To report" value={touched.length} />
       </div>
-
-      {error ? <Banner tone="error">{error.message}</Banner> : null}
-      {saved ? <Banner tone="info">Update logged.</Banner> : null}
 
       {justCreated.length ? (
         <div className="card" style={{ marginBottom: 12 }}>
@@ -397,6 +370,11 @@ function DayInProgress({
                   {it.jira_issue_key}
                 </a></>
               ) : null}
+              {it.parent_issue_key ? (
+                <> · parent <a className="tag" href={it.parent_issue_url ?? "#"} target="_blank" rel="noreferrer">
+                  {it.parent_issue_key}
+                </a></>
+              ) : null}
             </p>
           ))}
         </div>
@@ -412,11 +390,9 @@ function DayInProgress({
         }
       />
 
-      {/* One row per task rather than a card of five labelled fields each. The
-          old layout gave a single task the height this gives four, which on the
-          screen people open every morning is the difference between seeing the
-          day and scrolling through it. Column headers name the inputs, so the
-          per-field labels are redundant — each control keeps an aria-label. */}
+      {/* One row per task, entirely read-only — every edit (status, effort,
+          due date, task type) goes through "Move status" now, so there's one
+          place that knows the workflow rules instead of two that could drift. */}
       <div className="table-scroll day-table">
         <table>
           <thead>
@@ -426,96 +402,19 @@ function DayInProgress({
               <th>Customer</th>
               <th className="num">Effort (m)</th>
               <th>Due</th>
-              <th>What happened</th>
+              <th>Summary</th>
             </tr>
           </thead>
           <tbody>
-            {plan.items.map((item) => {
-              const l = lineFor(item);
-              return (
-                <tr key={item.id}>
-                  <td>
-                    <button className={`pill pill-${item.status} pill-button`}
-                            onClick={() => setMoving(item)} title="Move status">
-                      {statusLabel(item.status)}
-                    </button>
-                  </td>
-                  <td className="text">
-                    <span className="day-task">{item.task_type}</span>
-                    {item.jira_issue_key && item.jira_missing ? (
-                      <span className="pill pill-blocked" title="No longer found in Jira — it was deleted there">
-                        removed in Jira
-                      </span>
-                    ) : item.jira_issue_key ? (
-                      <a className="tag" href={item.jira_issue_url ?? "#"} target="_blank"
-                         rel="noreferrer">{item.jira_issue_key}</a>
-                    ) : item.jira_state === "pending" ? (
-                      <span className="pill pill-muted">syncing…</span>
-                    ) : item.jira_state === "failed" ? (
-                      <span className="pill pill-blocked" title="Jira ticket creation failed">failed</span>
-                    ) : null}
-                    <select className="field field-inline" value={l.status}
-                            aria-label={`Move ${item.task_type} to`}
-                            onChange={(e) => patch(item, "status", e.target.value)}>
-                      <option value="open">Open</option>
-                      <option value="in_progress">In progress</option>
-                      <option value="blocked">Blocked</option>
-                      <option value="closed">Done</option>
-                    </select>
-                  </td>
-                  <td>{item.customer ?? <span className="muted">—</span>}</td>
-                  <td className="num">
-                    {item.status === "closed" ? (
-                      mins(item.effort_minutes)
-                    ) : (
-                      <input className="field field-inline field-num" type="number" min={0} step={5}
-                             placeholder="e.g. 30" value={l.effort_minutes}
-                             aria-label={`Effort in minutes for ${item.task_type}`}
-                             onChange={(e) => patch(item, "effort_minutes", e.target.value)} />
-                    )}
-                  </td>
-                  <td>
-                    <DateField
-                      className="field field-inline"
-                      value={l.due_at}
-                      ariaLabel={`Due date for `}
-                      onChange={(iso) => patch(item, "due_at", iso)}
-                    />
-                  </td>
-                  <td className="text">
-                    <input className="field field-inline" value={l.notes}
-                           placeholder="Leave blank to just move the status"
-                           aria-label={`What happened with ${item.task_type}`}
-                           onChange={(e) => patch(item, "notes", e.target.value)} />
-                  </td>
-                </tr>
-              );
-            })}
-            {loggedExtras.map((item) => (
-              <ExtraRow
-                key={item.id}
-                item={item}
-                onMove={() => setMoving(item)}
-                onSaved={() => { onChange(); updates.reload(); }}
-              />
+            {allItems.map((item) => (
+              <TicketRow key={item.id} item={item} onMove={() => setMoving(item)} />
             ))}
           </tbody>
         </table>
       </div>
 
-      <div className="btn-row">
-        <span className="topbar-spacer" />
-        <span className="muted">
-          {touched.length} task{touched.length === 1 ? "" : "s"} to report
-        </span>
-        <button className="btn btn-primary" disabled={saving || !touched.length} onClick={submit}>
-          {saving ? "Saving…" : "Log update"}
-        </button>
-      </div>
-
       {moving ? (
-        <StatusDialog item={moving} onClose={() => setMoving(null)}
-                      onSaved={() => { setMoving(null); onChange(); updates.reload(); }} />
+        <StatusDialog item={moving} onClose={() => setMoving(null)} onSaved={onSaved} />
       ) : null}
 
       {ticketing ? (
@@ -531,38 +430,7 @@ function DayInProgress({
   );
 }
 
-/** A ticket raised outside the plan isn't part of the batched "Log update"
- * submit, so status and effort here save immediately on change rather than
- * being staged — same fields as a planned row, different save path. */
-function ExtraRow({
-  item, onMove, onSaved,
-}: { item: Item; onMove: () => void; onSaved: () => void }) {
-  const [effort, setEffort] = useState(item.effort_minutes?.toString() ?? "");
-  const [saving, setSaving] = useState(false);
-
-  async function saveStatus(status: string) {
-    setSaving(true);
-    try {
-      await api.patchItem(item.id, { status });
-      onSaved();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function saveEffort() {
-    if (effort === (item.effort_minutes?.toString() ?? "")) return;
-    setSaving(true);
-    try {
-      await api.patchItem(item.id, { effort_minutes: effort === "" ? null : Number(effort) });
-      onSaved();
-    } catch {
-      setEffort(item.effort_minutes?.toString() ?? "");
-    } finally {
-      setSaving(false);
-    }
-  }
-
+function TicketRow({ item, onMove }: { item: Item; onMove: () => void }) {
   return (
     <tr>
       <td>
@@ -584,27 +452,13 @@ function ExtraRow({
         ) : item.jira_state === "failed" ? (
           <span className="pill pill-blocked" title="Jira ticket creation failed">failed</span>
         ) : null}
-        <select className="field field-inline" value={item.status} disabled={saving}
-                aria-label={`Move ${item.task_type} to`}
-                onChange={(e) => saveStatus(e.target.value)}>
-          <option value="open">Open</option>
-          <option value="in_progress">In progress</option>
-          <option value="blocked">Blocked</option>
-          <option value="closed">Done</option>
-        </select>
+        {item.parent_issue_key ? (
+          <a className="tag" href={item.parent_issue_url ?? "#"} target="_blank" rel="noreferrer"
+             title="Parent ticket">↑ {item.parent_issue_key}</a>
+        ) : null}
       </td>
       <td>{item.customer ?? <span className="muted">—</span>}</td>
-      <td className="num">
-        {item.status === "closed" ? (
-          mins(item.effort_minutes)
-        ) : (
-          <input className="field field-inline field-num" type="number" min={0} step={5}
-                 placeholder="e.g. 30" value={effort} disabled={saving}
-                 aria-label={`Effort in minutes for ${item.task_type}`}
-                 onChange={(e) => setEffort(e.target.value)}
-                 onBlur={saveEffort} />
-        )}
-      </td>
+      <td className="num">{mins(item.effort_minutes)}</td>
       <td className="mono muted">{dmy(item.due_at)}</td>
       <td className="text">{item.notes ?? <span className="muted">—</span>}</td>
     </tr>
@@ -627,8 +481,9 @@ function NewTicketDialog({
   const [questionTypeId, setQuestionTypeId] = useState("");
   const [customer, setCustomer] = useState("");
   const [count, setCount] = useState("");
-  const [dueAt, setDueAt] = useState("");
+  const [dueAt, setDueAt] = useState(today());
   const [notes, setNotes] = useState("");
+  const [parentIssueKey, setParentIssueKey] = useState("");
   // Same default as the morning plan — an unwanted ticket is more annoying to
   // undo than a wanted one is to ask for.
   const [createJira, setCreateJira] = useState(false);
@@ -639,6 +494,9 @@ function NewTicketDialog({
   useEffect(() => {
     ref.current?.showModal();
   }, []);
+
+  const isContentRequest = pipeline === "content_request";
+  const parentValid = !isContentRequest || PARENT_KEY_PATTERN.test(parentIssueKey.trim());
 
   async function create() {
     setError(null);
@@ -657,6 +515,7 @@ function NewTicketDialog({
           count: count ? Number(count) : null,
           due_at: dueAt,
           notes: notes.trim(),
+          parent_issue_key: isContentRequest ? parentIssueKey.trim() : null,
           effort_minutes: null,
           create_jira: createJira,
         }],
@@ -713,6 +572,14 @@ function NewTicketDialog({
       <label className="label" style={{ marginTop: 12 }}>Due date *</label>
       <DateField value={dueAt} ariaLabel="Due date" onChange={setDueAt} />
 
+      {isContentRequest ? (
+        <>
+          <label className="label" style={{ marginTop: 12 }}>Parent ticket *</label>
+          <input className="field" value={parentIssueKey} placeholder="e.g. TCE-1234"
+                 onChange={(e) => setParentIssueKey(e.target.value)} />
+        </>
+      ) : null}
+
       <label className="label" style={{ marginTop: 12 }}>Summary *</label>
       <textarea className="field" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
 
@@ -721,7 +588,7 @@ function NewTicketDialog({
         <span>Raise a Jira ticket for this</span>
       </label>
 
-      {/* Same as the morning plan — written now, announced later. */}
+      {/* Written now, announced later. */}
       <SchedulePicker value={postAt} onChange={setPostAt} />
 
       <div className="btn-row">
@@ -729,7 +596,7 @@ function NewTicketDialog({
         <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
         <button
           className="btn btn-primary"
-          disabled={saving || !taskTypeId || !dueAt || !notes.trim()}
+          disabled={saving || !taskTypeId || !dueAt || !notes.trim() || !parentValid}
           onClick={create}
         >
           {saving ? "Creating…" : "Create ticket"}

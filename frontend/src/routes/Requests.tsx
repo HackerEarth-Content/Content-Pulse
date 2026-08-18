@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { api } from "../api";
-import { CATEGORICAL } from "../charts";
 import { Donut } from "../components/Donut";
 import { RankedBars } from "../components/RankedBars";
 import { StreamSplit } from "../components/StreamSplit";
@@ -14,15 +13,17 @@ import type { AreaByMember, AreaStat } from "../types";
  * request pipelines. `tce_subtask` is a Jira housekeeping type with no effort. */
 const EXCLUDED = new Set(["content_task", "tce_subtask"]);
 
-/** The top-level bifurcation, at two parts so the colours survive an
- * all-pairs contrast check. Everything else is a ranked bar. */
-const GROUPS: { key: string; label: string; areas: string[] }[] = [
-  { key: "requests", label: "Content Requests", areas: ["content_request", "content_assessment"] },
-  {
-    key: "programs",
-    label: "Programs & Writing",
-    areas: ["hc_request", "ht_request", "hc_ht_feasibility", "technical_writing"],
-  },
+/** Every stream gets its own slice here, deliberately past the 3-hue CVD-safe
+ * cap the rest of the app holds to (see charts.ts) — a "briefly, each one"
+ * pie chart was asked for over the safer ranked-bar alternative, so two of
+ * these five pairs will read closer together for a colourblind viewer. The
+ * legend (always shown) still carries identity by name regardless. */
+const AREA_COLOURS = [
+  "var(--accent-aqua)",
+  "var(--accent-indigo)",
+  "var(--accent-orange)",
+  "var(--accent-magenta)",
+  "var(--accent-yellow)",
 ];
 
 /** Assessments are a Jira request *type* inside Content Requests, not a
@@ -91,19 +92,6 @@ export function Requests({ range }: { range: Range }) {
         {(list) => {
           const effort = list.reduce((s, r) => s + r.effort_minutes, 0);
           const tickets = list.reduce((s, r) => s + r.tasks, 0);
-          const grouped = GROUPS.map((g, i) => ({
-            key: g.key,
-            label: g.label,
-            colour: CATEGORICAL[i],
-            value: list
-              .filter((a) => g.areas.includes(a.area))
-              .reduce((s, a) => s + a.effort_minutes, 0),
-            tickets: list
-              .filter((a) => g.areas.includes(a.area))
-              .reduce((s, a) => s + a.tasks, 0),
-          })).filter((g) => g.value > 0 || g.tickets > 0);
-
-          const top = [...grouped].sort((a, b) => b.value - a.value)[0];
           const busiest = [...list].sort((a, b) => b.effort_minutes - a.effort_minutes)[0];
 
           return (
@@ -111,37 +99,34 @@ export function Requests({ range }: { range: Range }) {
               <p className="insight">
                 <strong>{mins(effort)}</strong> across <strong>{tickets}</strong> request
                 tickets.
-                {top ? (
-                  <>
-                    {" "}
-                    <strong>{top.label}</strong> takes {pct(top.value / (effort || 1))} of it,
-                  </>
-                ) : null}
                 {busiest ? (
                   <>
                     {" "}
-                    and <strong>{busiest.label}</strong> is the single busiest area at{" "}
+                    <strong>{busiest.label}</strong> is the single busiest area at{" "}
                     {mins(busiest.effort_minutes)} over {busiest.tasks} tickets
                     {busiest.tasks
                       ? ` — ${mins(Math.round(busiest.effort_minutes / busiest.tasks))} each`
                       : ""}
-                    .
+                    , {pct(busiest.effort_minutes / (effort || 1))} of all request effort.
                   </>
                 ) : null}
               </p>
 
               <div className="grid cols-2">
-                <Card title="The three streams" sub="share of hours logged">
+                <Card title="Every stream" sub="share of hours logged">
                   <Donut
-                    slices={grouped.map((g) => ({
-                      key: g.key,
-                      label: g.label,
-                      value: g.value,
-                      colour: g.colour,
+                    maxSlices={list.length}
+                    slices={list.map((a, i) => ({
+                      key: a.area,
+                      label: a.label,
+                      value: a.effort_minutes,
+                      colour: AREA_COLOURS[i % AREA_COLOURS.length],
                     }))}
                     total={effort}
                     totalLabel="total effort"
                     format={(n) => mins(n)}
+                    onSelect={setArea}
+                    selected={current}
                   />
                 </Card>
 

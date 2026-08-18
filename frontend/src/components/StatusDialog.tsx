@@ -1,15 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import { DateField } from "./DateField";
 import { ApiError, api } from "../api";
-import { statusLabel } from "../format";
+import { statusLabel, today } from "../format";
 import type { Item, Status } from "../types";
 import { Banner } from "./ui";
 import { useApi } from "../hooks/useApi";
 
-const OPTIONS: Status[] = ["open", "in_progress", "blocked", "closed"];
+/** A ticket earns its way through the workflow — it can't jump straight from
+ * Open to Done/Blocked, and once Done it's done for good. Mirrors
+ * services.entries.ALLOWED_TRANSITIONS on the backend, which is the version
+ * that actually gets enforced; this one just keeps the UI from offering a
+ * move the server would reject anyway. */
+const ALLOWED_NEXT: Record<Status, Status[]> = {
+  open: ["in_progress"],
+  in_progress: ["blocked", "closed"],
+  blocked: ["in_progress"],
+  closed: [],
+};
 
-/** Moving a task. The note becomes a Jira comment, and the due date is what the
- * TCE workflow demands on a transition — same contract as the Django modal. */
+/** Moving a task through its workflow, with a mandatory note about *why* —
+ * separate from the ticket's own Summary, which this dialog can also edit. */
 export function StatusDialog({
   item,
   onClose,
@@ -23,8 +33,9 @@ export function StatusDialog({
   const taskTypes = useApi(() => api.taskTypes(), []);
   const [taskTypeId, setTaskTypeId] = useState(String(item.task_type_id));
   const [status, setStatus] = useState<Status>(item.status);
-  const [notes, setNotes] = useState(item.notes ?? "");
-  const [dueAt, setDueAt] = useState(item.due_at ?? "");
+  const [summary, setSummary] = useState(item.notes ?? "");
+  const [comment, setComment] = useState("");
+  const [dueAt, setDueAt] = useState(item.due_at ?? today());
   const [effort, setEffort] = useState(item.effort_minutes?.toString() ?? "");
   const [error, setError] = useState<ApiError | null>(null);
   const [saving, setSaving] = useState(false);
@@ -34,6 +45,20 @@ export function StatusDialog({
     ref.current?.showModal();
   }, []);
 
+  const statusChanged = status !== item.status;
+  const nextOptions = [item.status, ...ALLOWED_NEXT[item.status]];
+  const commentMissing = statusChanged && !comment.trim();
+  // Leaving in-progress is where time was actually spent — require it here,
+  // not at some vaguer "before you can close this" moment.
+  const effortMissing = item.status === "in_progress" && statusChanged && effort === "";
+
+  const nothingChanged =
+    !statusChanged &&
+    taskTypeId === String(item.task_type_id) &&
+    summary === (item.notes ?? "") &&
+    dueAt === (item.due_at ?? today()) &&
+    effort === (item.effort_minutes?.toString() ?? "");
+
   async function save() {
     setError(null);
     setSaving(true);
@@ -41,7 +66,8 @@ export function StatusDialog({
       await api.patchItem(item.id, {
         status,
         task_type_id: Number(taskTypeId),
-        notes: notes.trim() || null,
+        notes: summary.trim() || null,
+        comment: comment.trim() || null,
         due_at: dueAt || null,
         effort_minutes: effort === "" ? null : Number(effort),
       });
@@ -99,19 +125,25 @@ export function StatusDialog({
         ))}
       </select>
 
-      <label className="label" style={{ marginTop: 12 }}>Move to</label>
-      <div className="period-group" style={{ marginBottom: 12, width: "fit-content" }}>
-        {OPTIONS.map((s) => (
-          <button
-            key={s}
-            className="period-btn"
-            aria-pressed={status === s}
-            onClick={() => setStatus(s)}
-          >
-            {statusLabel(s)}
-          </button>
-        ))}
-      </div>
+      {nextOptions.length > 1 ? (
+        <>
+          <label className="label" style={{ marginTop: 12 }}>Move to</label>
+          <div className="period-group" style={{ marginBottom: 12, width: "fit-content" }}>
+            {nextOptions.map((s) => (
+              <button
+                key={s}
+                className="period-btn"
+                aria-pressed={status === s}
+                onClick={() => setStatus(s)}
+              >
+                {statusLabel(s)}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="hint" style={{ marginTop: 12 }}>Done is final — this can't move any further.</p>
+      )}
 
       <label className="label" htmlFor="dlg-due">
         Due date
@@ -120,28 +152,55 @@ export function StatusDialog({
 
       <label className="label" style={{ marginTop: 12 }} htmlFor="dlg-effort">
         Effort (min) — total for this task, not an addition
+        {item.status === "in_progress" ? " *" : ""}
       </label>
       <input
         id="dlg-effort"
-        className="field"
+        className={`field${effortMissing ? " is-invalid" : ""}`}
         type="number"
         min={0}
         step={5}
         value={effort}
         onChange={(e) => setEffort(e.target.value)}
       />
+      {effortMissing ? (
+        <span className="hint" style={{ color: "var(--status-critical)" }}>
+          Log the effort spent before moving this off In progress.
+        </span>
+      ) : null}
 
-      <label className="label" style={{ marginTop: 12 }} htmlFor="dlg-note">
+      <label className="label" style={{ marginTop: 12 }} htmlFor="dlg-summary">
         Summary
       </label>
       <textarea
-        id="dlg-note"
+        id="dlg-summary"
         className="field"
         rows={3}
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
+        value={summary}
+        onChange={(e) => setSummary(e.target.value)}
         placeholder="Shown on the dashboard, and synced to Jira"
       />
+
+      {nextOptions.length > 1 ? (
+        <>
+          <label className="label" style={{ marginTop: 12 }} htmlFor="dlg-comment">
+            Comment{statusChanged ? " *" : ""}
+          </label>
+          <textarea
+            id="dlg-comment"
+            className={`field${commentMissing ? " is-invalid" : ""}`}
+            rows={2}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="What happened, or why it's moving — posted to Jira as a comment"
+          />
+          {commentMissing ? (
+            <span className="hint" style={{ color: "var(--status-critical)" }}>
+              A comment is required when moving status.
+            </span>
+          ) : null}
+        </>
+      ) : null}
 
       <div className="btn-row">
         <span className="muted">
@@ -156,16 +215,10 @@ export function StatusDialog({
         </button>
         <button
           className="btn btn-primary"
-          disabled={
-            saving ||
-            (status === item.status &&
-              taskTypeId === String(item.task_type_id) &&
-              notes === (item.notes ?? "") &&
-              effort === (item.effort_minutes?.toString() ?? ""))
-          }
+          disabled={saving || nothingChanged || commentMissing || effortMissing}
           onClick={save}
         >
-          {saving ? "Saving…" : "Move"}
+          {saving ? "Saving…" : "Save"}
         </button>
       </div>
     </dialog>
