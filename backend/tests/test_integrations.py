@@ -219,18 +219,19 @@ async def test_slack_failure_never_raises(client, member, task_type, monkeypatch
 
 
 def test_reply_text_renders_tasks(client):
+    from datetime import date
     from types import SimpleNamespace as N
     entry = N(
-        kind="update", entry_date="2030-01-01",
+        kind="update", entry_date=date(2030, 1, 1),
         member=N(display_name="Ada"), raw_text=None,
         items=[N(jira_issue_key="TCE-9", jira_issue_url="http://j/TCE-9",
                  task_type=N(name="Content review"), customer="Acme",
                  question_type=N(name="SQL"), count=3, status="in_progress",
-                 notes="halfway")],
+                 effort_minutes=90, due_at=None, notes="halfway")],
     )
     text = slack.reply_text(entry)
-    assert "*Ada* — ✅ Update" in text
-    assert "<http://j/TCE-9|TCE-9> · Content review · Acme · SQL · Count: 3 · In Progress" in text
+    assert "*Ada* — ✅ Update for Tuesday, 01 Jan — 1h 30m logged, 0 closed, 1 still open" in text
+    assert "<http://j/TCE-9|TCE-9> · Content review · *Acme* · ⏳ In Progress · 1h 30m" in text
     assert "_halfway_" in text
 
 

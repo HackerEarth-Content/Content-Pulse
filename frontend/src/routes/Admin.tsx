@@ -413,22 +413,9 @@ function Integrations() {
             Preview today's {kind} digest
           </button>
         ))}
-        {(["plan", "update"] as const).map((kind) => (
-          <button
-            key={`post-${kind}`}
-            className="btn btn-secondary"
-            disabled={!!busy}
-            onClick={() =>
-              confirm(`Post today's ${kind} digest to Slack? This is visible to the channel.`) &&
-              act(kind, () => api.slackDigest(kind, false))
-            }
-          >
-            Post {kind} digest
-          </button>
-        ))}
       </div>
       <p className="hint">
-        Preview renders the message without sending. Posting is visible to everyone in the channel.
+        Renders the message without sending — the digest itself posts automatically.
       </p>
 
       <div className="btn-row" style={{ marginTop: 12 }}>

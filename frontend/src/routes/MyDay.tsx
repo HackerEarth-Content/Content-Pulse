@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ApiError, api } from "../api";
 import { DateField } from "../components/DateField";
 import { SchedulePicker } from "../components/SchedulePicker";
@@ -18,10 +19,15 @@ const PARENT_KEY_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
  * morning, report against it later, raise a ticket for anything unplanned.
  */
 export function MyDay({ me }: { me: CurrentUser["member"] }) {
-  const [date, setDate] = useState(today());
-  const [memberId, setMemberId] = useState<number | null>(me?.id ?? null);
-  const [justCreated, setJustCreated] = useState<Item[]>([]);
   const isLead = me?.role === "admin" || me?.role === "manager";
+  // A lead lands here from the Plan Board with ?member_id=… to open that
+  // person's day directly, rather than picking them from the dropdown.
+  const [params] = useSearchParams();
+  const linkedMemberId = isLead ? Number(params.get("member_id")) || null : null;
+
+  const [date, setDate] = useState(today());
+  const [memberId, setMemberId] = useState<number | null>(linkedMemberId ?? me?.id ?? null);
+  const [justCreated, setJustCreated] = useState<Item[]>([]);
   const members = useApi(() => (isLead ? api.members() : Promise.resolve([])), [isLead]);
 
   const who = memberId ?? me?.id ?? null;
@@ -117,9 +123,9 @@ const blank = (): Draft => ({
   pipeline: "content_task",
   task_type_id: "", question_type_id: "", customer: "", count: "",
   due_at: today(), notes: "", parent_issue_key: "",
-  // Off by default. Plenty of logged work has no business being a ticket, and
-  // an unwanted ticket is far more annoying to undo than a wanted one is to ask for.
-  create_jira: false,
+  // On by default — most planned work is meant to become a Jira ticket;
+  // still a checkbox, so the exception is one click away.
+  create_jira: true,
 });
 
 function StartTheDay({
@@ -484,9 +490,8 @@ function NewTicketDialog({
   const [dueAt, setDueAt] = useState(today());
   const [notes, setNotes] = useState("");
   const [parentIssueKey, setParentIssueKey] = useState("");
-  // Same default as the morning plan — an unwanted ticket is more annoying to
-  // undo than a wanted one is to ask for.
-  const [createJira, setCreateJira] = useState(false);
+  // Same default as the morning plan — on, still a checkbox to opt out.
+  const [createJira, setCreateJira] = useState(true);
   const [postAt, setPostAt] = useState("");
   const [error, setError] = useState<ApiError | null>(null);
   const [saving, setSaving] = useState(false);

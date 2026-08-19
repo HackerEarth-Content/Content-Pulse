@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # Same reasoning as JIRA_WRITES_ENABLED: posting to a team channel is
     # outward-facing and must be opted into, never a side effect of a test.
-    SLACK_WRITES_ENABLED: bool = False
+    SLACK_WRITES_ENABLED: bool
     SLACK_BOT_TOKEN: str = ""
 
     # Gmail SMTP for the daily plan reminder. EMAIL_ENABLED is the same guard as
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     SUPPORT_EMAIL: str = ""
     # When the nudge goes out, in the team's timezone.
     PLAN_REMINDER_HOUR: int = 11
-    SLACK_CHANNEL: str = "content-dashboard"
+    SLACK_CHANNEL: str = "ai-initiatives"
 
     # Reports run Mon-Sun; flip to 6 for Sun-Sat.
     WEEK_START: int = 0

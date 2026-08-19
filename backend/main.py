@@ -25,16 +25,27 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Content-Pulse API", lifespan=lifespan)
+app = FastAPI(
+    title="Content-Pulse API",
+    lifespan=lifespan,
+    # No public API docs — this is a single-frontend internal app, not
+    # something meant to be browsed or called by anyone else.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 
 # Cookie auth needs credentialed CORS, which browsers only allow with an
-# explicit origin — "*" is rejected once allow_credentials is on.
+# explicit origin — "*" is rejected once allow_credentials is on. Methods and
+# headers are spelled out rather than "*": every route is GET/POST/PATCH/
+# DELETE, and the only header the frontend ever sends is Content-Type — auth
+# rides on the session cookie, not a header.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Content-Type"],
 )
 
 

@@ -177,6 +177,10 @@ def start() -> AsyncIOScheduler:
                   id="plan_rollcall", max_instances=1, coalesce=True)
         s.add_job(_roll_call("evening"), CronTrigger(hour=19, minute=35, day_of_week="mon-fri"),
                   id="update_rollcall", max_instances=1, coalesce=True)
+        # Same evening roll call, posted again late — catches anyone who logs
+        # their update after the 19:35 check-in rather than before it.
+        s.add_job(_roll_call("evening"), CronTrigger(hour=23, minute=55, day_of_week="mon-fri"),
+                  id="update_rollcall_late", max_instances=1, coalesce=True)
         s.add_job(_weekly_plan_status("monday"), CronTrigger(hour=23, minute=59, day_of_week="mon"),
                   id="weekly_plan_monday", max_instances=1, coalesce=True)
         s.add_job(_weekly_plan_status("friday"), CronTrigger(hour=23, minute=59, day_of_week="fri"),

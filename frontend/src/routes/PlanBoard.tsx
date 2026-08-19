@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { Async, Card, SectionHeading } from "../components/ui";
 import { today } from "../format";
@@ -63,7 +64,11 @@ export function PlanBoard() {
                     <tbody>
                       {sorted.map((r) => (
                         <tr key={r.member_id}>
-                          <td className="strong">{r.member}</td>
+                          <td className="strong">
+                            <Link className="tag" to={`/my-day?member_id=${r.member_id}`}>
+                              {r.member}
+                            </Link>
+                          </td>
                           <td className="num plan-cell">
                             <Mark yes={r.planned}
                                   label={`${r.member} · Plan ${r.planned ? "filed" : "not filed"}`} />
