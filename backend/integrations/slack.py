@@ -8,18 +8,60 @@ parent, giving the channel two threads for the same day.
 from __future__ import annotations
 
 import logging
+import re
+from collections import Counter
 from datetime import date
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import selectinload
 
 from core.config import settings
 from core.database import Session
-from core.orm import DailyEntry, Member, SlackDayThread
+from core.dates import today as ist_today
+from core.orm import DailyEntry, EntryItem, Member, SlackDayThread
 
 log = logging.getLogger(__name__)
+
+STATUS_EMOJI = {"open": "◻️", "in_progress": "⏳", "blocked": "🚫", "closed": "✅"}
+WEEKLY_STATUS_EMOJI = {"yet_to_start": "◻️", "in_progress": "⏳", "blocked": "🚫", "completed": "✅"}
+WEEKLY_STATUS_LABEL = {
+    "yet_to_start": "not started", "in_progress": "in progress",
+    "blocked": "blocked", "completed": "done",
+}
+
+
+def _mins(m: int | None) -> str:
+    if not m:
+        return "0m"
+    h, rest = divmod(m, 60)
+    if h and rest:
+        return f"{h}h {rest}m"
+    return f"{h}h" if h else f"{rest}m"
+
+
+def _due_phrase(due_at: date | None, today: date) -> str | None:
+    if due_at is None:
+        return None
+    delta = (due_at - today).days
+    if delta < 0:
+        return "⚠️ overdue"
+    if delta == 0:
+        return "due today"
+    if delta == 1:
+        return "due tomorrow"
+    return f"due {due_at.strftime('%d %b')}"
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _plain(html: str | None) -> str:
+    """Weekly plan actions/achievements are sanitized HTML from a rich-text
+    field (bold/italic/bullets only — see richtext.ts) — Slack mrkdwn doesn't
+    read HTML, so this strips tags rather than showing them literally."""
+    return " ".join(_TAG_RE.sub(" ", html or "").split())
 API = "https://slack.com/api"
 
 
@@ -43,40 +85,98 @@ async def _call(method: str, payload: dict) -> dict:
     return body
 
 
-def _line(n: int, item, show_status: bool) -> str:
+def _line(n: int, item, kind: str) -> str:
     parts = []
     if item.jira_issue_key:
         parts.append(f"<{item.jira_issue_url}|{item.jira_issue_key}>"
                      if item.jira_issue_url else item.jira_issue_key)
     parts.append(item.task_type.name)
-    for value in (item.customer, item.question_type.name if item.question_type else None):
-        if value and str(value).strip():
-            parts.append(str(value).strip())
-    if item.count is not None:
-        parts.append(f"Count: {item.count}")
-    if show_status:
-        parts.append(item.status.replace("_", " ").title())
+    if item.customer and item.customer.strip():
+        parts.append(f"*{item.customer.strip()}*")
+    if kind == "update":
+        parts.append(f"{STATUS_EMOJI.get(item.status, '')} {item.status.replace('_', ' ').title()}")
+        if item.effort_minutes:
+            parts.append(_mins(item.effort_minutes))
+    else:
+        phrase = _due_phrase(item.due_at, ist_today())
+        if phrase:
+            parts.append(phrase)
     line = f"{n}. " + " · ".join(parts)
     return line + (f"\n    _{item.notes.strip()}_" if item.notes and item.notes.strip() else "")
 
 
 def reply_text(entry: DailyEntry) -> str:
     icon = "📋 Plan" if entry.kind == "plan" else "✅ Update"
-    lines = [f"*{entry.member.display_name}* — {icon} for {entry.entry_date}"]
+    day_label = entry.entry_date.strftime("%A, %d %b")
+    if entry.kind == "plan":
+        due_today = sum(1 for it in entry.items if it.due_at == ist_today())
+        extra = f" — {len(entry.items)} ticket{'s' if len(entry.items) != 1 else ''}"
+        if due_today:
+            extra += f", due today: {due_today}"
+    else:
+        effort = sum(it.effort_minutes or 0 for it in entry.items)
+        closed = sum(1 for it in entry.items if it.status == "closed")
+        still_open = len(entry.items) - closed
+        extra = f" — {_mins(effort)} logged, {closed} closed"
+        if still_open:
+            extra += f", {still_open} still open"
+    lines = [f"*{entry.member.display_name}* — {icon} for {day_label}{extra if entry.items else ''}"]
     if entry.items:
-        lines += [_line(i, it, entry.kind == "update") for i, it in enumerate(entry.items, 1)]
+        lines += [_line(i, it, entry.kind) for i, it in enumerate(entry.items, 1)]
     else:
         lines.append(entry.raw_text or "_Nothing logged._")
     return "\n".join(lines)
 
 
+def _type_summary(items) -> str:
+    """'Content review, Documentation ×2' — task types in first-seen order,
+    counted rather than listed once per ticket."""
+    counts = Counter(it.task_type.name for it in items)
+    seen: set[str] = set()
+    parts = []
+    for it in items:
+        name = it.task_type.name
+        if name in seen:
+            continue
+        seen.add(name)
+        parts.append(f"{name} ×{counts[name]}" if counts[name] > 1 else name)
+    return ", ".join(parts)
+
+
 def parent_text(on: date, kind: str, entries: list[DailyEntry]) -> str:
     icon = "📋 *Daily Plans*" if kind == "plan" else "✅ *Daily Updates*"
-    names = ", ".join(e.member.display_name for e in entries)
     noun = "plan" if kind == "plan" else "update"
-    return (f"{icon} — {on.strftime('%A, %d %b %Y')}\n"
-            f"{len(entries)} {noun}{'s' if len(entries) != 1 else ''} submitted "
-            f"by: {names}\n_Replies below ↓_")
+    total_tickets = sum(len(e.items) for e in entries)
+    plural_e = "s" if len(entries) != 1 else ""
+    plural_t = "s" if total_tickets != 1 else ""
+
+    lines = [f"{icon} — {on.strftime('%A, %d %b %Y')}"]
+    if kind == "plan":
+        jira_wanted = sum(1 for e in entries for it in e.items if it.jira_wanted)
+        summary = f"{len(entries)} {noun}{plural_e} filed"
+        if total_tickets:
+            summary += f" · {total_tickets} ticket{plural_t} planned"
+        if jira_wanted:
+            summary += f" · {jira_wanted} marked for Jira"
+    else:
+        effort = sum(it.effort_minutes or 0 for e in entries for it in e.items)
+        summary = f"{len(entries)} {noun}{plural_e} filed"
+        if total_tickets:
+            summary += f" · {total_tickets} ticket{plural_t} reported"
+        if effort:
+            summary += f" · {_mins(effort)} logged"
+    lines += [summary, ""]
+
+    for e in entries:
+        if e.items:
+            n = len(e.items)
+            lines.append(f"• {e.member.display_name} — {n} ticket{'s' if n != 1 else ''} "
+                        f"({_type_summary(e.items)})")
+        else:
+            lines.append(f"• {e.member.display_name} — nothing logged")
+
+    lines += ["", "_Replies below ↓_"]
+    return "\n".join(lines)
 
 
 async def _entries_for(db, on: date, kind: str) -> list[DailyEntry]:
@@ -232,31 +332,75 @@ async def post_roll_call(on: date, phase: str) -> dict:
             .order_by(Member.display_name)
         ))
 
+        # One real ticket, one row — a plan row or an unmirrored update, same
+        # dedup rule as services.analytics — so today's counts here match the
+        # dashboard's rather than double-counting a mirror.
+        stats: dict[int, dict[str, int]] = {}
+        for mid, effort, status in await db.execute(
+            select(DailyEntry.member_id, EntryItem.effort_minutes, EntryItem.status)
+            .select_from(EntryItem).join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+            .where(DailyEntry.entry_date == on, DailyEntry.source != "jira",
+                   or_(DailyEntry.kind == "plan", EntryItem.plan_item_id.is_(None)))
+        ):
+            s = stats.setdefault(mid, {"tickets": 0, "effort": 0, "closed": 0})
+            s["tickets"] += 1
+            s["effort"] += effort or 0
+            if status == "closed":
+                s["closed"] += 1
+
     no_plan = [row for row in active if row[0] not in planned]
     planned_rows = [row for row in active if row[0] in planned]
     done = [row for row in planned_rows if row[0] in updated_ids]
     pending = [row for row in planned_rows if row[0] not in updated_ids]
+
+    def stat_for(mid: int) -> dict[str, int]:
+        return stats.get(mid, {"tickets": 0, "effort": 0, "closed": 0})
 
     async def names(rows: list) -> str:
         return ", ".join(
             [await _mention(slack_id, email, name) for _, name, email, slack_id in rows]
         ) or "—"
 
+    async def bullet_list(rows: list, describe) -> str:
+        out = []
+        for mid, name, email, slack_id in rows:
+            who = await _mention(slack_id, email, name)
+            out.append(f"• {who} — {describe(stat_for(mid))}")
+        return "\n".join(out) if out else "—"
+
     day = on.strftime("%A, %d %b %Y")
+    board_link = f"<{settings.FRONTEND_URL}/plan-board|Open Plan Board →>"
+
     if phase == "morning":
-        lines = [f"📋 *Plan check-in — {day}*", "",
-                  f"{len(planned_rows)} of {len(active)} people have filed today's plan.", "",
-                  f"✅ *Planned* ({len(planned_rows)})", await names(planned_rows)]
+        total_tickets = sum(stat_for(r[0])["tickets"] for r in planned_rows)
+        summary = f"{len(planned_rows)} of {len(active)} people have filed today's plan"
+        if total_tickets:
+            summary += f" · {total_tickets} ticket{'s' if total_tickets != 1 else ''} planned across the team"
+        lines = [f"📋 *Plan check-in — {day}*", summary, "",
+                  f"✅ *Planned* ({len(planned_rows)})",
+                  await bullet_list(planned_rows,
+                                    lambda s: f"{s['tickets']} ticket{'s' if s['tickets'] != 1 else ''}")]
         if no_plan:
             lines += ["", f"❌ *No plan yet* ({len(no_plan)})", await names(no_plan)]
+        lines += ["", board_link]
     else:
-        lines = [f"✅ *Update check-in — {day}*", "",
-                  f"{len(done)} of {len(planned_rows)} planned today have logged an update.", "",
-                  f"✅ *Updated* ({len(done)})", await names(done)]
+        total_effort = sum(stat_for(r[0])["effort"] for r in done)
+        total_closed = sum(stat_for(r[0])["closed"] for r in done)
+        summary = f"{len(done)} of {len(planned_rows)} planned today have logged an update"
+        if total_effort or total_closed:
+            summary += f" · {_mins(total_effort)} logged, {total_closed} tickets closed"
+        lines = [f"✅ *Update check-in — {day}*", summary, "",
+                  f"✅ *Updated* ({len(done)})",
+                  await bullet_list(done, lambda s: f"{_mins(s['effort'])} logged, {s['closed']} closed")]
         if pending:
-            lines += ["", f"⏳ *Still pending* ({len(pending)})", await names(pending)]
+            lines += ["", f"⏳ *Still pending* ({len(pending)})",
+                      await bullet_list(pending, lambda s: (
+                          f"planned {s['tickets']} ticket{'s' if s['tickets'] != 1 else ''}, "
+                          "nothing reported yet"
+                      ))]
         if no_plan:
             lines += ["", f"⚠️ *Never planned today* ({len(no_plan)})", await names(no_plan)]
+        lines += ["", board_link]
 
     try:
         await _call("chat.postMessage", {"channel": settings.SLACK_CHANNEL, "text": "\n".join(lines)})
@@ -266,6 +410,35 @@ async def post_roll_call(on: date, phase: str) -> dict:
     except Exception as e:
         log.warning("roll call failed: %s", e)
         return {"posted": False, "reason": str(e)}
+
+
+def _weekly_describe_monday(rows: list[tuple[str, str, str]]) -> str:
+    """'Ship the Acme refresh; Fix login copy' for a couple of actions, a bare
+    count once there are more — a full list stops being scannable fast."""
+    if not rows:
+        return "—"
+    if len(rows) <= 2:
+        return "; ".join(_plain(action) for action, _, _ in rows)
+    return f"{len(rows)} actions"
+
+
+def _weekly_describe_friday(rows: list[tuple[str, str, str]]) -> str:
+    """Per-item achievement text for a couple of items, a status roll-up
+    ('✅ 2 done, 🚫 1 blocked') once there are more."""
+    if not rows:
+        return "—"
+    if len(rows) <= 2:
+        parts = []
+        for action, achievement, status in rows:
+            emoji = WEEKLY_STATUS_EMOJI.get(status, "◻️")
+            parts.append(f"{emoji} {_plain(achievement) if achievement else _plain(action)}")
+        return ", ".join(parts)
+    counts = Counter(status for _, _, status in rows)
+    order = ("completed", "blocked", "in_progress", "yet_to_start")
+    return ", ".join(
+        f"{WEEKLY_STATUS_EMOJI[s]} {counts[s]} {WEEKLY_STATUS_LABEL[s]}"
+        for s in order if counts.get(s)
+    )
 
 
 async def post_weekly_plan_status(week_start: date, phase: str) -> dict:
@@ -281,35 +454,54 @@ async def post_weekly_plan_status(week_start: date, phase: str) -> dict:
             .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES))
             .order_by(Member.display_name)
         ))
-        filed_ids = {mid for (mid,) in await db.execute(
-            select(WeeklyPlanItem.member_id)
+        items_by_member: dict[int, list[tuple[str, str, str]]] = {}
+        for mid, action, achievement, status in await db.execute(
+            select(WeeklyPlanItem.member_id, WeeklyPlanItem.action,
+                   WeeklyPlanItem.achievement, WeeklyPlanItem.status)
             .where(WeeklyPlanItem.week_start == week_start)
-            .distinct()
-        )}
-        updated_ids = {mid for (mid,) in await db.execute(
-            select(WeeklyPlanItem.member_id)
-            .where(
-                WeeklyPlanItem.week_start == week_start,
-                WeeklyPlanItem.status != "yet_to_start",
-            )
-            .distinct()
-        )}
+            .order_by(WeeklyPlanItem.id)
+        ):
+            items_by_member.setdefault(mid, []).append((action, achievement, status))
 
+    filed_ids = set(items_by_member)
+    updated_ids = {
+        mid for mid, rows in items_by_member.items()
+        if any(status != "yet_to_start" for _, _, status in rows)
+    }
     done_ids = filed_ids if phase == "monday" else updated_ids
     done = [row for row in active if row[0] in done_ids]
     missing = [row for row in active if row[0] not in done_ids]
+    describe = _weekly_describe_monday if phase == "monday" else _weekly_describe_friday
 
     async def names(rows: list) -> str:
         return ", ".join(
             [await _mention(slack_id, email, name) for _, name, email, slack_id in rows]
         ) or "—"
 
+    async def bullet_list(rows: list) -> str:
+        out = []
+        for mid, name, email, slack_id in rows:
+            who = await _mention(slack_id, email, name)
+            out.append(f"• {who} — {describe(items_by_member.get(mid, []))}")
+        return "\n".join(out) if out else "—"
+
     week_label = week_start.strftime("Week of %d %b %Y")
     verb = "filed" if phase == "monday" else "updated"
+    total_actions = sum(len(rows) for rows in items_by_member.values())
+
+    summary = f"{len(done)} of {len(active)} people have {verb} this week's plan"
+    if phase == "monday":
+        if total_actions:
+            summary += f" · {total_actions} action{'s' if total_actions != 1 else ''} planned"
+    else:
+        by_status = Counter(s for rows in items_by_member.values() for _, _, s in rows)
+        if by_status:
+            summary += (f" · {by_status['completed']} completed, "
+                        f"{by_status['in_progress']} in progress, {by_status['blocked']} blocked")
+
     lines = [
-        f"🗓️ *Weekly plan {verb} — {week_label}*", "",
-        f"{len(done)} of {len(active)} people have {verb} this week's plan.", "",
-        f"✅ *{verb.title()}* ({len(done)})", await names(done),
+        f"🗓️ *Weekly plan {verb} — {week_label}*", summary, "",
+        f"✅ *{verb.title()}* ({len(done)})", await bullet_list(done),
     ]
     if missing:
         lines += ["", f"❌ *Not yet {verb}* ({len(missing)})", await names(missing)]
