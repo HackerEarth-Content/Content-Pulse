@@ -166,24 +166,24 @@ def start() -> AsyncIOScheduler:
     s.add_job(_publish_scheduled, IntervalTrigger(minutes=1),
               id="publish_scheduled", max_instances=1, coalesce=True)
     s.add_job(_remind_to_plan,
-              CronTrigger(hour=settings.PLAN_REMINDER_HOUR, minute=0, day_of_week="mon-fri"),
+              CronTrigger(hour=settings.PLAN_REMINDER_HOUR, minute=0, day_of_week="mon-fri", timezone=TZ),
               id="plan_reminder", max_instances=1, coalesce=True)
     if settings.SLACK_BOT_TOKEN:
-        s.add_job(_digest("plan"), CronTrigger(hour=10, minute=30), id="digest_plan")
-        s.add_job(_digest("update"), CronTrigger(hour=19, minute=30), id="digest_update")
+        s.add_job(_digest("plan"), CronTrigger(hour=10, minute=30, timezone=TZ), id="digest_plan")
+        s.add_job(_digest("update"), CronTrigger(hour=19, minute=30, timezone=TZ), id="digest_update")
         # Roll call: the whole roster's status in one message, Mon-Fri only —
         # unlike the digests above, weekends have nothing to chase anyone on.
-        s.add_job(_roll_call("morning"), CronTrigger(hour=12, minute=0, day_of_week="mon-fri"),
+        s.add_job(_roll_call("morning"), CronTrigger(hour=12, minute=0, day_of_week="mon-fri", timezone=TZ),
                   id="plan_rollcall", max_instances=1, coalesce=True)
-        s.add_job(_roll_call("evening"), CronTrigger(hour=19, minute=35, day_of_week="mon-fri"),
+        s.add_job(_roll_call("evening"), CronTrigger(hour=19, minute=35, day_of_week="mon-fri", timezone=TZ),
                   id="update_rollcall", max_instances=1, coalesce=True)
         # Same evening roll call, posted again late — catches anyone who logs
         # their update after the 19:35 check-in rather than before it.
-        s.add_job(_roll_call("evening"), CronTrigger(hour=23, minute=55, day_of_week="mon-fri"),
+        s.add_job(_roll_call("evening"), CronTrigger(hour=23, minute=55, day_of_week="mon-fri", timezone=TZ),
                   id="update_rollcall_late", max_instances=1, coalesce=True)
-        s.add_job(_weekly_plan_status("monday"), CronTrigger(hour=23, minute=59, day_of_week="mon"),
+        s.add_job(_weekly_plan_status("monday"), CronTrigger(hour=23, minute=59, day_of_week="mon", timezone=TZ),
                   id="weekly_plan_monday", max_instances=1, coalesce=True)
-        s.add_job(_weekly_plan_status("friday"), CronTrigger(hour=23, minute=59, day_of_week="fri"),
+        s.add_job(_weekly_plan_status("friday"), CronTrigger(hour=23, minute=59, day_of_week="fri", timezone=TZ),
                   id="weekly_plan_friday", max_instances=1, coalesce=True)
     s.start()
     return s
