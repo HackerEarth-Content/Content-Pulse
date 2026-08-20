@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from core.dates import now as ist_now
 from integrations import jira, slack
 from core.orm import DailyEntry, EntryItem
 
@@ -24,7 +25,7 @@ log = logging.getLogger(__name__)
 
 def is_held(entry: DailyEntry, now: datetime | None = None) -> bool:
     """Scheduled for later, so nothing goes out yet."""
-    return entry.post_at is not None and entry.post_at > (now or datetime.now())
+    return entry.post_at is not None and entry.post_at > (now or ist_now())
 
 
 def mark_pending(entry: DailyEntry) -> list[EntryItem]:
@@ -85,7 +86,7 @@ async def publish(db: AsyncSession, entry: DailyEntry) -> int:
     except Exception:
         log.exception("slack post failed for entry %s", entry.id)
 
-    entry.posted_at = datetime.now()
+    entry.posted_at = ist_now()
     await db.commit()
     return len(pushable)
 
@@ -97,7 +98,7 @@ async def publish_due(db: AsyncSession, now: datetime | None = None) -> dict:
     commit must not publish the same plan twice, and a missed window publishes
     late rather than never.
     """
-    now = now or datetime.now()
+    now = now or ist_now()
     entries = (await db.scalars(
         select(DailyEntry)
         .options(selectinload(DailyEntry.items))
