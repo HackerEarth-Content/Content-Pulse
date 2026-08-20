@@ -152,7 +152,8 @@ async def _dispatch(db: AsyncSession, background: BackgroundTasks, entry) -> Non
             background.add_task(jira.push_status, item.id, item.status, item.notes)
         else:
             background.add_task(jira.push_item, item.id)
-    background.add_task(slack.post_entry, entry.id)
+    if entry.entry_date == today():
+        background.add_task(slack.post_entry, entry.id)
 
 
 @router.get("/entries/{entry_id}/jira-state")

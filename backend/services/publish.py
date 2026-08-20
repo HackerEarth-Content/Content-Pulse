@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.dates import now as ist_now
+from core.dates import today
 from integrations import jira, slack
 from core.orm import DailyEntry, EntryItem
 
@@ -81,10 +82,11 @@ async def publish(db: AsyncSession, entry: DailyEntry) -> int:
             # will retry whatever is left in `failed`.
             log.exception("jira push failed for item %s", item.id)
 
-    try:
-        await slack.post_entry(entry.id)
-    except Exception:
-        log.exception("slack post failed for entry %s", entry.id)
+    if entry.entry_date == today():
+        try:
+            await slack.post_entry(entry.id)
+        except Exception:
+            log.exception("slack post failed for entry %s", entry.id)
 
     entry.posted_at = ist_now()
     await db.commit()
