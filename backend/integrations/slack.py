@@ -345,7 +345,7 @@ async def _pinned_mention(db) -> str:
 _TEST_FIXTURE_NAMES = {"PyTest Member", "PyTest AE", "PyTest Admin", "RBAC Ada", "RBAC Grace"}
 
 
-async def post_roll_call(on: date, phase: str) -> dict:
+async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
     """Post the whole roster's plan/update status as one message — not a
     thread reply, a standalone post, since it's a summary rather than
     someone's individual entry.
@@ -370,9 +370,11 @@ async def post_roll_call(on: date, phase: str) -> dict:
         )}
         active = list(await db.execute(
             select(Member.id, Member.display_name, Member.email, Member.slack_user_id)
-            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES))
+            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES),
+                   Member.email.is_distinct_from(settings.SLACK_PLAN_MENTION_EMAIL))
             .order_by(Member.display_name)
         ))
+        mention = await _pinned_mention(db)
 
         # One real ticket, one row — a plan row or an unmirrored update, same
         # dedup rule as services.analytics — so today's counts here match the
@@ -424,7 +426,6 @@ async def post_roll_call(on: date, phase: str) -> dict:
                                     lambda s: f"{s['tickets']} ticket{'s' if s['tickets'] != 1 else ''}")]
         if no_plan:
             lines += ["", f"❌ *No plan yet* ({len(no_plan)})", await names(no_plan)]
-        lines += ["", board_link]
     else:
         total_effort = sum(stat_for(r[0])["effort"] for r in done)
         total_closed = sum(stat_for(r[0])["closed"] for r in done)
@@ -442,8 +443,13 @@ async def post_roll_call(on: date, phase: str) -> dict:
                       ))]
         if no_plan:
             lines += ["", f"⚠️ *Never planned today* ({len(no_plan)})", await names(no_plan)]
-        lines += ["", board_link]
 
+    if mention:
+        lines += ["", f"cc {mention}"]
+    lines += ["", board_link]
+
+    if dry_run:
+        return {"text": "\n".join(lines)}
     try:
         await _call("chat.postMessage", {"channel": settings.SLACK_CHANNEL, "text": "\n".join(lines)})
         return {"posted": True}
@@ -483,7 +489,7 @@ def _weekly_describe_friday(rows: list[tuple[str, str, str]]) -> str:
     )
 
 
-async def post_weekly_plan_status(week_start: date, phase: str) -> dict:
+async def post_weekly_plan_status(week_start: date, phase: str, dry_run: bool = False) -> dict:
     """Monday 11:59pm reports who's filed this week's plan; Friday 11:59pm
     reports who's updated it — same shape as `post_roll_call`, one week wide
     instead of one day.
@@ -493,9 +499,11 @@ async def post_weekly_plan_status(week_start: date, phase: str) -> dict:
     async with Session() as db:
         active = list(await db.execute(
             select(Member.id, Member.display_name, Member.email, Member.slack_user_id)
-            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES))
+            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES),
+                   Member.email.is_distinct_from(settings.SLACK_PLAN_MENTION_EMAIL))
             .order_by(Member.display_name)
         ))
+        mention = await _pinned_mention(db)
         items_by_member: dict[int, list[tuple[str, str, str]]] = {}
         for mid, action, achievement, status in await db.execute(
             select(WeeklyPlanItem.member_id, WeeklyPlanItem.action,
@@ -547,7 +555,11 @@ async def post_weekly_plan_status(week_start: date, phase: str) -> dict:
     ]
     if missing:
         lines += ["", f"❌ *Not yet {verb}* ({len(missing)})", await names(missing)]
+    if mention:
+        lines += ["", f"cc {mention}"]
 
+    if dry_run:
+        return {"text": "\n".join(lines)}
     try:
         await _call("chat.postMessage", {"channel": settings.SLACK_CHANNEL, "text": "\n".join(lines)})
         return {"posted": True}
