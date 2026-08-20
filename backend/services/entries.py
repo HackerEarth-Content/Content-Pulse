@@ -122,20 +122,36 @@ async def create_plan(db: AsyncSession, data: PlanIn, user_id: str | None) -> Da
     if not await db.get(Member, data.member_id):
         raise err(422, "unknown_member",
                   f"No member with id {data.member_id}.")
-    if existing := await get_plan(db, data.member_id, data.entry_date):
+    existing = await get_plan(db, data.member_id, data.entry_date)
+    if existing and existing.source != "jira":
         raise err(409, "plan_exists",
                   "This member already has a plan for that date.", entry_id=existing.id)
 
-    entry = DailyEntry(
-        member_id=data.member_id, entry_date=data.entry_date, kind="plan",
-        raw_text=data.raw_text, source="web", created_by_user_id=user_id,
-        post_at=data.post_at,
-    )
-    db.add(entry)
-    await db.flush()
-    for i, item in enumerate(data.items):
+    if existing:
+        # A Jira sync mirror already parked today's externally-assigned
+        # tickets on this row (one plan per member per day, regardless of
+        # source) — this becomes the real plan rather than colliding with
+        # that same slot.
+        entry = existing
+        entry.source, entry.raw_text = "web", data.raw_text
+        entry.created_by_user_id, entry.post_at = user_id, data.post_at
+        start = len(entry.items)
+    else:
+        entry = DailyEntry(
+            member_id=data.member_id, entry_date=data.entry_date, kind="plan",
+            raw_text=data.raw_text, source="web", created_by_user_id=user_id,
+            post_at=data.post_at,
+        )
+        db.add(entry)
+        await db.flush()
+        start = 0
+    for i, item in enumerate(data.items, start):
         await _new_item(db, entry, item, i, status_=item.status, user_id=user_id)
     await db.commit()
+    # `get_plan` above already loaded `items` on an upgraded mirror; the new
+    # rows were added by FK, not through that collection, so it's now stale —
+    # expire it or the reload below serves back the pre-upgrade item list.
+    db.expire(entry, ["items"])
     return await db.scalar(_loaded(select(DailyEntry).where(DailyEntry.id == entry.id)))
 
 
