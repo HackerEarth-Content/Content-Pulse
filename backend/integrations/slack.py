@@ -370,7 +370,8 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
         )}
         active = list(await db.execute(
             select(Member.id, Member.display_name, Member.email, Member.slack_user_id)
-            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES))
+            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES),
+                   Member.email.is_distinct_from(settings.SLACK_PLAN_MENTION_EMAIL))
             .order_by(Member.display_name)
         ))
         mention = await _pinned_mention(db)
@@ -498,7 +499,8 @@ async def post_weekly_plan_status(week_start: date, phase: str, dry_run: bool = 
     async with Session() as db:
         active = list(await db.execute(
             select(Member.id, Member.display_name, Member.email, Member.slack_user_id)
-            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES))
+            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES),
+                   Member.email.is_distinct_from(settings.SLACK_PLAN_MENTION_EMAIL))
             .order_by(Member.display_name)
         ))
         mention = await _pinned_mention(db)
