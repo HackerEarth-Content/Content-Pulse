@@ -450,9 +450,12 @@ async def test_assignee_resolved_from_email_and_cached(client, member, task_type
         assert m.jira_account_id == "acct-from-email", "cached for next time"
 
 
-async def test_pipeline_picks_the_issue_type(monkeypatch):
-    """content_request -> Content Requests, and only that type carries the
-    customer field. Exercised directly: the HTTP round trip adds nothing here."""
+async def test_create_issue_is_always_content_task_and_links_parent(monkeypatch):
+    """Every ticket this app creates is a Content Task, regardless of
+    `item.pipeline` — the app never opens a new Content Request/HC Request/etc.
+    issue of its own, only a task under one that already exists. A Content
+    Request item instead carries `parent_issue_key`, sent as Jira's `parent`
+    field. Exercised directly: the HTTP round trip adds nothing here."""
     from types import SimpleNamespace as N
 
     sent = {}
@@ -464,25 +467,34 @@ async def test_pipeline_picks_the_issue_type(monkeypatch):
         return httpx.Response(200, json={"fields": {}})
 
     monkeypatch.setattr(jira, "_client", transport(handler))
+    # Stubbed rather than seeded through `cached_options`: this shared dev DB
+    # already has a real "Content Tasks" cache with its own option ids, and
+    # writing a placeholder over it would corrupt that row for every test
+    # that runs after this one.
+    async def fake_option_ids(db, c, cfg, issue_type):
+        return {"task_type": {"Documentation": "10240"}, "question_type": {}}
+
+    monkeypatch.setattr(jira, "option_ids", fake_option_ids)
     entry = N(kind="plan", entry_date="2030-07-08", source="web", raw_text=None,
               member=N(display_name="Ada", jira_account_id=None))
     item = N(task_type=N(name="Documentation"), question_type=None, customer="Entri",
              count=None, notes=None, due_at=None, effort_minutes=None,
-             pipeline="content_request")
+             pipeline="content_request", parent_issue_key="TCE-1")
 
     async with Session() as db:
         await jira.create_issue(db, entry, item)
 
-    assert sent["issuetype"]["name"] == "Content Requests"
-    assert sent["customfield_10225"] == "Entri", "customer rides only on Requests"
+    assert sent["issuetype"]["name"] == "Content Tasks"
+    assert sent["parent"] == {"key": "TCE-1"}
+    assert "customfield_10225" not in sent, "Content Tasks carry no customer field"
     assert sent["customfield_10230"] == {"id": "10240"}, "task type by option id"
 
     sent.clear()
-    item.pipeline = "content_task"
+    item.pipeline, item.parent_issue_key = "content_task", None
     async with Session() as db:
         await jira.create_issue(db, entry, item)
     assert sent["issuetype"]["name"] == "Content Tasks"
-    assert "customfield_10225" not in sent, "Content Tasks carry no customer"
+    assert "parent" not in sent, "no parent link without one"
 
 
 def test_title_leads_with_work_and_customer_over_notes():
@@ -532,7 +544,7 @@ async def test_rate_limit_is_obeyed(monkeypatch):
               member=N(display_name="Ada", jira_account_id=None))
     item = N(task_type=N(name="Documentation"), question_type=None, customer=None,
              count=None, notes=None, due_at=None, effort_minutes=None,
-             pipeline="content_task")
+             pipeline="content_task", parent_issue_key=None)
     async with Session() as db:
         key, _ = await jira.create_issue(db, entry, item)
 
@@ -554,7 +566,7 @@ async def test_client_errors_are_not_retried(monkeypatch):
               member=N(display_name="Ada", jira_account_id=None))
     item = N(task_type=N(name="Documentation"), question_type=None, customer=None,
              count=None, notes=None, due_at=None, effort_minutes=None,
-             pipeline="content_task")
+             pipeline="content_task", parent_issue_key=None)
     async with Session() as db:
         with pytest.raises(RuntimeError, match="bad field"):
             await jira.create_issue(db, entry, item)
