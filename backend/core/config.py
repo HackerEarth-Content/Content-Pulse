@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # outward-facing and must be opted into, never a side effect of a test.
     SLACK_WRITES_ENABLED: bool
     SLACK_BOT_TOKEN: str = ""
+    # Tagged on every plan-filed message and the daily update digest, same as
+    # a manager cc'd on every status mail. Resolved to a Slack mention via the
+    # member row with this email, same as JIRA_EMAIL identifies a person.
+    SLACK_PLAN_MENTION_EMAIL: str = "sreejith@hackerearth.com"
 
     # Gmail SMTP for the daily plan reminder. EMAIL_ENABLED is the same guard as
     # the Jira and Slack flags — off unless you mean it.

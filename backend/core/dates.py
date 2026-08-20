@@ -13,6 +13,14 @@ def today() -> date:
     return datetime.now(TZ).date()
 
 
+def now() -> datetime:
+    """Naive wall-clock time in the team's timezone — comparable to the naive
+    `post_at`/`posted_at` columns, which store IST wall time, not UTC. A bare
+    `datetime.now()` returns the container's clock (UTC on every deployment
+    here), which held scheduled posts back by the IST/UTC offset."""
+    return datetime.now(TZ).replace(tzinfo=None)
+
+
 def day_bounds_utc(d: date) -> tuple[datetime, datetime]:
     """The [start, end) of a team-local calendar day, in UTC and tz-naive —
     what a `timestamp without time zone` column storing UTC instants (e.g.

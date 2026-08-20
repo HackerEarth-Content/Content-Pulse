@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import select
@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
 from core.dates import resolve_range, today
+from core.dates import now as ist_now
 from core.deps import Viewer, get_viewer
 from core.orm import DailyEntry, EntryItem, EntryItemStatusEvent, User
 from core.users import current_user
@@ -142,7 +143,7 @@ async def _dispatch(db: AsyncSession, background: BackgroundTasks, entry) -> Non
         return
 
     pushable = publish.mark_pending(entry)
-    entry.posted_at = datetime.now()
+    entry.posted_at = ist_now()
     await db.commit()
     await publish.reload_stamps(db, entry)
 

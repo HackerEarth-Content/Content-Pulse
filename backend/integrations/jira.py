@@ -237,11 +237,17 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
 
     Sending only a summary produced tickets with no work type, no customer and
     no assignee — invisible to the reporting this app then does.
+
+    Always a Content Task, regardless of `item.pipeline` — this app never
+    files a new Content Request/HC Request/etc. issue of its own, it only
+    ever spins off a task under an existing one. `pipeline` still names that
+    existing parent's work type for reporting; it no longer picks what gets
+    created here.
     """
     cfg = await config(db)
     _writes_allowed()
     f = cfg["done_fields"]
-    issue_type = ISSUE_TYPES.get(item.pipeline, cfg["issue_type"])
+    issue_type = cfg["issue_type"]
 
     fields: dict[str, Any] = {
         "project": {"key": cfg["project_key"]},
@@ -249,6 +255,8 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
         "description": _adf(_describe(entry, item)),
         "issuetype": {"name": issue_type},
     }
+    if item.parent_issue_key:
+        fields["parent"] = {"key": item.parent_issue_key}
     if item.due_at:
         fields["duedate"] = item.due_at.isoformat()
         fields[f["due_at"]] = item.due_at.isoformat()
@@ -432,9 +440,13 @@ async def push_item(item_id: int) -> None:
             item.jira_state, item.jira_error = "ok", None
             await _audit(db, "jira.create", item, {"pipeline": item.pipeline})
             if item.status != "open":
+                # Just created as a Content Task above, whatever `item.pipeline`
+                # says — the option lookup below must match that, not the
+                # reporting pipeline, or it fetches the wrong issue type's
+                # Task Type dropdown for the ticket that actually exists.
                 await transition(db, key, item.status, comment=item.notes,
                                  due_at=item.due_at, effort_minutes=item.effort_minutes,
-                                 pipeline=item.pipeline, task_type_name=item.task_type.name)
+                                 task_type_name=item.task_type.name)
         except JiraDisabled as e:
             item.jira_state, item.jira_error = "none", str(e)
         except Exception as e:

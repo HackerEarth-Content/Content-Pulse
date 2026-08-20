@@ -173,7 +173,7 @@ def start() -> AsyncIOScheduler:
         s.add_job(_digest("update"), CronTrigger(hour=19, minute=30), id="digest_update")
         # Roll call: the whole roster's status in one message, Mon-Fri only —
         # unlike the digests above, weekends have nothing to chase anyone on.
-        s.add_job(_roll_call("morning"), CronTrigger(hour=11, minute=5, day_of_week="mon-fri"),
+        s.add_job(_roll_call("morning"), CronTrigger(hour=12, minute=0, day_of_week="mon-fri"),
                   id="plan_rollcall", max_instances=1, coalesce=True)
         s.add_job(_roll_call("evening"), CronTrigger(hour=19, minute=35, day_of_week="mon-fri"),
                   id="update_rollcall", max_instances=1, coalesce=True)

@@ -50,7 +50,7 @@ export function TodayStrip({ me }: { me: CurrentUser["member"] }) {
           </>
         ) : (
           <>
-            <strong>Today's plan isn't in.</strong> Due by 11:00.
+            <strong>Today's plan isn't in.</strong> Due by 11:59am.
           </>
         )}
       </span>

@@ -1,8 +1,6 @@
-"""Slack: one parent message per (date, kind), one thread reply per entry.
-
-Async port of the Django tracker's slack_notify.py, with the parent-post race
-closed — two entries saved at once both saw parent_ts NULL and each posted a
-parent, giving the channel two threads for the same day.
+"""Slack: only plans notify the channel — one parent message per plan, one
+thread reply per ticket. A `kind="update"` entry (today, always the New
+Ticket dialog's ad-hoc addition) never posts; see `post_entry`.
 """
 
 from __future__ import annotations
@@ -14,13 +12,12 @@ from datetime import date
 
 import httpx
 from sqlalchemy import or_, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import selectinload
 
 from core.config import settings
 from core.database import Session
 from core.dates import today as ist_today
-from core.orm import DailyEntry, EntryItem, Member, SlackDayThread
+from core.orm import DailyEntry, EntryItem, Member
 
 log = logging.getLogger(__name__)
 
@@ -105,6 +102,32 @@ def _line(n: int, item, kind: str) -> str:
     return line + (f"\n    _{item.notes.strip()}_" if item.notes and item.notes.strip() else "")
 
 
+def plan_parent_text(entry: DailyEntry, mention: str) -> str:
+    """One parent message per plan, name + summary — the ticket breakdown is
+    posted separately as thread replies, one per ticket (see `_post_plan`)."""
+    day_label = entry.entry_date.strftime("%A, %d %b")
+    lines = [f"📋 *{entry.member.display_name} — Plan for {day_label}*" + _plan_summary(entry)]
+    if mention:
+        lines.append(f"cc {mention}")
+    if entry.items:
+        lines.append("_Ticket breakdown in thread ↓_")
+    return "\n".join(lines)
+
+
+def _plan_summary(entry: DailyEntry) -> str:
+    if not entry.items:
+        return ""
+    due_today = sum(1 for it in entry.items if it.due_at == ist_today())
+    jira_wanted = sum(1 for it in entry.items if it.jira_wanted)
+    n = len(entry.items)
+    extra = f" — {n} ticket{'s' if n != 1 else ''} planned"
+    if due_today:
+        extra += f", due today: {due_today}"
+    if jira_wanted:
+        extra += f", {jira_wanted} marked for Jira"
+    return extra
+
+
 def reply_text(entry: DailyEntry) -> str:
     icon = "📋 Plan" if entry.kind == "plan" else "✅ Update"
     day_label = entry.entry_date.strftime("%A, %d %b")
@@ -143,7 +166,9 @@ def _type_summary(items) -> str:
     return ", ".join(parts)
 
 
-def parent_text(on: date, kind: str, entries: list[DailyEntry]) -> str:
+def parent_text(on: date, kind: str, entries: list[DailyEntry], mention: str = "") -> str:
+    """Shared day-level parent — still used for updates. Plans get their own
+    per-person parent instead, see `plan_parent_text`."""
     icon = "📋 *Daily Plans*" if kind == "plan" else "✅ *Daily Updates*"
     noun = "plan" if kind == "plan" else "update"
     total_tickets = sum(len(e.items) for e in entries)
@@ -175,6 +200,8 @@ def parent_text(on: date, kind: str, entries: list[DailyEntry]) -> str:
         else:
             lines.append(f"• {e.member.display_name} — nothing logged")
 
+    if mention:
+        lines += ["", f"cc {mention}"]
     lines += ["", "_Replies below ↓_"]
     return "\n".join(lines)
 
@@ -191,53 +218,49 @@ async def _entries_for(db, on: date, kind: str) -> list[DailyEntry]:
     ))
 
 
-async def _thread_row(db, on: date, kind: str, channel: str) -> SlackDayThread:
-    """Insert-or-get, then lock. Whoever wins the lock posts the parent; the
-    loser waits and reuses the ts instead of posting a second one."""
-    await db.execute(
-        insert(SlackDayThread)
-        .values(digest_date=on, kind=kind, channel=channel)
-        .on_conflict_do_nothing(index_elements=["digest_date", "kind", "channel"])
-    )
+async def _post_plan(db, channel: str, entry: DailyEntry, mention: str) -> None:
+    """Its own parent message, one thread reply per ticket — a plan is
+    already one-per-member-per-day, so the entry IS the parent, no shared
+    day thread to coordinate with (contrast `post_entry`'s update path)."""
+    sent = await _call("chat.postMessage", {"channel": channel, "text": plan_parent_text(entry, mention)})
+    entry.slack_reply_ts = sent["ts"]
     await db.commit()
-    return await db.scalar(
-        select(SlackDayThread)
-        .where(SlackDayThread.digest_date == on, SlackDayThread.kind == kind,
-               SlackDayThread.channel == channel)
-        .with_for_update()
-    )
+
+    if not entry.items:
+        await _call("chat.postMessage", {
+            "channel": channel, "thread_ts": entry.slack_reply_ts,
+            "text": entry.raw_text or "_Nothing logged._",
+        })
+        return
+    for i, item in enumerate(entry.items, 1):
+        try:
+            await _call("chat.postMessage", {
+                "channel": channel, "thread_ts": entry.slack_reply_ts,
+                "text": _line(i, item, "plan"),
+            })
+        except Exception:
+            # One bad ticket reply must not stop the rest from posting.
+            log.warning("plan ticket thread reply failed for item %s", item.id)
 
 
 async def post_entry(entry_id: int) -> None:
-    """Ensure the day's parent exists, refresh its summary, reply with this
-    entry. Idempotent — slack_reply_ts means it's already posted."""
+    """Only plans get posted — the parent-per-plan-with-per-ticket-thread
+    shape from `_post_plan`. A `kind="update"` entry is always the New
+    Ticket dialog's ad-hoc, unplanned ticket today (nothing in the UI
+    submits a real progress report against a plan yet), and that was never
+    meant to notify the channel. Idempotent — `slack_reply_ts` means it's
+    already posted."""
     channel = settings.SLACK_CHANNEL
     async with Session() as db:
         entry = await db.scalar(
             select(DailyEntry).options(selectinload(DailyEntry.items))
             .where(DailyEntry.id == entry_id)
         )
-        if entry is None or entry.slack_reply_ts:
+        if entry is None or entry.slack_reply_ts or entry.kind != "plan":
             return
         try:
-            thread = await _thread_row(db, entry.entry_date, entry.kind, channel)
-            siblings = await _entries_for(db, entry.entry_date, entry.kind)
-            summary = parent_text(entry.entry_date, entry.kind, siblings)
-
-            if thread.parent_ts:
-                await _call("chat.update",
-                            {"channel": channel, "ts": thread.parent_ts, "text": summary})
-            else:
-                sent = await _call("chat.postMessage", {"channel": channel, "text": summary})
-                thread.parent_ts = sent["ts"]
-            await db.commit()
-
-            sent = await _call("chat.postMessage", {
-                "channel": channel, "thread_ts": thread.parent_ts,
-                "text": reply_text(entry),
-            })
-            entry.slack_reply_ts = sent["ts"]
-            await db.commit()
+            mention = await _pinned_mention(db)
+            await _post_plan(db, channel, entry, mention)
         except SlackDisabled:
             await db.rollback()
         except Exception as e:
@@ -249,10 +272,19 @@ async def post_digest(on: date, kind: str, dry_run: bool = False) -> dict:
     """Replaces `manage.py post_slack_daily`. Posts anything not yet threaded."""
     async with Session() as db:
         entries = await _entries_for(db, on, kind)
+        mention = await _pinned_mention(db) if dry_run else ""
     if not entries:
         return {"posted": 0, "skipped": 0, "detail": "nothing to post"}
     if dry_run:
-        return {"parent": parent_text(on, kind, entries),
+        if kind == "plan":
+            # Plans no longer share one day parent — one preview per entry.
+            return {"entries": [
+                {"parent": plan_parent_text(e, mention),
+                 "replies": [_line(i, it, "plan") for i, it in enumerate(e.items, 1)]
+                            or [e.raw_text or "_Nothing logged._"]}
+                for e in entries
+            ]}
+        return {"parent": parent_text(on, kind, entries, mention),
                 "replies": [reply_text(e) for e in entries]}
 
     posted = sum(e.slack_reply_ts is None for e in entries)
@@ -292,6 +324,16 @@ async def _mention(slack_user_id: str | None, email: str | None, display_name: s
             _slack_id_cache[email] = None
     user_id = _slack_id_cache[email]
     return f"<@{user_id}>" if user_id else display_name
+
+
+async def _pinned_mention(db) -> str:
+    """The one person cc'd on every plan/update post — `SLACK_PLAN_MENTION_EMAIL`,
+    resolved to a Slack mention via their member row. Empty string (no mention
+    added) if no member has that email — never lets a bad setting break the post."""
+    member = await db.scalar(select(Member).where(Member.email == settings.SLACK_PLAN_MENTION_EMAIL))
+    if not member:
+        return ""
+    return await _mention(member.slack_user_id, member.email, member.display_name)
 
 
 # Tests run against this same live database (see tests/conftest.py) and flip
