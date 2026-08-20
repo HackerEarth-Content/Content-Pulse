@@ -405,6 +405,7 @@ function DayInProgress({
             <tr>
               <th>Status</th>
               <th>Task</th>
+              <th>Stream</th>
               <th>Customer</th>
               <th className="num">Effort (m)</th>
               <th>Due</th>
@@ -463,6 +464,7 @@ function TicketRow({ item, onMove }: { item: Item; onMove: () => void }) {
              title="Parent ticket">↑ {item.parent_issue_key}</a>
         ) : null}
       </td>
+      <td className="muted">{item.work_type}</td>
       <td>{item.customer ?? <span className="muted">—</span>}</td>
       <td className="num">{mins(item.effort_minutes)}</td>
       <td className="mono muted">{dmy(item.due_at)}</td>
