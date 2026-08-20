@@ -83,7 +83,10 @@ export function MyDay({ me }: { me: CurrentUser["member"] }) {
 
       <Async loading={plan.loading} error={plan.error} data={{ plan: plan.data }}>
         {({ plan: existing }) =>
-          existing ? (
+          // A Jira-sync mirror (an externally-assigned ticket parked here,
+          // never filed by the person) isn't a real plan — treat it the
+          // same as no plan yet, so "Plan your day" still shows.
+          existing && existing.source !== "jira" ? (
             <DayInProgress
               plan={existing}
               date={date}
