@@ -355,6 +355,12 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
     `services.entries.today_status` — a backfilled ticket isn't someone
     filing a plan, and "active" means every active member, admins included.
     """
+    # Local import: `services.entries` isn't otherwise on this module's import
+    # path, and `api.entries_routes` imports `integrations.slack` before it
+    # imports `services.entries` — a top-level import here flips that order
+    # and out-races entries' own class registration.
+    from services.entries import updated_member_ids
+
     async with Session() as db:
         planned = {
             mid: name for mid, name in await db.execute(
@@ -364,10 +370,7 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
                        DailyEntry.source != "jira")
             )
         }
-        updated_ids = {mid for (mid,) in await db.execute(
-            select(DailyEntry.member_id)
-            .where(DailyEntry.entry_date == on, DailyEntry.kind == "update")
-        )}
+        updated_ids = await updated_member_ids(db, on)
         active = list(await db.execute(
             select(Member.id, Member.display_name, Member.email, Member.slack_user_id)
             .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES),
@@ -413,7 +416,7 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
         return "\n".join(out) if out else "—"
 
     day = on.strftime("%A, %d %b %Y")
-    board_link = f"<{settings.FRONTEND_URL}/plan-board|Open Plan Board →>"
+    board_link = f"<{settings.FRONTEND_URL}/my-day|Open My Day →>"
 
     if phase == "morning":
         total_tickets = sum(stat_for(r[0])["tickets"] for r in planned_rows)
