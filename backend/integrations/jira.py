@@ -31,11 +31,19 @@ log = logging.getLogger(__name__)
 ISSUE_TYPES = {slug: name for name, slug in PIPELINES.items()}
 # Only these carry a customer field in Jira.
 CUSTOMER_TYPES = {"Content Requests"}
+# Leaf-level types this app creates or Jira already treats as a leaf — Jira's
+# hierarchy refuses to let either kind parent another issue.
+NON_PARENT_TYPES = {"Content Tasks", "TCE subtask"}
 
 DEFAULTS: dict[str, Any] = {
     "project_key": "TCE",
     "issue_type": "Content Tasks",
     "customer_field": "customfield_10225",
+    # Content Tasks and their container types are the same Jira hierarchy
+    # level, so `parent` can't link them — this issue-link type carries that
+    # relationship instead. "Relates" is the only generic type this project
+    # has; swap it for a dedicated one if TCE ever adds "is part of".
+    "parent_link_type": "Relates",
     "status_names": {
         "open": ["To Do"], "in_progress": ["In Progress"],
         "blocked": ["Blocked"], "closed": ["Done"],
@@ -115,17 +123,26 @@ def _explain(r: httpx.Response) -> str:
 
 
 async def issue_exists(db, key: str) -> bool:
-    """A lightweight existence check — Content Requests must reference a real
-    parent issue, verified once at creation time rather than trusted blind.
-    Reads are always allowed, so this runs regardless of JIRA_WRITES_ENABLED."""
+    """A parent-eligibility check — Content Requests must reference a real,
+    linkable parent issue, verified once at creation time rather than trusted
+    blind. Reads are always allowed, so this runs regardless of
+    JIRA_WRITES_ENABLED.
+
+    Existing isn't enough: Jira's own hierarchy rejects a Content Task or a
+    subtask as somebody else's parent ("Please select valid parent issue.")
+    even though the key resolves fine, so that class of key must be treated
+    as not-a-valid-parent here too rather than surfacing that 400 only once
+    `create_issue` actually tries to use it.
+    """
     await config(db)  # raises JiraDisabled if credentials aren't set
     async with _client() as c:
-        r = await c.get(f"/rest/api/3/issue/{key}", params={"fields": "summary"})
+        r = await c.get(f"/rest/api/3/issue/{key}", params={"fields": "issuetype"})
     if r.status_code == 404:
         return False
     if r.status_code >= 400:
         raise RuntimeError(_explain(r))
-    return True
+    issue_type = r.json()["fields"]["issuetype"]["name"]
+    return issue_type not in NON_PARENT_TYPES
 
 
 def _adf(text: str) -> dict:
@@ -243,6 +260,13 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
     ever spins off a task under an existing one. `pipeline` still names that
     existing parent's work type for reporting; it no longer picks what gets
     created here.
+
+    The parent is carried as an issue *link*, not Jira's `parent` field —
+    Content Tasks and their container types (Content Requests, HC Request,
+    ...) all sit at the same hierarchy level in this project, and Jira's
+    `parent` field only ever works one level down (Epic → standard, or
+    standard → subtask). Setting it between two same-level issues 400s with
+    "Please select valid parent issue" no matter how valid the key is.
     """
     cfg = await config(db)
     _writes_allowed()
@@ -255,8 +279,6 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
         "description": _adf(_describe(entry, item)),
         "issuetype": {"name": issue_type},
     }
-    if item.parent_issue_key:
-        fields["parent"] = {"key": item.parent_issue_key}
     if item.due_at:
         fields["duedate"] = item.due_at.isoformat()
         fields[f["due_at"]] = item.due_at.isoformat()
@@ -283,10 +305,29 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
             fields[f["question_type"]] = [{"id": qt}]
 
         r = await _send(c, "POST", "/rest/api/3/issue", json={"fields": fields})
+        if r.status_code >= 400:
+            raise RuntimeError(_explain(r))
+        key = r.json()["key"]
+        if item.parent_issue_key:
+            # Best-effort: the issue itself is already created at this point,
+            # so a link failure shouldn't discard its key and orphan a ticket
+            # (or, worse, get retried into a duplicate by the pending sweep).
+            try:
+                await _link_parent(c, cfg, key, item.parent_issue_key)
+            except Exception as e:
+                log.warning("created %s but failed to link it to parent %s: %s",
+                            key, item.parent_issue_key, e)
+    return key, f"{settings.JIRA_BASE_URL}/browse/{key}"
+
+
+async def _link_parent(c: httpx.AsyncClient, cfg: dict, key: str, parent_key: str) -> None:
+    r = await _send(c, "POST", "/rest/api/3/issueLink", json={
+        "type": {"name": cfg["parent_link_type"]},
+        "inwardIssue": {"key": key},
+        "outwardIssue": {"key": parent_key},
+    })
     if r.status_code >= 400:
         raise RuntimeError(_explain(r))
-    key = r.json()["key"]
-    return key, f"{settings.JIRA_BASE_URL}/browse/{key}"
 
 
 async def _done_fields(

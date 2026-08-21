@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core.config import settings
+from core.dates import day_bounds_utc
 from core.orm import DailyEntry, EntryItem, EntryItemStatusEvent, Member, TaskType
 from schemas.entries import ItemIn, PlanIn, UpdateIn
 
@@ -87,7 +88,8 @@ async def _new_item(
             raise err(422, "jira_unavailable", f"Couldn't reach Jira to verify the parent ticket: {e}")
         if not found:
             raise err(422, "unknown_parent_issue",
-                      f"{data.parent_issue_key} doesn't exist in Jira.")
+                      f"{data.parent_issue_key} isn't a valid parent — it doesn't exist in "
+                      "Jira, or it's a Content Task/subtask that can't have its own children.")
         parent_issue_url = f"{settings.JIRA_BASE_URL}/browse/{data.parent_issue_key}"
 
     item = EntryItem(
@@ -274,6 +276,39 @@ async def patch_item(
     return await db.scalar(select(EntryItem).where(EntryItem.id == item_id))
 
 
+async def updated_member_ids(db: AsyncSession, on: date) -> set[int]:
+    """Members who moved *something* forward today — filed a full end-of-day
+    update, or just flipped a ticket's status from My Day without ever
+    opening the update form. Only the former used to count: a status-only
+    change (`patch_item`, no `create_update`) left the member showing as
+    "nothing reported yet" in the roll call even after they'd closed tickets.
+    """
+    from_updates = {
+        mid for (mid,) in await db.execute(
+            select(DailyEntry.member_id)
+            .where(DailyEntry.entry_date == on, DailyEntry.kind == "update")
+        )
+    }
+    start, end = day_bounds_utc(on)
+    from_status_changes = {
+        mid for (mid,) in await db.execute(
+            select(DailyEntry.member_id)
+            .select_from(EntryItemStatusEvent)
+            .join(EntryItem, EntryItem.id == EntryItemStatusEvent.entry_item_id)
+            .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+            .where(EntryItemStatusEvent.source == "web",
+                   # Excludes an item's creation event (from_status IS NULL,
+                   # written by `_new_item` when a plan is filed) — that's
+                   # planning, not a transition, and would otherwise make
+                   # filing a plan look like an update on its own.
+                   EntryItemStatusEvent.from_status.is_not(None),
+                   EntryItemStatusEvent.changed_at >= start,
+                   EntryItemStatusEvent.changed_at < end)
+        )
+    }
+    return from_updates | from_status_changes
+
+
 async def today_status(db: AsyncSession, on: date, viewer_member_id: int | None = None) -> dict:
     """Who has filed a plan today, and who has followed it with an update.
 
@@ -290,14 +325,12 @@ async def today_status(db: AsyncSession, on: date, viewer_member_id: int | None 
                    DailyEntry.source != "jira")
         )
     }
+    updated_ids = await updated_member_ids(db, on)
     updated = {
         m for (m,) in await db.execute(
-            select(Member.display_name)
-            .select_from(DailyEntry)
-            .join(Member, Member.id == DailyEntry.member_id)
-            .where(DailyEntry.entry_date == on, DailyEntry.kind == "update")
+            select(Member.display_name).where(Member.id.in_(updated_ids))
         )
-    }
+    } if updated_ids else set()
     # Everyone active plans their day, admins included.
     active = {
         m: mid for mid, m in await db.execute(

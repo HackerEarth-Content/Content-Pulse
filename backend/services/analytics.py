@@ -695,6 +695,10 @@ async def plan_daily_status(db: AsyncSession, s: Scope) -> list[dict]:
     exclusion on the plan side as `plan_adherence` — a backfilled ticket isn't
     someone filing a plan. The Jira sync never creates `update` rows, so that
     side needs no such filter (matches `today_status` in services/entries.py).
+
+    "Updated" also counts a status-only change made straight from My Day
+    (`patch_item`, no separate `update` entry filed) — otherwise a member who
+    only ever closes tickets that way never shows as having reported.
     """
     planned = {
         (r.member_id, r.entry_date) for r in await db.execute(
@@ -703,6 +707,8 @@ async def plan_daily_status(db: AsyncSession, s: Scope) -> list[dict]:
             .distinct()
         )
     }
+    range_start, _ = day_bounds_utc(s.frm)
+    _, range_end = day_bounds_utc(s.to)
     updated = {
         (r.member_id, r.entry_date) for r in await db.execute(
             select(DailyEntry.member_id, DailyEntry.entry_date)
@@ -710,6 +716,24 @@ async def plan_daily_status(db: AsyncSession, s: Scope) -> list[dict]:
             .distinct()
         )
     }
+    status_change_where = [
+        EntryItemStatusEvent.source == "web",
+        # Excludes an item's creation event (from_status IS NULL) — filing a
+        # plan shouldn't itself count as an update.
+        EntryItemStatusEvent.from_status.is_not(None),
+        EntryItemStatusEvent.changed_at >= range_start,
+        EntryItemStatusEvent.changed_at < range_end,
+    ]
+    if s.member_id:
+        status_change_where.append(DailyEntry.member_id == s.member_id)
+    for r in await db.execute(
+        select(DailyEntry.member_id, EntryItemStatusEvent.changed_at)
+        .select_from(EntryItemStatusEvent)
+        .join(EntryItem, EntryItem.id == EntryItemStatusEvent.entry_item_id)
+        .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+        .where(*status_change_where)
+    ):
+        updated.add((r.member_id, r.changed_at.replace(tzinfo=UTC).astimezone(TZ).date()))
     # Tickets logged for that day — same de-dup as `tasks()`, so an update row
     # that's just progress on an existing plan item isn't counted twice.
     created: dict[tuple[int, date], int] = {}
@@ -725,8 +749,6 @@ async def plan_daily_status(db: AsyncSession, s: Scope) -> list[dict]:
     # have to go through day_bounds_utc — comparing it to a bare date silently
     # treats the boundary as UTC midnight, 5:30 off from midnight IST.
     closed: dict[tuple[int, date], int] = {}
-    range_start, _ = day_bounds_utc(s.frm)
-    _, range_end = day_bounds_utc(s.to)
     closed_where = [
         EntryItemStatusEvent.to_status == "closed",
         EntryItemStatusEvent.changed_at >= range_start,

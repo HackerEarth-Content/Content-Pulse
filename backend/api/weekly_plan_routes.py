@@ -37,8 +37,14 @@ async def list_weekly_plan(
     db: AsyncSession = Depends(get_session),
     viewer: Viewer = Depends(get_viewer),
 ):
-    target = _target_member(viewer, member_id)
-    items = await svc.list_items(db, target, week)
+    # A lead asking for no one in particular means "show me the team", not
+    # "show me my own plan" — `_target_member` exists for everyone else, who
+    # has no "everyone" mode to fall back to.
+    if viewer.is_lead and member_id is None:
+        items = await svc.list_items_for_all(db, week)
+    else:
+        target = _target_member(viewer, member_id)
+        items = await svc.list_items(db, target, week)
     return [WeeklyPlanItemOut.of(i) for i in items]
 
 

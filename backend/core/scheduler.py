@@ -154,10 +154,10 @@ def start() -> AsyncIOScheduler:
               id="content_requests", max_instances=1, coalesce=True)
     s.add_job(_sweep_jira, IntervalTrigger(minutes=5),
               id="jira_sweep", max_instances=1, coalesce=True)
-    # Every 30 min, not nightly. The sync filters on `updated` now, so a quiet
+    # Every 10 min, not nightly. The sync filters on `updated` now, so a quiet
     # window costs one API call instead of twelve — and nightly meant a
     # reassignment or an edited effort value stayed wrong for up to a day.
-    s.add_job(_sync_jira_history, IntervalTrigger(minutes=30),
+    s.add_job(_sync_jira_history, IntervalTrigger(minutes=10),
               id="jira_history", max_instances=1, coalesce=True)
     # A full re-fetch, not incremental — a deletion emits no `updated` event,
     # so this is the only way that drift ever surfaces. Heavier, hence hourly.

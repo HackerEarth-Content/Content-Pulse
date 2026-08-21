@@ -29,6 +29,14 @@ function mondayOf(d: Date): string {
   m.setDate(d.getDate() - back);
   return m.toLocaleDateString("en-CA");
 }
+/** A `<input type="date">` value ("YYYY-MM-DD") snapped to that week's Monday.
+ * Built from the y/m/d components rather than `new Date(v)` — the latter
+ * parses as UTC midnight, which `getDay()` then reads back a day off in any
+ * timezone behind UTC. */
+function mondayOfInputValue(v: string): string {
+  const [y, m, d] = v.split("-").map(Number);
+  return mondayOf(new Date(y, m - 1, d));
+}
 const isFriday = () => istNow().getDay() === 5;
 
 type AddWindow = "monday" | "friday" | "closed";
@@ -57,16 +65,22 @@ function addWindowNow(): { window: AddWindow; hint: string } {
 export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
   const isLead = me?.role === "admin" || me?.role === "manager";
   const members = useApi(() => (isLead ? api.members() : Promise.resolve([])), [isLead]);
-  const [memberId, setMemberId] = useState<number | null>(null);
-  const who = memberId ?? me?.id ?? null;
-  const viewingSelf = who === me?.id;
+  const [memberId, setMemberId] = useState<number | "all" | null>(null);
+  const viewingAll = isLead && memberId === "all";
+  const who = viewingAll ? null : (memberId as number | null) ?? me?.id ?? null;
+  const viewingSelf = !viewingAll && who === me?.id;
 
-  const monday = mondayOf(istNow());
+  // Leads aren't pinned to the current week — anyone else still only ever
+  // has their own week to look at, so there's nothing for them to pick.
+  const [week, setWeek] = useState(() => mondayOf(istNow()));
   const { window: addWindow, hint } = addWindowNow();
 
   const items = useApi(
-    () => (who ? api.weeklyPlan(monday, isLead ? who : undefined) : Promise.resolve([])),
-    [who, monday, isLead]
+    () => {
+      if (viewingAll) return api.weeklyPlan(week, undefined);
+      return who ? api.weeklyPlan(week, isLead ? who : undefined) : Promise.resolve([]);
+    },
+    [viewingAll, who, week, isLead]
   );
 
   if (!me) {
@@ -84,21 +98,30 @@ export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
         color="var(--accent-aqua)"
         action={
           isLead ? (
-            <select
-              className="field" style={{ width: "auto" }}
-              value={who ?? ""}
-              onChange={(e) => setMemberId(Number(e.target.value))}
-              aria-label="Member"
-            >
-              {(members.data ?? []).map((m) => (
-                <option key={m.id} value={m.id}>{m.display_name}</option>
-              ))}
-            </select>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="date" className="field" style={{ width: "auto" }}
+                value={week} onChange={(e) => setWeek(mondayOfInputValue(e.target.value))}
+                aria-label="Week"
+              />
+              <select
+                className="field" style={{ width: "auto" }}
+                value={viewingAll ? "all" : who ?? ""}
+                onChange={(e) => setMemberId(e.target.value === "all" ? "all" : Number(e.target.value))}
+                aria-label="Member"
+              >
+                <option value="all">All members</option>
+                {(members.data ?? []).map((m) => (
+                  <option key={m.id} value={m.id}>{m.display_name}</option>
+                ))}
+              </select>
+            </div>
           ) : null
         }
       />
       <p className="tab-blurb">
-        Filed Monday morning, reported Friday afternoon. {viewingSelf ? hint : "Viewing another member — read only."}
+        Filed Monday morning, reported Friday afternoon.{" "}
+        {viewingSelf ? hint : viewingAll ? "Viewing the whole team — read only." : "Viewing another member — read only."}
       </p>
 
       {/* Not <Async>: it treats an empty array as "nothing to show" and skips
@@ -113,7 +136,8 @@ export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
           items={items.data ?? []}
           editable={viewingSelf}
           addWindow={addWindow}
-          monday={monday}
+          monday={week}
+          meName={me.display_name}
           onChange={items.reload}
         />
       )}
@@ -122,61 +146,62 @@ export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
 }
 
 function WeeklyPlanTable({
-  items, editable, addWindow, monday, onChange,
+  items, editable, addWindow, monday, meName, onChange,
 }: {
   items: WeeklyPlanItem[];
   editable: boolean;
   addWindow: AddWindow;
   monday: string;
+  meName: string;
   onChange: () => void;
 }) {
   const [adding, setAdding] = useState(false);
 
   return (
-    <>
-      <div className="table-scroll day-table">
-        <table>
-          <thead>
+    <div className="table-scroll day-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Action / item</th>
+            <th>Achievements</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <WeeklyPlanRow key={item.id} item={item} editable={editable} onChange={onChange} />
+          ))}
+          {items.length === 0 && !adding ? (
             <tr>
-              <th>Name</th>
-              <th>Action / item</th>
-              <th>Achievements</th>
-              <th>Status</th>
+              <td colSpan={4} className="muted">Nothing planned for this week yet.</td>
             </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <WeeklyPlanRow key={item.id} item={item} editable={editable} onChange={onChange} />
-            ))}
-            {items.length === 0 ? (
+          ) : null}
+          {editable && addWindow !== "closed" ? (
+            adding ? (
+              <AddItemRow
+                meName={meName}
+                monday={monday}
+                onAdded={onChange}
+                onDone={() => setAdding(false)}
+              />
+            ) : (
               <tr>
-                <td colSpan={4} className="muted">Nothing planned for this week yet.</td>
+                <td colSpan={4}>
+                  <button className="btn btn-secondary" onClick={() => setAdding(true)}>+ Add item</button>
+                </td>
               </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
-
-      {editable && addWindow !== "closed" ? (
-        adding ? (
-          <AddItemRow
-            monday={monday}
-            onAdded={onChange}
-            onDone={() => setAdding(false)}
-          />
-        ) : (
-          <div className="btn-row">
-            <button className="btn btn-secondary" onClick={() => setAdding(true)}>+ Add item</button>
-          </div>
-        )
-      ) : null}
-    </>
+            )
+          ) : null}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 function AddItemRow({
-  monday, onAdded, onDone,
-}: { monday: string; onAdded: () => void; onDone: () => void }) {
+  meName, monday, onAdded, onDone,
+}: { meName: string; monday: string; onAdded: () => void; onDone: () => void }) {
   const [action, setAction] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
@@ -197,18 +222,25 @@ function AddItemRow({
   }
 
   return (
-    <div className="card" style={{ marginTop: 12 }}>
-      <div className="card-title">Add item</div>
-      {error ? <Banner tone="error">{error.message}</Banner> : null}
-      <RichText value={action} onChange={setAction} placeholder="What are you picking up this week?" />
-      <div className="btn-row">
-        <button className="btn btn-secondary" onClick={onDone}>Done</button>
-        <span className="topbar-spacer" />
-        <button className="btn btn-primary" disabled={saving || isBlankHtml(action)} onClick={add}>
-          {saving ? "Adding…" : "Add item"}
-        </button>
-      </div>
-    </div>
+    <tr>
+      <td className="strong">{meName}</td>
+      <td className="text">
+        <RichText value={action} onChange={setAction} placeholder="What are you picking up this week?" />
+        {error ? <Banner tone="error">{error.message}</Banner> : null}
+      </td>
+      <td className="text">
+        <span className="muted" title="Save this item first">Add it after saving</span>
+      </td>
+      <td>
+        <span className={`pill pill-${PILL_KEY.yet_to_start}`}>{STATUS_LABEL.yet_to_start}</span>
+        <div className="btn-row" style={{ marginTop: 6 }}>
+          <button className="btn btn-secondary" onClick={onDone}>Done</button>
+          <button className="btn btn-primary" disabled={saving || isBlankHtml(action)} onClick={add}>
+            {saving ? "Adding…" : "Add"}
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
