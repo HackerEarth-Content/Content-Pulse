@@ -137,6 +137,7 @@ export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
           editable={viewingSelf}
           addWindow={addWindow}
           monday={week}
+          meName={me.display_name}
           onChange={items.reload}
         />
       )}
@@ -145,61 +146,62 @@ export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
 }
 
 function WeeklyPlanTable({
-  items, editable, addWindow, monday, onChange,
+  items, editable, addWindow, monday, meName, onChange,
 }: {
   items: WeeklyPlanItem[];
   editable: boolean;
   addWindow: AddWindow;
   monday: string;
+  meName: string;
   onChange: () => void;
 }) {
   const [adding, setAdding] = useState(false);
 
   return (
-    <>
-      <div className="table-scroll day-table">
-        <table>
-          <thead>
+    <div className="table-scroll day-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Action / item</th>
+            <th>Achievements</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <WeeklyPlanRow key={item.id} item={item} editable={editable} onChange={onChange} />
+          ))}
+          {items.length === 0 && !adding ? (
             <tr>
-              <th>Name</th>
-              <th>Action / item</th>
-              <th>Achievements</th>
-              <th>Status</th>
+              <td colSpan={4} className="muted">Nothing planned for this week yet.</td>
             </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <WeeklyPlanRow key={item.id} item={item} editable={editable} onChange={onChange} />
-            ))}
-            {items.length === 0 ? (
+          ) : null}
+          {editable && addWindow !== "closed" ? (
+            adding ? (
+              <AddItemRow
+                meName={meName}
+                monday={monday}
+                onAdded={onChange}
+                onDone={() => setAdding(false)}
+              />
+            ) : (
               <tr>
-                <td colSpan={4} className="muted">Nothing planned for this week yet.</td>
+                <td colSpan={4}>
+                  <button className="btn btn-secondary" onClick={() => setAdding(true)}>+ Add item</button>
+                </td>
               </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
-
-      {editable && addWindow !== "closed" ? (
-        adding ? (
-          <AddItemRow
-            monday={monday}
-            onAdded={onChange}
-            onDone={() => setAdding(false)}
-          />
-        ) : (
-          <div className="btn-row">
-            <button className="btn btn-secondary" onClick={() => setAdding(true)}>+ Add item</button>
-          </div>
-        )
-      ) : null}
-    </>
+            )
+          ) : null}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 function AddItemRow({
-  monday, onAdded, onDone,
-}: { monday: string; onAdded: () => void; onDone: () => void }) {
+  meName, monday, onAdded, onDone,
+}: { meName: string; monday: string; onAdded: () => void; onDone: () => void }) {
   const [action, setAction] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
@@ -220,18 +222,25 @@ function AddItemRow({
   }
 
   return (
-    <div className="card" style={{ marginTop: 12 }}>
-      <div className="card-title">Add item</div>
-      {error ? <Banner tone="error">{error.message}</Banner> : null}
-      <RichText value={action} onChange={setAction} placeholder="What are you picking up this week?" />
-      <div className="btn-row">
-        <button className="btn btn-secondary" onClick={onDone}>Done</button>
-        <span className="topbar-spacer" />
-        <button className="btn btn-primary" disabled={saving || isBlankHtml(action)} onClick={add}>
-          {saving ? "Adding…" : "Add item"}
-        </button>
-      </div>
-    </div>
+    <tr>
+      <td className="strong">{meName}</td>
+      <td className="text">
+        <RichText value={action} onChange={setAction} placeholder="What are you picking up this week?" />
+        {error ? <Banner tone="error">{error.message}</Banner> : null}
+      </td>
+      <td className="text">
+        <span className="muted" title="Save this item first">Add it after saving</span>
+      </td>
+      <td>
+        <span className={`pill pill-${PILL_KEY.yet_to_start}`}>{STATUS_LABEL.yet_to_start}</span>
+        <div className="btn-row" style={{ marginTop: 6 }}>
+          <button className="btn btn-secondary" onClick={onDone}>Done</button>
+          <button className="btn btn-primary" disabled={saving || isBlankHtml(action)} onClick={add}>
+            {saving ? "Adding…" : "Add"}
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
