@@ -46,6 +46,18 @@ async def list_items(db: AsyncSession, member_id: int, week_start: date) -> list
     ))
 
 
+async def list_items_for_all(db: AsyncSession, week_start: date) -> list[WeeklyPlanItem]:
+    """Every active member's items for one week — a lead browsing the whole
+    team rather than one person at a time. Any week, past or future: nothing
+    here narrows to "the current week", that's only ever a frontend default."""
+    return list(await db.scalars(
+        select(WeeklyPlanItem)
+        .join(Member, Member.id == WeeklyPlanItem.member_id)
+        .where(WeeklyPlanItem.week_start == week_start, Member.is_active.is_(True))
+        .order_by(Member.display_name, WeeklyPlanItem.id)
+    ))
+
+
 async def create_item(
     db: AsyncSession, member_id: int, week_start: date, action: str,
 ) -> WeeklyPlanItem:

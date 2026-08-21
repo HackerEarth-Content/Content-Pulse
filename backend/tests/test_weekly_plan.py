@@ -120,6 +120,24 @@ async def test_member_cannot_view_someone_elses_week(as_ada, as_monday):
     assert all(i["member_id"] == ids["RBAC Ada"] for i in r.json())
 
 
+async def test_lead_sees_everyones_weekly_plan_without_member_id(client, two_members, as_monday):
+    """Omitting `member_id` used to fall back to the lead's own plan — no way
+    to see the team. A lead asking for no one in particular now means
+    everyone."""
+    async with Session() as db:
+        db.add_all([
+            WeeklyPlanItem(member_id=two_members["RBAC Ada"], week_start=MONDAY, action="ada's item"),
+            WeeklyPlanItem(member_id=two_members["RBAC Grace"], week_start=MONDAY, action="grace's item"),
+        ])
+        await db.commit()
+
+    r = await client.get("/api/weekly-plan", params={"week": MONDAY.isoformat()})
+    assert r.status_code == 200
+    member_ids = {i["member_id"] for i in r.json()}
+    assert two_members["RBAC Ada"] in member_ids
+    assert two_members["RBAC Grace"] in member_ids
+
+
 async def test_completion_requires_a_lead(as_ada):
     c, _ = as_ada
     r = await c.get("/api/weekly-plan/completion", params={"week": MONDAY.isoformat()})
