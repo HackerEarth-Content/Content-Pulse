@@ -454,16 +454,21 @@ async def test_create_issue_is_always_content_task_and_links_parent(monkeypatch)
     """Every ticket this app creates is a Content Task, regardless of
     `item.pipeline` — the app never opens a new Content Request/HC Request/etc.
     issue of its own, only a task under one that already exists. A Content
-    Request item instead carries `parent_issue_key`, sent as Jira's `parent`
-    field. Exercised directly: the HTTP round trip adds nothing here."""
+    Request item instead carries `parent_issue_key`, sent as a Jira issue
+    *link* — not the `parent` field, which 400s between two same-hierarchy-
+    level types like Content Tasks and Content Requests. Exercised directly:
+    the HTTP round trip adds nothing here."""
     from types import SimpleNamespace as N
 
-    sent = {}
+    sent, link = {}, {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "POST":
+        if request.url.path == "/rest/api/3/issue" and request.method == "POST":
             sent.update(httpx.Response(200, content=request.content).json()["fields"])
             return httpx.Response(201, json={"key": "TCE-43"})
+        if request.url.path == "/rest/api/3/issueLink":
+            link.update(httpx.Response(200, content=request.content).json())
+            return httpx.Response(201, json={})
         return httpx.Response(200, json={"fields": {}})
 
     monkeypatch.setattr(jira, "_client", transport(handler))
@@ -485,16 +490,43 @@ async def test_create_issue_is_always_content_task_and_links_parent(monkeypatch)
         await jira.create_issue(db, entry, item)
 
     assert sent["issuetype"]["name"] == "Content Tasks"
-    assert sent["parent"] == {"key": "TCE-1"}
+    assert "parent" not in sent, "parent field 400s between same-level types, never send it"
+    assert link == {
+        "type": {"name": "Relates"},
+        "inwardIssue": {"key": "TCE-43"},
+        "outwardIssue": {"key": "TCE-1"},
+    }
     assert "customfield_10225" not in sent, "Content Tasks carry no customer field"
     assert sent["customfield_10230"] == {"id": "10240"}, "task type by option id"
 
-    sent.clear()
+    sent.clear(); link.clear()
     item.pipeline, item.parent_issue_key = "content_task", None
     async with Session() as db:
         await jira.create_issue(db, entry, item)
     assert sent["issuetype"]["name"] == "Content Tasks"
-    assert "parent" not in sent, "no parent link without one"
+    assert not link, "no parent link without one"
+
+
+async def test_issue_exists_rejects_leaf_types_as_parents(monkeypatch):
+    """Jira's create call 400s with 'Please select valid parent issue' when the
+    key names a Content Task or subtask — existing isn't enough, the type has
+    to be able to have children. issue_exists must catch that upfront rather
+    than let it surface only when create_issue actually tries to use it."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        key = request.url.path.rsplit("/", 1)[-1]
+        types = {"TCE-1": "Content Requests", "TCE-2": "Content Tasks", "TCE-3": "TCE subtask"}
+        if key not in types:
+            return httpx.Response(404, json={})
+        return httpx.Response(200, json={"fields": {"issuetype": {"name": types[key]}}})
+
+    monkeypatch.setattr(jira, "_client", transport(handler))
+
+    async with Session() as db:
+        assert await jira.issue_exists(db, "TCE-1") is True
+        assert await jira.issue_exists(db, "TCE-2") is False
+        assert await jira.issue_exists(db, "TCE-3") is False
+        assert await jira.issue_exists(db, "TCE-404") is False
 
 
 def test_title_leads_with_work_and_customer_over_notes():
