@@ -25,6 +25,7 @@ import { Members } from "./routes/Members";
 import { Overview } from "./routes/Overview";
 import { PlanBoard } from "./routes/PlanBoard";
 import { MyDay } from "./routes/MyDay";
+import { SkillGraph } from "./routes/SkillGraph";
 import { WeeklyPlan } from "./routes/WeeklyPlan";
 import { WorkLog } from "./routes/WorkLog";
 
@@ -87,6 +88,7 @@ export default function App() {
           <AdminOnly role={user.member?.role}><Requests range={range} /></AdminOnly>
         } />
         <Route path="/leaderboard" element={<Leaderboard range={range} />} />
+        <Route path="/skills" element={<SkillGraph me={user.member} />} />
         {/* Raw Jira board mirror. Off the nav — /requests supersedes it. */}
         <Route path="/content-requests" element={<ContentRequests />} />
         <Route path="/my-day" element={<MyDay me={user.member} />} />

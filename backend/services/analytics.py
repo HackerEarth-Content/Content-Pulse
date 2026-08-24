@@ -29,6 +29,7 @@ from core.orm import (
     Member,
     QuestionType,
     TaskType,
+    entry_item_question_types,
 )
 
 
@@ -491,6 +492,8 @@ async def by_task_type(db: AsyncSession, s: Scope) -> list[dict]:
 
 
 async def by_question_type(db: AsyncSession, s: Scope) -> list[dict]:
+    """A task tagged with two question types counts once under each — the
+    same way a Jira issue with two labels shows up in both label counts."""
     rows = await db.execute(
         _from_tasks(
             s,
@@ -498,7 +501,9 @@ async def by_question_type(db: AsyncSession, s: Scope) -> list[dict]:
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
         )
-        .join(QuestionType, QuestionType.id == EntryItem.question_type_id)
+        .join(entry_item_question_types,
+              entry_item_question_types.c.entry_item_id == EntryItem.id)
+        .join(QuestionType, QuestionType.id == entry_item_question_types.c.question_type_id)
         .group_by(QuestionType.name)
         .order_by(func.count().desc())
     )
@@ -887,6 +892,7 @@ async def open_items(db: AsyncSession, s: Scope, today: date, limit: int = 200) 
 
 
 async def data_quality(db: AsyncSession, s: Scope) -> dict:
+    tagged = select(entry_item_question_types.c.entry_item_id)
     row = (await db.execute(_from_tasks(
         s,
         func.count().label("tasks"),
@@ -894,7 +900,7 @@ async def data_quality(db: AsyncSession, s: Scope) -> dict:
         func.count().filter(EntryItem.count.is_(None)).label("no_count"),
         func.count().filter(func.trim(func.coalesce(EntryItem.customer, "")) == "")
         .label("no_customer"),
-        func.count().filter(EntryItem.question_type_id.is_(None)).label("no_question_type"),
+        func.count().filter(EntryItem.id.notin_(tagged)).label("no_question_type"),
         func.count().filter(EntryItem.due_at.is_(None)).label("no_due_date"),
         func.count().filter(EntryItem.effort_minutes.is_(None)).label("no_effort"),
     ))).one()

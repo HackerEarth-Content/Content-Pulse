@@ -30,7 +30,9 @@ class ItemIn(BaseModel):
     # The Work Type a ticket is filed under. Defaults to Content Tasks, the
     # only pipeline this form has ever created — see PIPELINES in core.orm.
     pipeline: str = Pipeline
-    question_type_id: int | None = None
+    # Jira's own question-type field is a multi-select picklist — this mirrors
+    # that instead of forcing every item down to one.
+    question_type_ids: list[int] = []
     customer: str | None = None
     count: int | None = Field(default=None, gt=0)
     # Mandatory, same as PlanLineIn below — a ticket with no summary or due
@@ -137,7 +139,7 @@ class ItemOut(ORMModel):
     title: str
     pipeline: str
     work_type: str
-    question_type: str | None
+    question_types: list[str]
     customer: str | None
     count: int | None
     notes: str | None
@@ -163,7 +165,7 @@ class ItemOut(ORMModel):
             task_type=it.task_type.name,
             title=_title(it),
             work_type=PIPELINE_LABELS.get(it.pipeline, it.pipeline),
-            question_type=it.question_type.name if it.question_type else None,
+            question_types=[q.name for q in it.question_types],
         )
 
 
@@ -204,7 +206,7 @@ class WorkLogRow(ORMModel):
     task_type_id: int
     task_type: str
     title: str
-    question_type: str | None
+    question_types: list[str]
     customer: str | None
     count: int | None
     effort_minutes: int | None
@@ -234,7 +236,7 @@ class WorkLogRow(ORMModel):
             member_id=entry.member_id, member=entry.member.display_name,
             task_type=item.task_type.name,
             title=_title(item),
-            question_type=item.question_type.name if item.question_type else None,
+            question_types=[q.name for q in item.question_types],
         )
 
 

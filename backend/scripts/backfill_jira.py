@@ -32,6 +32,7 @@ from core.orm import (
     MemberAlias,
     QuestionType,
     SyncCursor,
+    entry_item_question_types,
     TaskType,
     pipeline_for,
 )
@@ -102,6 +103,20 @@ def _val(raw):
     if isinstance(raw, dict):
         return raw.get("value") or raw.get("name")
     return raw
+
+
+def _vals(raw) -> list[str]:
+    """Question type is Jira's only multi-select field here — every other
+    caller of `_val` wants just the first value, this one wants all of them."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [v.get("value") or v.get("name") for v in raw
+                if isinstance(v, dict) and (v.get("value") or v.get("name"))]
+    if isinstance(raw, dict):
+        name = raw.get("value") or raw.get("name")
+        return [name] if name else []
+    return [raw]
 
 
 def _dt(raw: str | None) -> datetime | None:
@@ -381,8 +396,6 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
                 entry_id=entry_id,
                 task_type_id=await _lookup(db, TaskType, _val(f.get("customfield_10230")),
                                            task_cache) or other_id,
-                question_type_id=await _lookup(db, QuestionType,
-                                               _val(f.get("customfield_10235")), question_cache),
                 count=f.get("customfield_10233") and int(f["customfield_10233"]) or None,
                 jira_issue_key=key,
                 jira_issue_url=f"{settings.JIRA_BASE_URL}/browse/{key}",
@@ -391,6 +404,15 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
             _apply(item, f, status, jira_status, status_names)
             db.add(item)
             await db.flush()
+            question_type_ids = [
+                await _lookup(db, QuestionType, name, question_cache)
+                for name in _vals(f.get("customfield_10235"))
+            ]
+            if question_type_ids:
+                await db.execute(entry_item_question_types.insert(), [
+                    {"entry_item_id": item.id, "question_type_id": qid}
+                    for qid in question_type_ids
+                ])
             db.add(EntryItemStatusEvent(
                 entry_item_id=item.id, to_status=status, source="jira",
                 changed_at=_naive(_dt(f.get("resolutiondate")) or _dt(f["created"])),

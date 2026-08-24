@@ -113,7 +113,7 @@ export function MyDay({ me }: { me: CurrentUser["member"] }) {
 interface Draft {
   pipeline: string;
   task_type_id: string;
-  question_type_id: string;
+  question_type_ids: number[];
   customer: string;
   count: string;
   due_at: string;
@@ -124,12 +124,43 @@ interface Draft {
 
 const blank = (): Draft => ({
   pipeline: "content_task",
-  task_type_id: "", question_type_id: "", customer: "", count: "",
+  task_type_id: "", question_type_ids: [], customer: "", count: "",
   due_at: today(), notes: "", parent_issue_key: "",
   // On by default — most planned work is meant to become a Jira ticket;
   // still a checkbox, so the exception is one click away.
   create_jira: true,
 });
+
+/** Looks exactly like the old single-answer dropdown when closed — same
+ * `.field` box, same size. Native `<select multiple>` only adds an option
+ * to the selection on Ctrl/Cmd-click, which isn't discoverable, so this
+ * opens a plain checkbox list instead: click any number of rows, no
+ * modifier key needed. */
+function QuestionTypePicker({
+  options, selected, onChange,
+}: { options: Lookup[]; selected: number[]; onChange: (ids: number[]) => void }) {
+  const label = options.filter((t) => selected.includes(t.id)).map((t) => t.name).join(", ");
+  return (
+    <details className="qtype-select">
+      <summary className="field">{label || "—"}</summary>
+      <div className="qtype-menu">
+        {options.map((t) => (
+          <label key={t.id} className="check">
+            <input
+              type="checkbox"
+              checked={selected.includes(t.id)}
+              onChange={() =>
+                onChange(selected.includes(t.id)
+                  ? selected.filter((id) => id !== t.id)
+                  : [...selected, t.id])}
+            />
+            <span>{t.name}</span>
+          </label>
+        ))}
+      </div>
+    </details>
+  );
+}
 
 function StartTheDay({
   memberId, date, onCreated,
@@ -145,6 +176,8 @@ function StartTheDay({
 
   const patch = (i: number, key: keyof Draft, value: string | boolean) =>
     setRows((rs) => rs.map((r, j) => (i === j ? { ...r, [key]: value } : r)));
+  const setQuestionTypes = (i: number, ids: number[]) =>
+    setRows((rs) => rs.map((r, j) => (i === j ? { ...r, question_type_ids: ids } : r)));
   const filled = rows.filter((r) => r.task_type_id);
   const incomplete = (r: Draft) =>
     Boolean(r.task_type_id) &&
@@ -163,7 +196,7 @@ function StartTheDay({
         items: filled.map((r) => ({
           task_type_id: Number(r.task_type_id),
           pipeline: r.pipeline,
-          question_type_id: r.question_type_id ? Number(r.question_type_id) : null,
+          question_type_ids: r.question_type_ids,
           customer: r.customer || null,
           count: r.count ? Number(r.count) : null,
           due_at: r.due_at || null,
@@ -212,13 +245,11 @@ function StartTheDay({
           </div>
           <div>
             <label className="label">Question type</label>
-            <select className="field" value={row.question_type_id}
-                    onChange={(e) => patch(i, "question_type_id", e.target.value)}>
-              <option value="">—</option>
-              {(questionTypes.data ?? []).map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
+            <QuestionTypePicker
+              options={questionTypes.data ?? []}
+              selected={row.question_type_ids}
+              onChange={(ids) => setQuestionTypes(i, ids)}
+            />
           </div>
           <div>
             <label className="label">Customer</label>
@@ -489,7 +520,7 @@ function NewTicketDialog({
   const questionTypes = useApi(() => api.questionTypes(), []);
   const [pipeline, setPipeline] = useState("content_task");
   const [taskTypeId, setTaskTypeId] = useState("");
-  const [questionTypeId, setQuestionTypeId] = useState("");
+  const [questionTypeIds, setQuestionTypeIds] = useState<number[]>([]);
   const [customer, setCustomer] = useState("");
   const [count, setCount] = useState("");
   const [dueAt, setDueAt] = useState(today());
@@ -520,7 +551,7 @@ function NewTicketDialog({
         extra_items: [{
           task_type_id: Number(taskTypeId),
           pipeline,
-          question_type_id: questionTypeId ? Number(questionTypeId) : null,
+          question_type_ids: questionTypeIds,
           customer: customer || null,
           count: count ? Number(count) : null,
           due_at: dueAt,
@@ -566,12 +597,11 @@ function NewTicketDialog({
       </select>
 
       <label className="label" style={{ marginTop: 12 }}>Question type</label>
-      <select className="field" value={questionTypeId} onChange={(e) => setQuestionTypeId(e.target.value)}>
-        <option value="">—</option>
-        {(questionTypes.data ?? []).map((t) => (
-          <option key={t.id} value={t.id}>{t.name}</option>
-        ))}
-      </select>
+      <QuestionTypePicker
+        options={questionTypes.data ?? []}
+        selected={questionTypeIds}
+        onChange={setQuestionTypeIds}
+      />
 
       <label className="label" style={{ marginTop: 12 }}>Customer</label>
       <input className="field" value={customer} onChange={(e) => setCustomer(e.target.value)} />

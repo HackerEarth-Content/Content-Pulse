@@ -25,6 +25,7 @@ from core.orm import (
     QuestionType,
     SlackDayThread,
     TaskType,
+    entry_item_question_types,
 )
 
 TASK_TYPES = [
@@ -170,7 +171,6 @@ async def import_sqlite(db: AsyncSession, path: str) -> None:
         it = EntryItem(
             entry_id=old_entry[r["entry_id"]],
             task_type_id=await _lookup_id(db, TaskType, r["task_type"], task_cache) or other_id,
-            question_type_id=await _lookup_id(db, QuestionType, r["question_type"], question_cache),
             customer=r["customer"],
             count=r["count"] or None,
             notes=r["notes"],
@@ -183,6 +183,9 @@ async def import_sqlite(db: AsyncSession, path: str) -> None:
         )
         db.add(it)
         await db.flush()
+        if qt_id := await _lookup_id(db, QuestionType, r["question_type"], question_cache):
+            await db.execute(entry_item_question_types.insert(),
+                              [{"entry_item_id": it.id, "question_type_id": qt_id}])
         old_item[r["id"]] = it.id
         # No transition history exists upstream; one row so cycle-time queries
         # have a floor to measure from.

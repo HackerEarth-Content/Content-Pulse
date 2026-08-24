@@ -385,7 +385,7 @@ async def test_created_issue_carries_every_field(client, member, task_type, monk
 
     plan = (await client.post("/api/entries/plans", json={
         "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "question_type_id": qt_id, "count": 4,
+        "items": [{"task_type_id": task_type, "question_type_ids": [qt_id], "count": 4,
                    "customer": "Entri", "due_at": DAY, "effort_minutes": 90, "notes": "n"}],
     })).json()
 
@@ -482,7 +482,7 @@ async def test_create_issue_is_always_content_task_and_links_parent(monkeypatch)
     monkeypatch.setattr(jira, "option_ids", fake_option_ids)
     entry = N(kind="plan", entry_date="2030-07-08", source="web", raw_text=None,
               member=N(display_name="Ada", jira_account_id=None))
-    item = N(task_type=N(name="Documentation"), question_type=None, customer="Entri",
+    item = N(task_type=N(name="Documentation"), question_types=[], customer="Entri",
              count=None, notes=None, due_at=None, effort_minutes=None,
              pipeline="content_request", parent_issue_key="TCE-1")
 
@@ -574,7 +574,7 @@ async def test_rate_limit_is_obeyed(monkeypatch):
     from types import SimpleNamespace as N
     entry = N(kind="plan", entry_date="2030-07-08", source="web", raw_text=None,
               member=N(display_name="Ada", jira_account_id=None))
-    item = N(task_type=N(name="Documentation"), question_type=None, customer=None,
+    item = N(task_type=N(name="Documentation"), question_types=[], customer=None,
              count=None, notes=None, due_at=None, effort_minutes=None,
              pipeline="content_task", parent_issue_key=None)
     async with Session() as db:
@@ -596,7 +596,7 @@ async def test_client_errors_are_not_retried(monkeypatch):
     from types import SimpleNamespace as N
     entry = N(kind="plan", entry_date="2030-07-08", source="web", raw_text=None,
               member=N(display_name="Ada", jira_account_id=None))
-    item = N(task_type=N(name="Documentation"), question_type=None, customer=None,
+    item = N(task_type=N(name="Documentation"), question_types=[], customer=None,
              count=None, notes=None, due_at=None, effort_minutes=None,
              pipeline="content_task", parent_issue_key=None)
     async with Session() as db:

@@ -91,7 +91,7 @@ async def _work_log_rows(db: AsyncSession, **filters) -> tuple[list[list], bool]
                          e.raw_text or ""])
         rows.extend(
             [e.entry_date.isoformat(), e.kind.title(), e.member.display_name,
-             it.task_type.name, it.question_type.name if it.question_type else "",
+             it.task_type.name, ", ".join(q.name for q in it.question_types),
              it.customer or "", it.count or "", it.effort_minutes or "",
              STATUS_LABEL.get(it.status, it.status),
              it.due_at.isoformat() if it.due_at else "", it.jira_issue_key or "",
