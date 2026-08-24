@@ -1660,3 +1660,87 @@ td.heat {
     margin-left: 0;
   }
 }
+
+/* ── skill graph ───────────────────────────────────────────────────────────── */
+
+.skill-legend {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.skill-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.skill-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+}
+.skill-row-name {
+  font-size: 13px;
+  color: var(--ink);
+}
+.skill-entry-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto minmax(120px, auto);
+  align-items: center;
+  gap: 12px;
+}
+.skill-level-picker {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.skill-level-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: transform 0.08s ease;
+}
+.skill-level-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--accent-indigo);
+}
+.skill-level-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+/* A named action, not a sixth ambiguous option among the level chips — it
+   only does anything once a level is actually set. */
+.skill-clear-btn {
+  margin-left: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.skill-clear-btn:hover:not(:disabled) {
+  border-color: var(--status-critical);
+  color: var(--status-critical-ink);
+}
+.skill-clear-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.skill-level-caption {
+  white-space: nowrap;
+  text-align: right;
+}

@@ -386,3 +386,33 @@ export interface WeeklyPlanCompletion {
   filed: number;
   updated: number;
 }
+
+export type SkillCategory = "tech" | "ai" | "nontech";
+
+export interface Skill {
+  id: number;
+  name: string;
+  category: SkillCategory;
+  sub_domain: string | null;
+}
+
+export interface SkillWindow {
+  open: boolean;
+  open_weekdays: number[];
+  excluded_member_ids: number[];
+}
+
+/** Keyed by skill id; a skill missing from the map hasn't been rated. */
+export type SkillRatings = Record<number, number>;
+
+export interface MemberSkillRatings {
+  member_id: number;
+  display_name: string;
+  role: string;
+  ratings: SkillRatings;
+}
+
+export interface SkillGraphData {
+  skills: Skill[];
+  members: MemberSkillRatings[];
+}

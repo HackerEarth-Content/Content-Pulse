@@ -26,6 +26,10 @@ import type {
   TaskTypeStat,
   TodayStatus,
   TrendPoint,
+  Skill,
+  SkillGraphData,
+  SkillRatings,
+  SkillWindow,
   WeeklyPlanCompletion,
   WeeklyPlanItem,
   WorkLogRow,
@@ -227,4 +231,13 @@ export const api = {
     send<WeeklyPlanItem>("PATCH", `/weekly-plan/items/${id}`, body),
   weeklyPlanCompletion: (week: string) =>
     get<WeeklyPlanCompletion>("/weekly-plan/completion", { week }),
+
+  skills: () => get<Skill[]>("/skills"),
+  skillWindow: () => get<SkillWindow>("/skills/window"),
+  setSkillWindow: (body: { open_weekdays?: number[]; excluded_member_ids?: number[] }) =>
+    send<SkillWindow>("PATCH", "/skills/window", body),
+  mySkillRatings: () => get<SkillRatings>("/skills/ratings/me"),
+  saveMySkillRatings: (ratings: { skill_id: number; level: number }[]) =>
+    send<SkillRatings>("PUT", "/skills/ratings/me", { ratings }),
+  skillGraph: () => get<SkillGraphData>("/skills/graph"),
 };

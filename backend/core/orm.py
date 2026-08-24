@@ -85,6 +85,7 @@ JIRA_STATES = ("none", "pending", "ok", "failed")
 # Deliberately its own vocabulary, not STATUSES — a weekly plan item is never
 # "open" or "closed", it's yet to start, in progress, blocked, or completed.
 WEEKLY_PLAN_STATUSES = ("yet_to_start", "in_progress", "blocked", "completed")
+SKILL_CATEGORIES = ("tech", "ai", "nontech")
 
 
 def _enum(col: str, values: tuple[str, ...]) -> CheckConstraint:
@@ -380,6 +381,47 @@ class WeeklyPlanItem(Timestamps, Base):
     status: Mapped[str] = mapped_column(default="yet_to_start")
 
     member: Mapped[Member] = relationship(lazy="joined")
+
+
+# ── skill graph ───────────────────────────────────────────────────────────────
+
+
+class Skill(Base):
+    """The master skill catalogue — tech stacks, AI/agentic skills, and
+    non-tech competencies people self-rate against. Seeded once from the
+    team's master list; retiring one keeps every rating already on it."""
+
+    __tablename__ = "skills"
+    __table_args__ = (_enum("category", SKILL_CATEGORIES),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(unique=True)
+    category: Mapped[str]
+    sub_domain: Mapped[str | None]
+    sort_order: Mapped[int] = mapped_column(default=0)
+    is_active: Mapped[bool] = mapped_column(default=True)
+
+
+class MemberSkillRating(Base):
+    """One person's self-rated level (L1 Awareness .. L5 Expert) on one skill.
+    No row at all means "not rated" — there's no zero level to store."""
+
+    __tablename__ = "member_skill_ratings"
+    __table_args__ = (
+        CheckConstraint("level BETWEEN 1 AND 5", name="ck_skill_level_range"),
+        UniqueConstraint("member_id", "skill_id", name="uq_member_skill"),
+        Index("ix_skill_ratings_skill", "skill_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
+    skill_id: Mapped[int] = mapped_column(ForeignKey("skills.id", ondelete="CASCADE"))
+    level: Mapped[int]
+    rated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )
+
+    skill: Mapped[Skill] = relationship(lazy="joined")
 
 
 # ── integrations ──────────────────────────────────────────────────────────────

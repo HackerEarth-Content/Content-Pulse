@@ -333,6 +333,97 @@ function MemberEditor() {
   );
 }
 
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function SkillWindow() {
+  const win = useApi(() => api.skillWindow(), []);
+  const list = useApi(() => api.members({ is_active: undefined }), []);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function toggleDay(day: number) {
+    if (!win.data) return;
+    const days = win.data.open_weekdays.includes(day)
+      ? win.data.open_weekdays.filter((d) => d !== day)
+      : [...win.data.open_weekdays, day];
+    setError(null);
+    setBusy(true);
+    try {
+      await api.setSkillWindow({ open_weekdays: days });
+      win.reload();
+    } catch (e) {
+      setError(e as ApiError);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleExcluded(memberId: number) {
+    if (!win.data) return;
+    const excluded = win.data.excluded_member_ids.includes(memberId)
+      ? win.data.excluded_member_ids.filter((id) => id !== memberId)
+      : [...win.data.excluded_member_ids, memberId];
+    setError(null);
+    setBusy(true);
+    try {
+      await api.setSkillWindow({ excluded_member_ids: excluded });
+      win.reload();
+    } catch (e) {
+      setError(e as ApiError);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="Skill Graph entry window"
+          sub="which days people can enter their own scores, and who sits out of the exercise">
+      {error ? <Banner tone="error">{error.message}</Banner> : null}
+
+      <Async loading={win.loading} error={win.error} data={win.data}>
+        {(w) => (
+          <>
+            <div className="skill-legend" style={{ marginBottom: 14 }}>
+              {WEEKDAYS.map((label, day) => (
+                <button
+                  key={day}
+                  className={`pill pill-button ${w.open_weekdays.includes(day) ? "" : "pill-muted"}`}
+                  disabled={busy}
+                  onClick={() => toggleDay(day)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <p className="hint" style={{ marginBottom: 10 }}>
+              Excluded from the exercise — they won't be asked to rate themselves and won't
+              appear in the Skill Graph views:
+            </p>
+            <Async loading={list.loading} error={list.error} data={list.data}>
+              {(members) => (
+                <div className="skill-legend">
+                  {members.map((m) => (
+                    <button
+                      key={m.id}
+                      className={`pill pill-button ${w.excluded_member_ids.includes(m.id) ? "pill-muted" : ""}`}
+                      disabled={busy}
+                      onClick={() => toggleExcluded(m.id)}
+                      title={w.excluded_member_ids.includes(m.id) ? "Excluded — click to include" : "Included — click to exclude"}
+                    >
+                      {m.display_name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Async>
+          </>
+        )}
+      </Async>
+    </Card>
+  );
+}
+
 function Integrations() {
   const sync = useApi(() => api.syncStatus(), []);
   const [note, setNote] = useState<string | null>(null);
@@ -455,6 +546,9 @@ export function Admin() {
                     sub="synced from Jira · offered on the plan and update forms" />
         <LookupList kind="question-types" title="Question types"
                     sub="synced from Jira · optional tag on each ticket" />
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <SkillWindow />
       </div>
       <div style={{ marginTop: 12 }}>
         <Integrations />

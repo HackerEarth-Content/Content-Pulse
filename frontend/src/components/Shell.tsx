@@ -40,6 +40,8 @@ const LINKS: NavItem[] = [
     icon: icon("M4 6h16M4 11h16M4 16h9") },
   { to: "/leaderboard", label: "Leaderboard", title: "Effort logged per person, by area",
     icon: icon("M4 20V14M10 20V10M16 20V6M4 20h16") },
+  { to: "/skills", label: "Skill Graph", title: "Self-rated skills, team strengths and gaps",
+    icon: icon("M12 2l8 4.5v11L12 22l-8-4.5v-11z") },
   { to: "/analytics", label: "Insights", roles: ["admin"],
     title: "Delivery, timing, customers and data quality",
     icon: icon("M3 3v18h18M7 15l4-5 3 3 5-7") },
