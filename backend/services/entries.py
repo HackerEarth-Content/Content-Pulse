@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from core.config import settings
 from core.dates import day_bounds_utc
-from core.orm import DailyEntry, EntryItem, EntryItemStatusEvent, Member, TaskType
+from core.orm import DailyEntry, EntryItem, EntryItemStatusEvent, Member, QuestionType, TaskType
 from schemas.entries import ItemIn, PlanIn, UpdateIn
 
 
@@ -75,6 +75,14 @@ async def _new_item(
         raise err(422, "unknown_task_type",
                   f"No task type with id {data.task_type_id}.")
 
+    question_types = []
+    if data.question_type_ids:
+        question_types = list(await db.scalars(
+            select(QuestionType).where(QuestionType.id.in_(data.question_type_ids))
+        ))
+        if len(question_types) != len(set(data.question_type_ids)):
+            raise err(422, "unknown_question_type", "One or more question types don't exist.")
+
     parent_issue_url = None
     if data.parent_issue_key:
         from integrations import jira
@@ -99,8 +107,9 @@ async def _new_item(
         # `create_jira` is the request's word for it; `jira_wanted` is the
         # column. Mapped rather than renamed so the API reads as an instruction.
         jira_wanted=getattr(data, "create_jira", False),
-        **data.model_dump(exclude={"status", "create_jira"}),
+        **data.model_dump(exclude={"status", "create_jira", "question_type_ids"}),
     )
+    item.question_types = question_types
     db.add(item)
     await db.flush()
     db.add(EntryItemStatusEvent(
@@ -202,13 +211,13 @@ async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -
         mirror = EntryItem(
             entry_id=entry.id, plan_item_id=plan_item.id, sort_order=order,
             task_type_id=plan_item.task_type_id,
-            question_type_id=plan_item.question_type_id,
             customer=plan_item.customer, count=line.count, notes=line.notes,
             due_at=line.due_at, status=line.status,
             effort_minutes=line.effort_minutes,
             jira_issue_key=plan_item.jira_issue_key,
             jira_issue_url=plan_item.jira_issue_url,
         )
+        mirror.question_types = list(plan_item.question_types)
         db.add(mirror)
         await db.flush()
         db.add(EntryItemStatusEvent(

@@ -28,7 +28,7 @@ const asItem = (r: WorkLogRow): Item => ({
   title: r.title,
   pipeline: r.pipeline,
   work_type: r.pipeline,
-  question_type: r.question_type,
+  question_types: r.question_types,
   customer: r.customer,
   count: r.count,
   notes: r.notes,

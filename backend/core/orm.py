@@ -10,9 +10,11 @@ from uuid import uuid4
 from fastapi_users.db import SQLAlchemyBaseOAuthAccountTable, SQLAlchemyBaseUserTable
 from sqlalchemy import (
     CheckConstraint,
+    Column,
     ForeignKey,
     Index,
     String,
+    Table,
     Text,
     UniqueConstraint,
     func,
@@ -242,6 +244,17 @@ class DailyEntry(Timestamps, Base):
     )
 
 
+# Jira's own question-type field is a multi-select picklist — this mirrors
+# that rather than forcing every item down to one, which is what silently
+# dropped every second choice on the way into Jira.
+entry_item_question_types = Table(
+    "entry_item_question_types",
+    Base.metadata,
+    Column("entry_item_id", ForeignKey("entry_items.id", ondelete="CASCADE"), primary_key=True),
+    Column("question_type_id", ForeignKey("question_types.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class EntryItem(Timestamps, Base):
     __tablename__ = "entry_items"
     __table_args__ = (
@@ -271,7 +284,6 @@ class EntryItem(Timestamps, Base):
         ForeignKey("entry_items.id", ondelete="SET NULL")
     )
     task_type_id: Mapped[int] = mapped_column(ForeignKey("task_types.id"))
-    question_type_id: Mapped[int | None] = mapped_column(ForeignKey("question_types.id"))
     customer: Mapped[str | None]
     count: Mapped[int | None]
     notes: Mapped[str | None] = mapped_column(Text)
@@ -335,7 +347,9 @@ class EntryItem(Timestamps, Base):
         back_populates="items", foreign_keys=[entry_id]
     )
     task_type: Mapped[TaskType] = relationship(lazy="joined")
-    question_type: Mapped[QuestionType | None] = relationship(lazy="joined")
+    question_types: Mapped[list[QuestionType]] = relationship(
+        secondary=entry_item_question_types, lazy="selectin", order_by=QuestionType.sort_order,
+    )
 
 
 class EntryItemStatusEvent(Base):

@@ -32,7 +32,7 @@ export interface Item {
   title: string;
   pipeline: string;
   work_type: string;
-  question_type: string | null;
+  question_types: string[];
   customer: string | null;
   count: number | null;
   notes: string | null;
@@ -86,7 +86,7 @@ export interface WorkLogRow {
   task_type_id: number;
   task_type: string;
   title: string;
-  question_type: string | null;
+  question_types: string[];
   customer: string | null;
   count: number | null;
   effort_minutes: number | null;

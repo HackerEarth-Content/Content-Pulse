@@ -236,8 +236,8 @@ def _describe(entry: DailyEntry, item: EntryItem) -> str:
         f"ContentOps — {entry.kind.title()} — {entry.entry_date} — {entry.member.display_name}",
         f"Source: {entry.source}", "", f"Task: {item.task_type.name}",
     ]
-    if item.question_type:
-        lines.append(f"Question type: {item.question_type.name}")
+    if item.question_types:
+        lines.append(f"Question type: {', '.join(q.name for q in item.question_types)}")
     for label, value in (("Customer", item.customer), ("Count", item.count)):
         if value is not None:
             lines.append(f"{label}: {value}")
@@ -301,8 +301,12 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
                 "no Jira task-type option matches %r for issue type %r — field left unset",
                 item.task_type.name, issue_type,
             )
-        if item.question_type and (qt := _find_option(options["question_type"], item.question_type.name)):
-            fields[f["question_type"]] = [{"id": qt}]
+        matched_qts = [
+            qt for q in item.question_types
+            if (qt := _find_option(options["question_type"], q.name))
+        ]
+        if matched_qts:
+            fields[f["question_type"]] = [{"id": qt} for qt in matched_qts]
 
         r = await _send(c, "POST", "/rest/api/3/issue", json={"fields": fields})
         if r.status_code >= 400:
