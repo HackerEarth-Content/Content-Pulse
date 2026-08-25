@@ -333,6 +333,21 @@ async def effort_breakdown(db: AsyncSession, s: Scope) -> dict:
     )).one()
 
     by_area_rows = await split(area)
+    # Assessment work is a Request type inside Content Requests, not a
+    # stream of its own — the per-person and overall "Stream" breakdown
+    # folds it back in rather than showing it as separate work. (The
+    # Requests screen wants the split kept, so this is local to this
+    # function, not to `_area_col`/`by_area` itself.)
+    assessment = next((r for r in by_area_rows if r["key"] == "content_assessment"), None)
+    if assessment is not None:
+        by_area_rows = [r for r in by_area_rows if r["key"] != "content_assessment"]
+        request = next((r for r in by_area_rows if r["key"] == "content_request"), None)
+        if request is not None:
+            request["tasks"] += assessment["tasks"]
+            request["effort_minutes"] += assessment["effort_minutes"]
+        else:
+            assessment["key"] = "content_request"
+            by_area_rows.append(assessment)
     for row in by_area_rows:
         row["label"] = _label(row["key"])
 

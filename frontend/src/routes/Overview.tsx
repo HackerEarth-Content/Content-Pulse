@@ -153,24 +153,47 @@ export function Overview({ range }: { range: Range }) {
         </Async>
       </Card>
 
-      <Card title="By task type" sub="hours in this range">
-        <Async
-          loading={types.loading}
-          error={types.error}
-          data={types.data}
-          empty={{ title: "No work types yet" }}
-        >
-          {(rows) => (
-            <RankedBars
-              items={rows.slice(0, 8).map((r) => ({
-                key: r.task_type, label: r.task_type,
-                value: r.effort_minutes, sub: `${r.tasks} tickets`,
-              }))}
-              format={(n) => mins(n)}
-            />
-          )}
-        </Async>
-      </Card>
+      <div className="grid cols-2">
+        <Card title="By task type" sub="hours in this range">
+          <Async
+            loading={types.loading}
+            error={types.error}
+            data={types.data}
+            empty={{ title: "No work types yet" }}
+          >
+            {(rows) => (
+              <RankedBars
+                items={rows.slice(0, 8).map((r) => ({
+                  key: r.task_type, label: r.task_type,
+                  value: r.effort_minutes, sub: `${r.tasks} tickets`,
+                }))}
+                format={(n) => mins(n)}
+              />
+            )}
+          </Async>
+        </Card>
+
+        <Card title="Items produced by task type" sub="sum of the Count column, in this range">
+          <Async
+            loading={types.loading}
+            error={types.error}
+            data={types.data}
+            empty={{ title: "No work types yet" }}
+          >
+            {(rows) => (
+              <RankedBars
+                items={[...rows].filter((r) => r.volume > 0)
+                  .sort((a, b) => b.volume - a.volume).slice(0, 8)
+                  .map((r) => ({
+                    key: r.task_type, label: r.task_type,
+                    value: r.volume, sub: `${r.tasks} tickets`,
+                  }))}
+                format={(n) => num(n)}
+              />
+            )}
+          </Async>
+        </Card>
+      </div>
 
       <SectionHeading title="Risk & timing" color="var(--accent-yellow)" />
       <div className="grid cols-2">

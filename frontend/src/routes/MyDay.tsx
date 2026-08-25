@@ -94,11 +94,18 @@ export function MyDay({ me }: { me: CurrentUser["member"] }) {
               onChange={plan.reload}
               justCreated={justCreated}
               setJustCreated={setJustCreated}
+              canDelete={me.role === "admin"}
             />
           ) : (
             <StartTheDay
               memberId={who!}
               date={date}
+              // Jira may have already parked externally-assigned tickets here
+              // (see services.entries.create_plan) — surface them so the
+              // person can see what's already on their day, and so the plan
+              // can be set even if every one of today's tickets came from
+              // Jira and nothing new needs typing.
+              jiraItems={existing?.items ?? []}
               onCreated={(items) => { setJustCreated(items); plan.reload(); }}
             />
           )
@@ -163,8 +170,10 @@ function QuestionTypePicker({
 }
 
 function StartTheDay({
-  memberId, date, onCreated,
-}: { memberId: number; date: string; onCreated: (items: Item[]) => void }) {
+  memberId, date, jiraItems, onCreated,
+}: {
+  memberId: number; date: string; jiraItems: Item[]; onCreated: (items: Item[]) => void;
+}) {
   const workTypes = useApi(() => api.workTypes(), []);
   const taskTypes = useApi(() => api.taskTypes(), []);
   const questionTypes = useApi(() => api.questionTypes(), []);
@@ -184,6 +193,9 @@ function StartTheDay({
     (!r.due_at || !r.notes.trim() ||
       (r.pipeline === "content_request" && !PARENT_KEY_PATTERN.test(r.parent_issue_key.trim())));
   const hasIncomplete = rows.some(incomplete);
+  // Nothing new to type is fine — Jira may already be the whole day's work,
+  // and there has to be some way to set the plan without inventing a task.
+  const nothingToSave = filled.length === 0 && jiraItems.length === 0;
 
   async function save() {
     setError(null);
@@ -220,6 +232,33 @@ function StartTheDay({
         up — you'll report against it here later, and can raise tickets for anything
         unplanned then too.
       </p>
+
+      {jiraItems.length > 0 ? (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="card-head">
+            <div>
+              <div className="card-title">
+                Already assigned via Jira — {jiraItems.length} ticket{jiraItems.length > 1 ? "s" : ""}
+              </div>
+              <div className="card-sub">
+                Counted whether or not you add anything else below.
+              </div>
+            </div>
+          </div>
+          {jiraItems.map((it) => (
+            <div className="admin-row" key={it.id}>
+              <span>
+                <span className={`pill pill-${it.status}`}>{statusLabel(it.status)}</span>{" "}
+                {it.task_type}
+                {it.customer ? ` — ${it.customer}` : ""}
+              </span>
+              <span className="mono muted">{it.jira_issue_key}</span>
+              <span className="muted">{it.work_type}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       {error ? <Banner tone="error">{error.message}</Banner> : null}
 
       {rows.map((row, i) => (
@@ -316,10 +355,12 @@ function StartTheDay({
         <span className="muted">{filled.length} ready</span>
         <button
           className="btn btn-primary"
-          disabled={saving || !filled.length || hasIncomplete}
+          disabled={saving || nothingToSave || hasIncomplete}
           onClick={save}
         >
-          {saving ? "Saving…" : "Start the day"}
+          {saving
+            ? "Saving…"
+            : filled.length ? "Start the day" : "Confirm today's plan"}
         </button>
       </div>
     </>
@@ -329,10 +370,10 @@ function StartTheDay({
 /* ── later: report against it ────────────────────────────────────────────── */
 
 function DayInProgress({
-  plan, date, memberId, onChange, justCreated, setJustCreated,
+  plan, date, memberId, onChange, justCreated, setJustCreated, canDelete,
 }: {
   plan: Entry; date: string; memberId: number; onChange: () => void;
-  justCreated: Item[]; setJustCreated: (items: Item[]) => void;
+  justCreated: Item[]; setJustCreated: (items: Item[]) => void; canDelete: boolean;
 }) {
   const taskTypes = useApi(() => api.taskTypes(), []);
   const [moving, setMoving] = useState<Item | null>(null);
@@ -455,7 +496,8 @@ function DayInProgress({
       </div>
 
       {moving ? (
-        <StatusDialog item={moving} onClose={() => setMoving(null)} onSaved={onSaved} />
+        <StatusDialog item={moving} onClose={() => setMoving(null)} onSaved={onSaved}
+                      canDelete={canDelete} />
       ) : null}
 
       {ticketing ? (

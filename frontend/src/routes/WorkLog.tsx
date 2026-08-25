@@ -256,7 +256,8 @@ export function WorkLog({ range, me }: { range: Range; me: CurrentUser["member"]
       </Async>
 
       {moving ? (
-        <StatusDialog item={moving} onClose={() => setMoving(null)} onSaved={rows.reload} />
+        <StatusDialog item={moving} onClose={() => setMoving(null)} onSaved={rows.reload}
+                      canDelete={me?.role === "admin"} />
       ) : null}
     </>
   );
