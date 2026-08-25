@@ -74,6 +74,33 @@ async def test_plan_upgrades_a_jira_sync_mirror_instead_of_conflicting(client, m
     assert "planned" in notes, "and the plan just filed is alongside it"
 
 
+async def test_plan_can_be_set_with_no_new_items_when_jira_already_assigned_one(
+    client, member, task_type
+):
+    """A day made up entirely of externally-assigned Jira work is still a real
+    day — the person must be able to set the plan (so it counts as filed on
+    the Plan Board) without inventing a task just to satisfy this form."""
+    from core.database import Session
+    from core.orm import DailyEntry, EntryItem
+
+    async with Session() as db:
+        mirror = DailyEntry(member_id=member, entry_date=DAY, kind="plan", source="jira",
+                            idempotency_key=f"jira:{member}:{DAY}")
+        db.add(mirror)
+        await db.flush()
+        db.add(EntryItem(entry_id=mirror.id, task_type_id=task_type,
+                         notes="assigned externally", due_at=DAY, jira_issue_key="TCE-2"))
+        await db.commit()
+        mirror_id = mirror.id
+
+    r = await plan(client, member, task_type, items=[])
+    assert r.status_code == 201, r.json()
+    body = r.json()
+    assert body["id"] == mirror_id, "upgraded the same row, not a second one"
+    assert body["source"] == "web"
+    assert {it["jira_issue_key"] for it in body["items"]} == {"TCE-2"}
+
+
 async def test_update_without_plan_is_typed_404(client, member, task_type):
     r = await client.post("/api/entries/updates", json={
         "member_id": member, "entry_date": DAY,

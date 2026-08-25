@@ -229,3 +229,33 @@ async def test_assessments_split_out_of_content_requests(client, member, task_ty
     only = (await client.get("/api/analytics/summary",
                              params=params | {"area": "content_assessment"})).json()
     assert only["tasks"] == 1 and only["effort_minutes"] == 60
+
+
+async def test_effort_breakdown_folds_assessments_into_content_requests(
+    client, member, task_type, params
+):
+    """Unlike `by_area` above (the Requests screen's own split), the "Stream"
+    breakdown behind effort_breakdown feeds the per-person and overall
+    Insights pages, where an assessment is just Content Requests work."""
+    from core.database import Session
+    from core.orm import EntryItem
+    from sqlalchemy import select
+
+    plan = (await client.post("/api/entries/plans", json={
+        "member_id": member, "entry_date": DAY,
+        "items": [{"task_type_id": task_type, "effort_minutes": 60, "notes": "a", "due_at": DAY},
+                  {"task_type_id": task_type, "effort_minutes": 30, "notes": "b", "due_at": DAY}],
+    })).json()
+    async with Session() as db:
+        for i, rt in enumerate(("Assessment Review", "Content Issue")):
+            item = await db.scalar(
+                select(EntryItem).where(EntryItem.id == plan["items"][i]["id"]))
+            item.pipeline, item.request_type = "content_request", rt
+        await db.commit()
+
+    b = (await client.get("/api/analytics/effort-breakdown", params=params)).json()
+    by_key = {r["key"]: r for r in b["by_area"]}
+    assert "content_assessment" not in by_key
+    assert by_key["content_request"]["tasks"] == 2
+    assert by_key["content_request"]["effort_minutes"] == 90
+    assert by_key["content_request"]["label"] == "Content Requests"

@@ -24,10 +24,16 @@ export function StatusDialog({
   item,
   onClose,
   onSaved,
+  canDelete = false,
 }: {
   item: Item;
   onClose: () => void;
   onSaved: () => void;
+  // Deleting also cancels the linked Jira issue — irreversible enough that
+  // it's admin-only, not just gated on owning the ticket. The backend
+  // enforces this either way; hiding the button here is just not offering
+  // an action that would 403.
+  canDelete?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const taskTypes = useApi(() => api.taskTypes(), []);
@@ -207,9 +213,11 @@ export function StatusDialog({
           {item.jira_issue_key ? `Syncs ${item.jira_issue_key}` : "Not linked to Jira"}
         </span>
         <span className="topbar-spacer" />
-        <button className="btn btn-danger" disabled={saving} onClick={remove}>
-          Delete
-        </button>
+        {canDelete ? (
+          <button className="btn btn-danger" disabled={saving} onClick={remove}>
+            Delete
+          </button>
+        ) : null}
         <button className="btn btn-secondary" onClick={onClose}>
           Cancel
         </button>

@@ -81,7 +81,7 @@ export default function App() {
           <AdminOnly role={user.member?.role}><Analytics range={range} /></AdminOnly>
         } />
         <Route path="/members" element={<Members range={range} />} />
-        <Route path="/members/:id" element={<MemberDetail range={range} />} />
+        <Route path="/members/:id" element={<MemberDetail range={range} me={user.member} />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/plan-board" element={<PlanBoard />} />
         <Route path="/requests" element={

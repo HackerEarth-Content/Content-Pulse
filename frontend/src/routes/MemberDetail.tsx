@@ -16,7 +16,7 @@ import { Async, Banner, Card, SectionHeading, StatTile, StatusPill } from "../co
 import { hours, mins, num, pct, statusLabel } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Range } from "../hooks/usePeriod";
-import type { Item } from "../types";
+import type { CurrentUser, Item } from "../types";
 import { bucketFor, bucketNoun, bucketTick, groupSeries } from "../series";
 import { TOOLTIP } from "../charts";
 import { Donut } from "../components/Donut";
@@ -24,7 +24,7 @@ import { EffortDrilldown } from "../components/EffortDrilldown";
 import { RankedBars } from "../components/RankedBars";
 import { useState } from "react";
 
-export function MemberDetail({ range }: { range: Range }) {
+export function MemberDetail({ range, me }: { range: Range; me: CurrentUser["member"] }) {
   const memberId = Number(useParams().id);
   const p = { from: range.from, to: range.to, member_id: memberId };
   const deps = [memberId, range.from, range.to];
@@ -395,7 +395,8 @@ export function MemberDetail({ range }: { range: Range }) {
       </Async>
 
       {moving ? (
-        <StatusDialog item={moving} onClose={() => setMoving(null)} onSaved={entries.reload} />
+        <StatusDialog item={moving} onClose={() => setMoving(null)} onSaved={entries.reload}
+                      canDelete={me?.role === "admin"} />
       ) : null}
     </>
   );

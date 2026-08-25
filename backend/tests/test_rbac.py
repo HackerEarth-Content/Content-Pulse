@@ -159,6 +159,18 @@ async def test_admin_routes_refuse_ordinary_members(as_ada):
                          json={"name": "Sneaky type"})).status_code == 403
 
 
+async def test_ordinary_member_cannot_delete_even_their_own_ticket(as_ada, task_type):
+    """Deleting a ticket cancels its Jira issue too — irreversible enough
+    that it's admin-only, not just gated on owning the row."""
+    c, ids = as_ada
+    r = await c.post("/api/entries/plans", json={
+        "member_id": ids["RBAC Ada"], "entry_date": DAY,
+        "items": [{"task_type_id": task_type, "notes": "mine to delete?", "due_at": DAY}],
+    })
+    item_id = r.json()["items"][0]["id"]
+    assert (await c.delete(f"/api/entry-items/{item_id}")).status_code == 403
+
+
 async def test_superadmin_email_works_without_a_member_row(monkeypatch):
     """The bootstrap that stops a bad members table locking everyone out."""
     monkeypatch.setattr(settings, "SUPERADMIN_EMAILS", "boot@hackerearth.com")

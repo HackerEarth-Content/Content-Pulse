@@ -158,7 +158,10 @@ async def create_plan(db: AsyncSession, data: PlanIn, user_id: str | None) -> Da
         start = 0
     for i, item in enumerate(data.items, start):
         await _new_item(db, entry, item, i, status_=item.status, user_id=user_id)
-    await db.commit()
+    # Not committed here — `_dispatch` (services/publish's "one writer, one
+    # commit" contract) is the single committer, or a second commit on this
+    # pooled connection corrupts it and every later query on it misbehaves.
+    await db.flush()
     # `get_plan` above already loaded `items` on an upgraded mirror; the new
     # rows were added by FK, not through that collection, so it's now stale —
     # expire it or the reload below serves back the pre-upgrade item list.
@@ -233,7 +236,8 @@ async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -
         await _new_item(db, entry, extra, order, status_=extra.status, user_id=user_id)
         order += 1
 
-    await db.commit()
+    # Not committed here — see the matching note in `create_plan`.
+    await db.flush()
     return await db.scalar(_loaded(select(DailyEntry).where(DailyEntry.id == entry.id)))
 
 

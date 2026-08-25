@@ -47,16 +47,14 @@ export function PlanBoard() {
                   <span className="plan-legend-item">
                     <span className="plan-mark plan-mark--no" aria-hidden="true">✗</span> no
                   </span>
-                  <span className="plan-legend-item muted">
-                    Left mark = plan filed, right mark = update logged
-                  </span>
                 </div>
                 <div className="table-scroll">
                   <table>
                     <thead>
                       <tr>
                         <th>Member</th>
-                        <th className="num">Plan / Update</th>
+                        <th className="num">Plan</th>
+                        <th className="num">Update</th>
                         <th className="num">Created</th>
                         <th className="num">Closed</th>
                       </tr>
@@ -72,6 +70,8 @@ export function PlanBoard() {
                           <td className="num plan-cell">
                             <Mark yes={r.planned}
                                   label={`${r.member} · Plan ${r.planned ? "filed" : "not filed"}`} />
+                          </td>
+                          <td className="num plan-cell">
                             <Mark yes={r.updated}
                                   label={`${r.member} · Update ${r.updated ? "logged" : "not logged"}`} />
                           </td>

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_session
 from core.dates import resolve_range, today
 from core.dates import now as ist_now
-from core.deps import Viewer, get_viewer
+from core.deps import ADMINS, Viewer, get_viewer, require_role
 from core.orm import DailyEntry, EntryItem, EntryItemStatusEvent, User
 from core.users import current_user
 from integrations import jira, slack
@@ -25,6 +25,8 @@ from services import entries as svc
 from services import publish
 
 router = APIRouter(prefix="/api", tags=["entries"], dependencies=[Depends(current_user)])
+
+admin_only = Depends(require_role(*ADMINS))
 
 
 @router.get("/entries", response_model=Page[EntryOut])
@@ -215,13 +217,16 @@ async def _owned(db: AsyncSession, viewer: Viewer, item_id: int) -> EntryItem:
     return item
 
 
-@router.delete("/entry-items/{item_id}", status_code=204)
+@router.delete("/entry-items/{item_id}", status_code=204, dependencies=[admin_only])
 async def delete_item(item_id: int, background: BackgroundTasks,
-                      db: AsyncSession = Depends(get_session),
-                      viewer: Viewer = Depends(get_viewer)):
+                      db: AsyncSession = Depends(get_session)):
     """Unlike deleting a whole entry, deleting one ticket also cancels its
-    linked Jira issue — this is the explicit 'get rid of this ticket' action."""
-    item = await _owned(db, viewer, item_id)
+    linked Jira issue — this is the explicit 'get rid of this ticket' action.
+    Destructive and irreversible enough that even the ticket's own owner
+    can't do it — only an admin."""
+    item = await db.get(EntryItem, item_id)
+    if item is None:
+        raise svc.err(404, "not_found", "No such item.")
     key = item.jira_issue_key
     await db.delete(item)
     await db.commit()
