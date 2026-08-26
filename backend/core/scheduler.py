@@ -36,13 +36,17 @@ async def _sync_jira_history() -> None:
     Unknown assignees become inactive members rather than being dropped, so
     nothing silently vanishes from the totals.
     """
-    from datetime import date
 
     from scripts.backfill_jira import DEFAULT_FROM, run
 
     try:
-        result = await run(DEFAULT_FROM, dry_run=False, create_missing=True,
-                           refresh=True, incremental=True)
+        result = await run(
+            DEFAULT_FROM,
+            dry_run=False,
+            create_missing=True,
+            refresh=True,
+            incremental=True,
+        )
         log.info("jira history sync: %s", result)
     except Exception:
         log.exception("jira history sync failed")
@@ -112,7 +116,9 @@ async def _remind_to_plan() -> None:
 def _digest(kind: str):
     async def run() -> None:
         try:
-            log.info("slack %s digest: %s", kind, await slack.post_digest(today(), kind))
+            log.info(
+                "slack %s digest: %s", kind, await slack.post_digest(today(), kind)
+            )
         except Exception:
             log.exception("slack %s digest failed", kind)
 
@@ -125,7 +131,11 @@ def _roll_call(phase: str):
 
     async def run() -> None:
         try:
-            log.info("slack %s roll call: %s", phase, await slack.post_roll_call(today(), phase))
+            log.info(
+                "slack %s roll call: %s",
+                phase,
+                await slack.post_roll_call(today(), phase),
+            )
         except Exception:
             log.exception("slack %s roll call failed", phase)
 
@@ -140,8 +150,11 @@ def _weekly_plan_status(phase: str):
     async def run() -> None:
         try:
             week_start, _ = week_bounds(today())
-            log.info("slack weekly plan %s: %s", phase,
-                     await slack.post_weekly_plan_status(week_start, phase))
+            log.info(
+                "slack weekly plan %s: %s",
+                phase,
+                await slack.post_weekly_plan_status(week_start, phase),
+            )
         except Exception:
             log.exception("slack weekly plan %s failed", phase)
 
@@ -150,40 +163,107 @@ def _weekly_plan_status(phase: str):
 
 def start() -> AsyncIOScheduler:
     s = AsyncIOScheduler(timezone=TZ)
-    s.add_job(_sync_content_requests, IntervalTrigger(minutes=15),
-              id="content_requests", max_instances=1, coalesce=True)
-    s.add_job(_sweep_jira, IntervalTrigger(minutes=5),
-              id="jira_sweep", max_instances=1, coalesce=True)
+    s.add_job(
+        _sync_content_requests,
+        IntervalTrigger(minutes=15),
+        id="content_requests",
+        max_instances=1,
+        coalesce=True,
+    )
+    s.add_job(
+        _sweep_jira,
+        IntervalTrigger(minutes=5),
+        id="jira_sweep",
+        max_instances=1,
+        coalesce=True,
+    )
     # Every 10 min, not nightly. The sync filters on `updated` now, so a quiet
     # window costs one API call instead of twelve — and nightly meant a
     # reassignment or an edited effort value stayed wrong for up to a day.
-    s.add_job(_sync_jira_history, IntervalTrigger(minutes=10),
-              id="jira_history", max_instances=1, coalesce=True)
+    s.add_job(
+        _sync_jira_history,
+        IntervalTrigger(minutes=10),
+        id="jira_history",
+        max_instances=1,
+        coalesce=True,
+    )
     # A full re-fetch, not incremental — a deletion emits no `updated` event,
     # so this is the only way that drift ever surfaces. Heavier, hence hourly.
-    s.add_job(_mark_jira_deletions, IntervalTrigger(hours=2),
-              id="jira_deletions", max_instances=1, coalesce=True)
-    s.add_job(_publish_scheduled, IntervalTrigger(minutes=1),
-              id="publish_scheduled", max_instances=1, coalesce=True)
-    s.add_job(_remind_to_plan,
-              CronTrigger(hour=settings.PLAN_REMINDER_HOUR, minute=0, day_of_week="mon-fri", timezone=TZ),
-              id="plan_reminder", max_instances=1, coalesce=True)
+    s.add_job(
+        _mark_jira_deletions,
+        IntervalTrigger(hours=2),
+        id="jira_deletions",
+        max_instances=1,
+        coalesce=True,
+    )
+    s.add_job(
+        _publish_scheduled,
+        IntervalTrigger(minutes=1),
+        id="publish_scheduled",
+        max_instances=1,
+        coalesce=True,
+    )
+    s.add_job(
+        _remind_to_plan,
+        CronTrigger(
+            hour=settings.PLAN_REMINDER_HOUR,
+            minute=0,
+            day_of_week="mon-fri",
+            timezone=TZ,
+        ),
+        id="plan_reminder",
+        max_instances=1,
+        coalesce=True,
+    )
     if settings.SLACK_BOT_TOKEN:
-        s.add_job(_digest("plan"), CronTrigger(hour=10, minute=30, timezone=TZ), id="digest_plan")
-        s.add_job(_digest("update"), CronTrigger(hour=19, minute=30, timezone=TZ), id="digest_update")
+        s.add_job(
+            _digest("plan"),
+            CronTrigger(hour=10, minute=30, timezone=TZ),
+            id="digest_plan",
+        )
+        s.add_job(
+            _digest("update"),
+            CronTrigger(hour=19, minute=30, timezone=TZ),
+            id="digest_update",
+        )
         # Roll call: the whole roster's status in one message, Mon-Fri only —
         # unlike the digests above, weekends have nothing to chase anyone on.
-        s.add_job(_roll_call("morning"), CronTrigger(hour=12, minute=0, day_of_week="mon-fri", timezone=TZ),
-                  id="plan_rollcall", max_instances=1, coalesce=True)
-        s.add_job(_roll_call("evening"), CronTrigger(hour=19, minute=35, day_of_week="mon-fri", timezone=TZ),
-                  id="update_rollcall", max_instances=1, coalesce=True)
+        s.add_job(
+            _roll_call("morning"),
+            CronTrigger(hour=12, minute=0, day_of_week="mon-fri", timezone=TZ),
+            id="plan_rollcall",
+            max_instances=1,
+            coalesce=True,
+        )
+        s.add_job(
+            _roll_call("evening"),
+            CronTrigger(hour=19, minute=35, day_of_week="mon-fri", timezone=TZ),
+            id="update_rollcall",
+            max_instances=1,
+            coalesce=True,
+        )
         # Same evening roll call, posted again late — catches anyone who logs
         # their update after the 19:35 check-in rather than before it.
-        s.add_job(_roll_call("evening"), CronTrigger(hour=23, minute=55, day_of_week="mon-fri", timezone=TZ),
-                  id="update_rollcall_late", max_instances=1, coalesce=True)
-        s.add_job(_weekly_plan_status("monday"), CronTrigger(hour=23, minute=59, day_of_week="mon", timezone=TZ),
-                  id="weekly_plan_monday", max_instances=1, coalesce=True)
-        s.add_job(_weekly_plan_status("friday"), CronTrigger(hour=23, minute=59, day_of_week="fri", timezone=TZ),
-                  id="weekly_plan_friday", max_instances=1, coalesce=True)
+        s.add_job(
+            _roll_call("evening"),
+            CronTrigger(hour=23, minute=55, day_of_week="mon-fri", timezone=TZ),
+            id="update_rollcall_late",
+            max_instances=1,
+            coalesce=True,
+        )
+        s.add_job(
+            _weekly_plan_status("monday"),
+            CronTrigger(hour=23, minute=59, day_of_week="mon", timezone=TZ),
+            id="weekly_plan_monday",
+            max_instances=1,
+            coalesce=True,
+        )
+        s.add_job(
+            _weekly_plan_status("friday"),
+            CronTrigger(hour=23, minute=59, day_of_week="fri", timezone=TZ),
+            id="weekly_plan_friday",
+            max_instances=1,
+            coalesce=True,
+        )
     s.start()
     return s

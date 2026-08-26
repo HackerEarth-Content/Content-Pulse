@@ -101,16 +101,18 @@ async def publish_due(db: AsyncSession, now: datetime | None = None) -> dict:
     late rather than never.
     """
     now = now or ist_now()
-    entries = (await db.scalars(
-        select(DailyEntry)
-        .options(selectinload(DailyEntry.items))
-        .where(
-            DailyEntry.post_at.isnot(None),
-            DailyEntry.post_at <= now,
-            DailyEntry.posted_at.is_(None),
+    entries = (
+        await db.scalars(
+            select(DailyEntry)
+            .options(selectinload(DailyEntry.items))
+            .where(
+                DailyEntry.post_at.isnot(None),
+                DailyEntry.post_at <= now,
+                DailyEntry.posted_at.is_(None),
+            )
+            .order_by(DailyEntry.post_at)
         )
-        .order_by(DailyEntry.post_at)
-    )).all()
+    ).all()
 
     published = 0
     for entry in entries:

@@ -39,7 +39,9 @@ class MeOut(BaseModel):
 
 
 @router.get("/users/me", response_model=MeOut)
-async def me(user: User = Depends(current_user), member: Member | None = Depends(get_member)):
+async def me(
+    user: User = Depends(current_user), member: Member | None = Depends(get_member)
+):
     """The SPA reads `member` to decide what's writable — a signed-in user with
     no linked member row gets read-only."""
     return MeOut(
@@ -60,8 +62,13 @@ async def google_login():
         await google_oauth_client.get_authorization_url(CALLBACK_URL, state)
     )
     response.set_cookie(
-        "fastapiusersoauthcsrf", csrf, max_age=3600, path="/", httponly=True,
-        secure=settings.ENVIRONMENT == "production", samesite="lax",
+        "fastapiusersoauthcsrf",
+        csrf,
+        max_age=3600,
+        path="/",
+        httponly=True,
+        secure=settings.ENVIRONMENT == "production",
+        samesite="lax",
     )
     return response
 

@@ -66,7 +66,10 @@ AREA_LABELS = {
 def area_for(pipeline: str, request_type: str | None) -> str:
     """The grouping the Requests screen reports on. Content Requests split by
     their Request type; everything else is its own area."""
-    if pipeline == "content_request" and (request_type or "") in ASSESSMENT_REQUEST_TYPES:
+    if (
+        pipeline == "content_request"
+        and (request_type or "") in ASSESSMENT_REQUEST_TYPES
+    ):
         return "content_assessment"
     return pipeline
 
@@ -77,9 +80,16 @@ def pipeline_for(issue_type: str | None) -> str:
         return DEFAULT_PIPELINE
     return PIPELINES.get(
         issue_type.strip(),
-        issue_type.strip().lower().replace(":", "").replace("/", "_")
-        .replace(" ", "_").strip("_") or DEFAULT_PIPELINE,
+        issue_type.strip()
+        .lower()
+        .replace(":", "")
+        .replace("/", "_")
+        .replace(" ", "_")
+        .strip("_")
+        or DEFAULT_PIPELINE,
     )
+
+
 KINDS = ("plan", "update")
 SOURCES = ("web", "slack", "api", "import", "jira")
 ROLES = ("content", "ae", "manager", "admin")
@@ -110,7 +120,9 @@ class Timestamps:
 
 
 class OAuthAccount(SQLAlchemyBaseOAuthAccountTable[str], Base):
-    id: Mapped[str] = mapped_column(Text, primary_key=True, default=lambda: str(uuid4()))
+    id: Mapped[str] = mapped_column(
+        Text, primary_key=True, default=lambda: str(uuid4())
+    )
 
     @declared_attr
     def user_id(cls) -> Mapped[str]:
@@ -154,7 +166,6 @@ class QuestionType(Lookup, Base):
     __tablename__ = "question_types"
 
 
-
 # ── members ───────────────────────────────────────────────────────────────────
 
 
@@ -176,8 +187,11 @@ class Member(Timestamps, Base):
         _enum("role", ROLES),
         # Spelled the way Postgres echoes it back, or every autogenerate
         # proposes dropping and recreating this index for nothing.
-        Index("uq_members_name_ci",
-              text("lower(TRIM(BOTH FROM display_name))"), unique=True),
+        Index(
+            "uq_members_name_ci",
+            text("lower(TRIM(BOTH FROM display_name))"),
+            unique=True,
+        ),
         Index("ix_members_active_role", "is_active", "role"),
     )
 
@@ -220,7 +234,9 @@ class DailyEntry(Timestamps, Base):
     entry_date: Mapped[date]
     kind: Mapped[str]
     status: Mapped[str] = mapped_column(default="open")
-    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="RESTRICT"))
+    member_id: Mapped[int] = mapped_column(
+        ForeignKey("members.id", ondelete="RESTRICT")
+    )
     raw_text: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(default="web")
     idempotency_key: Mapped[str | None] = mapped_column(unique=True)
@@ -250,8 +266,16 @@ class DailyEntry(Timestamps, Base):
 entry_item_question_types = Table(
     "entry_item_question_types",
     Base.metadata,
-    Column("entry_item_id", ForeignKey("entry_items.id", ondelete="CASCADE"), primary_key=True),
-    Column("question_type_id", ForeignKey("question_types.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "entry_item_id",
+        ForeignKey("entry_items.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "question_type_id",
+        ForeignKey("question_types.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -262,7 +286,8 @@ class EntryItem(Timestamps, Base):
         _enum("jira_state", JIRA_STATES),
         CheckConstraint("count IS NULL OR count > 0", name="ck_count_positive"),
         CheckConstraint(
-            "effort_minutes IS NULL OR effort_minutes >= 0", name="ck_effort_non_negative"
+            "effort_minutes IS NULL OR effort_minutes >= 0",
+            name="ck_effort_non_negative",
         ),
         Index("ix_items_entry", "entry_id"),
         Index("ix_items_plan_item", "plan_item_id"),
@@ -278,7 +303,9 @@ class EntryItem(Timestamps, Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    entry_id: Mapped[int] = mapped_column(ForeignKey("daily_entries.id", ondelete="CASCADE"))
+    entry_id: Mapped[int] = mapped_column(
+        ForeignKey("daily_entries.id", ondelete="CASCADE")
+    )
     # Set on update rows: the plan row this one reports progress on.
     plan_item_id: Mapped[int | None] = mapped_column(
         ForeignKey("entry_items.id", ondelete="SET NULL")
@@ -333,7 +360,9 @@ class EntryItem(Timestamps, Base):
     # Whether this task should become a Jira ticket at all. Plenty of logged
     # work has no business being a ticket, and until now every planned item was
     # pushed whether anyone wanted it or not.
-    jira_wanted: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    jira_wanted: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false")
+    )
     jira_issue_key: Mapped[str | None]
     jira_issue_url: Mapped[str | None]
     jira_state: Mapped[str] = mapped_column(default="none")
@@ -341,14 +370,18 @@ class EntryItem(Timestamps, Base):
     # True when a periodic check no longer finds this issue key in Jira — it
     # was deleted there. We never delete our own row for it: that would erase
     # history for something that was, at some point, real logged work.
-    jira_missing: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    jira_missing: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false")
+    )
 
     entry: Mapped[DailyEntry] = relationship(
         back_populates="items", foreign_keys=[entry_id]
     )
     task_type: Mapped[TaskType] = relationship(lazy="joined")
     question_types: Mapped[list[QuestionType]] = relationship(
-        secondary=entry_item_question_types, lazy="selectin", order_by=QuestionType.sort_order,
+        secondary=entry_item_question_types,
+        lazy="selectin",
+        order_by=QuestionType.sort_order,
     )
 
 

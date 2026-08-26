@@ -34,35 +34,54 @@ def _guard_add_window() -> None:
     # Monday (filing) or Friday (extra rows) only — see WeeklyPlan.tsx for the
     # matching client-side time-of-day narrowing within those two days.
     if today().weekday() not in (0, 4):
-        raise err(422, "window_closed",
-                  "Weekly plan items can only be added Monday or Friday.")
+        raise err(
+            422,
+            "window_closed",
+            "Weekly plan items can only be added Monday or Friday.",
+        )
 
 
-async def list_items(db: AsyncSession, member_id: int, week_start: date) -> list[WeeklyPlanItem]:
-    return list(await db.scalars(
-        select(WeeklyPlanItem)
-        .where(WeeklyPlanItem.member_id == member_id, WeeklyPlanItem.week_start == week_start)
-        .order_by(WeeklyPlanItem.id)
-    ))
+async def list_items(
+    db: AsyncSession, member_id: int, week_start: date
+) -> list[WeeklyPlanItem]:
+    return list(
+        await db.scalars(
+            select(WeeklyPlanItem)
+            .where(
+                WeeklyPlanItem.member_id == member_id,
+                WeeklyPlanItem.week_start == week_start,
+            )
+            .order_by(WeeklyPlanItem.id)
+        )
+    )
 
 
-async def list_items_for_all(db: AsyncSession, week_start: date) -> list[WeeklyPlanItem]:
+async def list_items_for_all(
+    db: AsyncSession, week_start: date
+) -> list[WeeklyPlanItem]:
     """Every active member's items for one week — a lead browsing the whole
     team rather than one person at a time. Any week, past or future: nothing
     here narrows to "the current week", that's only ever a frontend default."""
-    return list(await db.scalars(
-        select(WeeklyPlanItem)
-        .join(Member, Member.id == WeeklyPlanItem.member_id)
-        .where(WeeklyPlanItem.week_start == week_start, Member.is_active.is_(True))
-        .order_by(Member.display_name, WeeklyPlanItem.id)
-    ))
+    return list(
+        await db.scalars(
+            select(WeeklyPlanItem)
+            .join(Member, Member.id == WeeklyPlanItem.member_id)
+            .where(WeeklyPlanItem.week_start == week_start, Member.is_active.is_(True))
+            .order_by(Member.display_name, WeeklyPlanItem.id)
+        )
+    )
 
 
 async def create_item(
-    db: AsyncSession, member_id: int, week_start: date, action: str,
+    db: AsyncSession,
+    member_id: int,
+    week_start: date,
+    action: str,
 ) -> WeeklyPlanItem:
     _guard_add_window()
-    item = WeeklyPlanItem(member_id=member_id, week_start=week_start, action=action.strip())
+    item = WeeklyPlanItem(
+        member_id=member_id, week_start=week_start, action=action.strip()
+    )
     db.add(item)
     await db.commit()
     await db.refresh(item)
@@ -70,8 +89,12 @@ async def create_item(
 
 
 async def patch_item(
-    db: AsyncSession, item_id: int, member_id: int, *,
-    status: str | None, achievement: str | None,
+    db: AsyncSession,
+    item_id: int,
+    member_id: int,
+    *,
+    status: str | None,
+    achievement: str | None,
 ) -> WeeklyPlanItem:
     item = await db.get(WeeklyPlanItem, item_id)
     if item is None or item.member_id != member_id:
@@ -79,12 +102,20 @@ async def patch_item(
 
     if status is not None:
         if status not in SETTABLE_STATUSES:
-            raise err(422, "bad_status", f"Status must be one of: {', '.join(SETTABLE_STATUSES)}.")
+            raise err(
+                422,
+                "bad_status",
+                f"Status must be one of: {', '.join(SETTABLE_STATUSES)}.",
+            )
         item.status = status
 
     if achievement is not None:
         if not is_friday():
-            raise err(422, "achievements_locked", "Achievements can only be recorded on Friday.")
+            raise err(
+                422,
+                "achievements_locked",
+                "Achievements can only be recorded on Friday.",
+            )
         item.achievement = achievement.strip() or None
 
     await db.commit()
@@ -97,17 +128,26 @@ async def completion(db: AsyncSession, week_start: date) -> dict:
     at least one item off `yet_to_start` or recorded an achievement — the two
     numbers the Monday/Friday 11:59pm Slack digest reports."""
     active = set(await db.scalars(select(Member.id).where(Member.is_active.is_(True))))
-    filed = set(await db.scalars(
-        select(WeeklyPlanItem.member_id).where(WeeklyPlanItem.week_start == week_start).distinct()
-    ))
-    updated = set(await db.scalars(
-        select(WeeklyPlanItem.member_id)
-        .where(
-            WeeklyPlanItem.week_start == week_start,
-            or_(WeeklyPlanItem.status != "yet_to_start", WeeklyPlanItem.achievement.isnot(None)),
+    filed = set(
+        await db.scalars(
+            select(WeeklyPlanItem.member_id)
+            .where(WeeklyPlanItem.week_start == week_start)
+            .distinct()
         )
-        .distinct()
-    ))
+    )
+    updated = set(
+        await db.scalars(
+            select(WeeklyPlanItem.member_id)
+            .where(
+                WeeklyPlanItem.week_start == week_start,
+                or_(
+                    WeeklyPlanItem.status != "yet_to_start",
+                    WeeklyPlanItem.achievement.isnot(None),
+                ),
+            )
+            .distinct()
+        )
+    )
     return {
         "active": len(active),
         "filed": len(filed & active),

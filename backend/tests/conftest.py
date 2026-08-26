@@ -9,6 +9,7 @@ from core.orm import DailyEntry, Member, TaskType, User
 from core.users import current_user
 from main import app
 
+
 @pytest.fixture(autouse=True)
 def no_outbound(monkeypatch):
     """Nothing leaves the process during a test.
@@ -42,9 +43,11 @@ async def deactivate_test_members():
     yield
     names = [TEST_MEMBER, AE_MEMBER, ADMIN_MEMBER, "RBAC Ada", "RBAC Grace"]
     async with Session() as db:
-        ids = (await db.execute(
-            select(Member.id).where(Member.display_name.in_(names))
-        )).scalars().all()
+        ids = (
+            (await db.execute(select(Member.id).where(Member.display_name.in_(names))))
+            .scalars()
+            .all()
+        )
         if ids:
             # Items cascade from the entry.
             await db.execute(delete(DailyEntry).where(DailyEntry.member_id.in_(ids)))
@@ -65,15 +68,23 @@ async def fake_user():
     async with Session() as db:
         user = await db.get(User, "test-user")
         if user is None:
-            user = User(id="test-user", email="pytest@example.com", name="PyTest",
-                        hashed_password="", is_verified=True)
+            user = User(
+                id="test-user",
+                email="pytest@example.com",
+                name="PyTest",
+                hashed_password="",
+                is_verified=True,
+            )
             db.add(user)
             await db.commit()
 
-        admin = await db.scalar(select(Member).where(Member.display_name == ADMIN_MEMBER))
+        admin = await db.scalar(
+            select(Member).where(Member.display_name == ADMIN_MEMBER)
+        )
         if admin is None:
-            admin = Member(display_name=ADMIN_MEMBER, email="pytest@example.com",
-                           role="admin")
+            admin = Member(
+                display_name=ADMIN_MEMBER, email="pytest@example.com", role="admin"
+            )
             db.add(admin)
         admin.role, admin.user_id, admin.is_active = "admin", user.id, True
         await db.commit()
@@ -111,4 +122,6 @@ async def member() -> int:
 @pytest_asyncio.fixture
 async def task_type() -> int:
     async with Session() as db:
-        return await db.scalar(select(TaskType.id).order_by(TaskType.sort_order).limit(1))
+        return await db.scalar(
+            select(TaskType.id).order_by(TaskType.sort_order).limit(1)
+        )

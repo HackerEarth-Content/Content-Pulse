@@ -13,7 +13,9 @@ class WeeklyPlanItemIn(BaseModel):
 
 
 class WeeklyPlanItemPatch(BaseModel):
-    status: str | None = Field(default=None, pattern="^(" + "|".join(WEEKLY_PLAN_STATUSES) + ")$")
+    status: str | None = Field(
+        default=None, pattern="^(" + "|".join(WEEKLY_PLAN_STATUSES) + ")$"
+    )
     achievement: str | None = None
 
 
@@ -32,9 +34,14 @@ class WeeklyPlanItemOut(BaseModel):
     @classmethod
     def of(cls, item) -> WeeklyPlanItemOut:
         return cls(
-            id=item.id, member_id=item.member_id, member=item.member.display_name,
-            week_start=item.week_start, action=item.action, achievement=item.achievement,
-            status=item.status, updated_at=item.updated_at,
+            id=item.id,
+            member_id=item.member_id,
+            member=item.member.display_name,
+            week_start=item.week_start,
+            action=item.action,
+            achievement=item.achievement,
+            status=item.status,
+            updated_at=item.updated_at,
         )
 
 

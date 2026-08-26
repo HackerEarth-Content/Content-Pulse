@@ -30,7 +30,9 @@ async def fixtures(db):
 async def test_one_plan_per_member_per_day(db, fixtures):
     member, _ = fixtures
     for _ in range(2):
-        db.add(DailyEntry(entry_date=date(2026, 1, 5), kind="plan", member_id=member.id))
+        db.add(
+            DailyEntry(entry_date=date(2026, 1, 5), kind="plan", member_id=member.id)
+        )
     with pytest.raises(IntegrityError):
         await db.flush()
 
@@ -38,7 +40,9 @@ async def test_one_plan_per_member_per_day(db, fixtures):
 async def test_two_updates_per_day_allowed(db, fixtures):
     member, _ = fixtures
     for _ in range(2):
-        db.add(DailyEntry(entry_date=date(2026, 1, 5), kind="update", member_id=member.id))
+        db.add(
+            DailyEntry(entry_date=date(2026, 1, 5), kind="update", member_id=member.id)
+        )
     await db.flush()
 
 

@@ -7,7 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from core.orm import PIPELINES, STATUSES
 
 Status = Field(default="open", pattern="^(" + "|".join(STATUSES) + ")$")
-Pipeline = Field(default="content_task", pattern="^(" + "|".join(PIPELINES.values()) + ")$")
+Pipeline = Field(
+    default="content_task", pattern="^(" + "|".join(PIPELINES.values()) + ")$"
+)
 PIPELINE_LABELS = {slug: label for label, slug in PIPELINES.items()}
 
 
@@ -157,11 +159,28 @@ class ItemOut(ORMModel):
     @classmethod
     def of(cls, it) -> ItemOut:
         return cls(
-            **{k: getattr(it, k) for k in
-               ("id", "plan_item_id", "task_type_id", "pipeline", "customer", "count", "notes",
-                "due_at", "effort_minutes", "status", "jira_wanted",
-                "jira_issue_key", "jira_issue_url", "jira_state", "jira_missing",
-                "parent_issue_key", "parent_issue_url")},
+            **{
+                k: getattr(it, k)
+                for k in (
+                    "id",
+                    "plan_item_id",
+                    "task_type_id",
+                    "pipeline",
+                    "customer",
+                    "count",
+                    "notes",
+                    "due_at",
+                    "effort_minutes",
+                    "status",
+                    "jira_wanted",
+                    "jira_issue_key",
+                    "jira_issue_url",
+                    "jira_state",
+                    "jira_missing",
+                    "parent_issue_key",
+                    "parent_issue_url",
+                )
+            },
             task_type=it.task_type.name,
             title=_title(it),
             work_type=PIPELINE_LABELS.get(it.pipeline, it.pipeline),
@@ -186,9 +205,21 @@ class EntryOut(ORMModel):
     @classmethod
     def of(cls, e) -> EntryOut:
         return cls(
-            **{k: getattr(e, k) for k in
-               ("id", "entry_date", "kind", "status", "member_id", "raw_text",
-                "source", "updated_at", "post_at", "posted_at")},
+            **{
+                k: getattr(e, k)
+                for k in (
+                    "id",
+                    "entry_date",
+                    "kind",
+                    "status",
+                    "member_id",
+                    "raw_text",
+                    "source",
+                    "updated_at",
+                    "post_at",
+                    "posted_at",
+                )
+            },
             member=e.member.display_name,
             items=[ItemOut.of(i) for i in e.items],
         )
@@ -227,13 +258,34 @@ class WorkLogRow(ORMModel):
     @classmethod
     def of(cls, item, entry) -> WorkLogRow:
         return cls(
-            **{k: getattr(item, k) for k in
-               ("id", "entry_id", "task_type_id", "customer", "count", "effort_minutes", "notes",
-                "due_at", "status", "pipeline", "external_issue_type", "request_type",
-                "jira_issue_key", "jira_issue_url", "jira_state", "jira_missing",
-                "parent_issue_key", "parent_issue_url", "plan_item_id")},
-            entry_date=entry.entry_date, kind=entry.kind,
-            member_id=entry.member_id, member=entry.member.display_name,
+            **{
+                k: getattr(item, k)
+                for k in (
+                    "id",
+                    "entry_id",
+                    "task_type_id",
+                    "customer",
+                    "count",
+                    "effort_minutes",
+                    "notes",
+                    "due_at",
+                    "status",
+                    "pipeline",
+                    "external_issue_type",
+                    "request_type",
+                    "jira_issue_key",
+                    "jira_issue_url",
+                    "jira_state",
+                    "jira_missing",
+                    "parent_issue_key",
+                    "parent_issue_url",
+                    "plan_item_id",
+                )
+            },
+            entry_date=entry.entry_date,
+            kind=entry.kind,
+            member_id=entry.member_id,
+            member=entry.member.display_name,
             task_type=item.task_type.name,
             title=_title(item),
             question_types=[q.name for q in item.question_types],

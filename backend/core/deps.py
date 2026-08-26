@@ -19,7 +19,7 @@ from core.orm import Member, User
 from core.users import current_user
 
 ADMINS = ("admin",)
-LEADS = ("admin", "manager")   # may read and write on anyone's behalf
+LEADS = ("admin", "manager")  # may read and write on anyone's behalf
 
 
 async def get_member(

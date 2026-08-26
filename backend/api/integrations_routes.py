@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
 from core.database import get_session
-from core.dates import resolve_range, today
+from core.dates import today
 from core.deps import ADMINS, require_role
 from core.orm import SyncCursor
 from core.users import current_user
@@ -20,8 +20,9 @@ log = logging.getLogger(__name__)
 
 admin_only = Depends(require_role(*ADMINS))
 
-router = APIRouter(prefix="/api", tags=["integrations"],
-                   dependencies=[Depends(current_user)])
+router = APIRouter(
+    prefix="/api", tags=["integrations"], dependencies=[Depends(current_user)]
+)
 
 
 @router.get("/content-requests")
@@ -37,9 +38,18 @@ async def list_content_requests(
     page_size: int = Query(25, ge=1, le=200),
     db: AsyncSession = Depends(get_session),
 ):
-    return await cr.query(db, status=status, assignee=assignee, priority=priority,
-                          issue_type=issue_type, frm=frm, to=to, q=q,
-                          page=page, page_size=page_size)
+    return await cr.query(
+        db,
+        status=status,
+        assignee=assignee,
+        priority=priority,
+        issue_type=issue_type,
+        frm=frm,
+        to=to,
+        q=q,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/content-requests/filters")
@@ -73,6 +83,7 @@ class DigestIn(BaseModel):
 async def slack_digest(data: DigestIn):
     """Replaces `manage.py post_slack_daily`."""
     from core.dates import today
+
     return await slack.post_digest(data.on or today(), data.kind, data.dry_run)
 
 
@@ -89,7 +100,9 @@ async def slack_roll_call(data: RollCallIn):
 
 
 @router.post("/integrations/email/plan-reminder")
-async def send_plan_reminder(dry_run: bool = True, db: AsyncSession = Depends(get_session)):
+async def send_plan_reminder(
+    dry_run: bool = True, db: AsyncSession = Depends(get_session)
+):
     """Who would be nudged, and optionally do it now rather than waiting for 11am.
     Defaults to a dry run — sending mail is not something to do by accident."""
     from integrations import email as mail
@@ -97,8 +110,11 @@ async def send_plan_reminder(dry_run: bool = True, db: AsyncSession = Depends(ge
 
     people = await members_without_a_plan(db, today())
     if dry_run:
-        return {"dry_run": True, "would_email": [m.display_name for m in people],
-                "enabled": settings.EMAIL_ENABLED}
+        return {
+            "dry_run": True,
+            "would_email": [m.display_name for m in people],
+            "enabled": settings.EMAIL_ENABLED,
+        }
     return await mail.send_plan_reminders(people, f"{settings.FRONTEND_URL}/my-day")
 
 
@@ -129,8 +145,12 @@ async def retry_pending():
 async def sync_status(db: AsyncSession = Depends(get_session)):
     rows = await db.scalars(select(SyncCursor))
     return [
-        {"key": r.key, "last_synced_at": r.last_synced_at,
-         "status": r.last_status, "error": r.last_error}
+        {
+            "key": r.key,
+            "last_synced_at": r.last_synced_at,
+            "status": r.last_status,
+            "error": r.last_error,
+        }
         for r in rows
     ]
 
@@ -163,13 +183,18 @@ async def _sync_history() -> None:
         # pass. The check that counts is this one.
         last = _sync_state["last_run"]
         if last and datetime.now(UTC) - last < _SYNC_COOLDOWN:
-            log.debug("jira history sync skipped; ran %ss ago",
-                      int((datetime.now(UTC) - last).total_seconds()))
+            log.debug(
+                "jira history sync skipped; ran %ss ago",
+                int((datetime.now(UTC) - last).total_seconds()),
+            )
             return
         try:
             _sync_state["last_result"] = await run(
-                DEFAULT_FROM, dry_run=False, create_missing=True,
-                refresh=True, incremental=True,
+                DEFAULT_FROM,
+                dry_run=False,
+                create_missing=True,
+                refresh=True,
+                incremental=True,
             )
             _sync_state["last_error"] = None
         except Exception as e:
@@ -191,8 +216,11 @@ async def sync_jira_history(background: BackgroundTasks, force: bool = False):
         return {"started": False, "reason": "a sync is already running"}
     if not force and last and datetime.now(UTC) - last < _SYNC_COOLDOWN:
         age = int((datetime.now(UTC) - last).total_seconds())
-        return {"started": False, "reason": f"synced {age}s ago", "cooldown_seconds":
-                int(_SYNC_COOLDOWN.total_seconds())}
+        return {
+            "started": False,
+            "reason": f"synced {age}s ago",
+            "cooldown_seconds": int(_SYNC_COOLDOWN.total_seconds()),
+        }
 
     background.add_task(_sync_history)
     return {"started": True}

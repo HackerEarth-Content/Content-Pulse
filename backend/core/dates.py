@@ -28,7 +28,9 @@ def day_bounds_utc(d: date) -> tuple[datetime, datetime]:
     such a column directly to a bare `date` silently treats it as UTC
     midnight, which is 5:30 off from midnight IST — the exact mis-dating this
     module's `today()` already exists to avoid."""
-    start = datetime(d.year, d.month, d.day, tzinfo=TZ).astimezone(UTC).replace(tzinfo=None)
+    start = (
+        datetime(d.year, d.month, d.day, tzinfo=TZ).astimezone(UTC).replace(tzinfo=None)
+    )
     end = datetime(d.year, d.month, d.day, tzinfo=TZ) + timedelta(days=1)
     return start, end.astimezone(UTC).replace(tzinfo=None)
 
@@ -45,7 +47,9 @@ def month_bounds(d: date | None = None) -> tuple[date, date]:
     return start, (start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
 
 
-def resolve_range(period: str | None, frm: date | None, to: date | None) -> tuple[date, date]:
+def resolve_range(
+    period: str | None, frm: date | None, to: date | None
+) -> tuple[date, date]:
     """Explicit from/to wins; otherwise a named period; otherwise the last week.
 
     No named range ever ends in the future. `week_bounds` returns the calendar

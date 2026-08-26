@@ -27,10 +27,11 @@ class _AuthFailed(RuntimeError):
     """Token rejected — stop the timer retrying until someone fixes it."""
 
 
-FIELDS = ("summary,status,assignee,reporter,priority,created,updated,"
-          "labels,issuetype,duedate,resolutiondate")
-JQL = ('project = {project} AND issuetype = "Content Requests" '
-       'ORDER BY created DESC')
+FIELDS = (
+    "summary,status,assignee,reporter,priority,created,updated,"
+    "labels,issuetype,duedate,resolutiondate"
+)
+JQL = 'project = {project} AND issuetype = "Content Requests" ORDER BY created DESC'
 
 
 def _dt(value: str | None) -> datetime | None:
@@ -80,10 +81,15 @@ async def sync(force: bool = False) -> dict:
         try:
             async with _client() as c:
                 while True:
-                    r = await c.get("/rest/api/3/search/jql", params={
-                        "jql": JQL.format(project=cfg["project_key"]),
-                        "startAt": start, "maxResults": 100, "fields": FIELDS,
-                    })
+                    r = await c.get(
+                        "/rest/api/3/search/jql",
+                        params={
+                            "jql": JQL.format(project=cfg["project_key"]),
+                            "startAt": start,
+                            "maxResults": 100,
+                            "fields": FIELDS,
+                        },
+                    )
                     if r.status_code >= 400:
                         raise RuntimeError(_explain(r))
                     body = r.json()
@@ -104,17 +110,22 @@ async def sync(force: bool = False) -> dict:
                     if who.status_code >= 400:
                         raise _AuthFailed(f"credentials rejected: {_explain(who)}")
         except Exception as e:
-            await _mark(db, "auth_failed" if isinstance(e, _AuthFailed) else "error",
-                        str(e)[:500])
+            await _mark(
+                db,
+                "auth_failed" if isinstance(e, _AuthFailed) else "error",
+                str(e)[:500],
+            )
             log.warning("content request sync failed: %s", e)
             return {"ok": False, "reason": str(e)[:200]}
 
         for row in rows:
             stmt = insert(ContentRequest).values(**row)
-            await db.execute(stmt.on_conflict_do_update(
-                index_elements=["issue_key"],
-                set_={k: v for k, v in row.items() if k != "issue_key"},
-            ))
+            await db.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["issue_key"],
+                    set_={k: v for k, v in row.items() if k != "issue_key"},
+                )
+            )
         await _mark(db, "ok", None)
         await db.commit()
         return {"ok": True, "synced": len(rows)}
@@ -123,23 +134,41 @@ async def sync(force: bool = False) -> dict:
 async def _mark(db, status: str, error: str | None) -> None:
     await db.execute(
         insert(SyncCursor)
-        .values(key=CURSOR, last_synced_at=func.now(), last_status=status, last_error=error)
+        .values(
+            key=CURSOR, last_synced_at=func.now(), last_status=status, last_error=error
+        )
         .on_conflict_do_update(
             index_elements=["key"],
-            set_={"last_synced_at": func.now(), "last_status": status, "last_error": error},
+            set_={
+                "last_synced_at": func.now(),
+                "last_status": status,
+                "last_error": error,
+            },
         )
     )
     await db.commit()
 
 
-async def query(db, *, status=None, assignee=None, priority=None, issue_type=None,
-                frm: date | None = None, to: date | None = None, q=None,
-                page=1, page_size=25) -> dict:
+async def query(
+    db,
+    *,
+    status=None,
+    assignee=None,
+    priority=None,
+    issue_type=None,
+    frm: date | None = None,
+    to: date | None = None,
+    q=None,
+    page=1,
+    page_size=25,
+) -> dict:
     where = []
-    for column, value in ((ContentRequest.status, status),
-                          (ContentRequest.assignee, assignee),
-                          (ContentRequest.priority, priority),
-                          (ContentRequest.issue_type, issue_type)):
+    for column, value in (
+        (ContentRequest.status, status),
+        (ContentRequest.assignee, assignee),
+        (ContentRequest.priority, priority),
+        (ContentRequest.issue_type, issue_type),
+    ):
         if value:
             where.append(column == value)
     if frm:
@@ -149,29 +178,53 @@ async def query(db, *, status=None, assignee=None, priority=None, issue_type=Non
     if q:
         where.append(ContentRequest.summary.ilike(f"%{q}%"))
 
-    total = await db.scalar(select(func.count()).select_from(ContentRequest).where(*where))
+    total = await db.scalar(
+        select(func.count()).select_from(ContentRequest).where(*where)
+    )
     rows = await db.scalars(
-        select(ContentRequest).where(*where)
+        select(ContentRequest)
+        .where(*where)
         .order_by(ContentRequest.created_at.desc().nullslast())
-        .limit(page_size).offset((page - 1) * page_size)
+        .limit(page_size)
+        .offset((page - 1) * page_size)
     )
     return {
         "items": [
-            {k: getattr(r, k) for k in
-             ("issue_key", "summary", "status", "status_category", "assignee",
-              "reporter", "priority", "issue_type", "labels", "created_at",
-              "updated_at", "due_date", "resolved_at", "url")}
+            {
+                k: getattr(r, k)
+                for k in (
+                    "issue_key",
+                    "summary",
+                    "status",
+                    "status_category",
+                    "assignee",
+                    "reporter",
+                    "priority",
+                    "issue_type",
+                    "labels",
+                    "created_at",
+                    "updated_at",
+                    "due_date",
+                    "resolved_at",
+                    "url",
+                )
+            }
             for r in rows
         ],
-        "total": total or 0, "page": page, "page_size": page_size,
+        "total": total or 0,
+        "page": page,
+        "page_size": page_size,
     }
 
 
 async def facets(db) -> dict:
     async def distinct(column):
-        return [v for (v,) in await db.execute(
-            select(column).where(column.isnot(None)).distinct().order_by(column)
-        )]
+        return [
+            v
+            for (v,) in await db.execute(
+                select(column).where(column.isnot(None)).distinct().order_by(column)
+            )
+        ]
 
     return {
         "statuses": await distinct(ContentRequest.status),
@@ -190,18 +243,24 @@ async def stats(db, frm: date | None = None, to: date | None = None) -> dict:
 
     async def group(column):
         return [
-            {"key": k, "count": n} for k, n in await db.execute(
-                select(column, func.count()).where(*where)
-                .group_by(column).order_by(func.count().desc())
+            {"key": k, "count": n}
+            for k, n in await db.execute(
+                select(column, func.count())
+                .where(*where)
+                .group_by(column)
+                .order_by(func.count().desc())
             )
         ]
 
     open_backlog = await db.scalar(
-        select(func.count()).select_from(ContentRequest)
+        select(func.count())
+        .select_from(ContentRequest)
         .where(ContentRequest.resolved_at.is_(None))
     )
     return {
-        "total": await db.scalar(select(func.count()).select_from(ContentRequest).where(*where)),
+        "total": await db.scalar(
+            select(func.count()).select_from(ContentRequest).where(*where)
+        ),
         "open_backlog": open_backlog or 0,
         "by_status": await group(ContentRequest.status),
         "by_assignee": await group(ContentRequest.assignee),

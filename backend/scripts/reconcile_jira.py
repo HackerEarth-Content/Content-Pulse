@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
 import collections
 import sys
 from datetime import date
@@ -26,7 +25,7 @@ from sqlalchemy import select
 from core.config import settings
 from core.database import Session
 from core.orm import DailyEntry, EntryItem, Member, MemberAlias
-from scripts.backfill_jira import DEFAULT_FROM, UNASSIGNED, _auth, _val
+from scripts.backfill_jira import DEFAULT_FROM, UNASSIGNED, _auth
 
 
 async def jira_side(frm: date) -> dict[str, dict]:
@@ -53,7 +52,9 @@ async def jira_side(frm: date) -> dict[str, dict]:
                 params["nextPageToken"] = token
             r = await c.get("/rest/api/3/search/jql", params=params)
             if r.status_code >= 400:
-                raise RuntimeError(f"Jira search failed: HTTP {r.status_code} {r.text[:200]}")
+                raise RuntimeError(
+                    f"Jira search failed: HTTP {r.status_code} {r.text[:200]}"
+                )
             body = r.json()
             for i in body.get("issues", []):
                 f = i["fields"]
@@ -72,8 +73,12 @@ async def db_side(frm: date) -> tuple[dict[str, dict], dict[str, str]]:
     """The same issues as we hold them, plus the Jira-name -> member map."""
     async with Session() as db:
         rows = await db.execute(
-            select(EntryItem.jira_issue_key, Member.display_name, EntryItem.effort_minutes,
-                   EntryItem.resolved_at)
+            select(
+                EntryItem.jira_issue_key,
+                Member.display_name,
+                EntryItem.effort_minutes,
+                EntryItem.resolved_at,
+            )
             .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
             .join(Member, Member.id == DailyEntry.member_id)
             .where(EntryItem.jira_issue_key.isnot(None), DailyEntry.entry_date >= frm)
@@ -82,10 +87,14 @@ async def db_side(frm: date) -> tuple[dict[str, dict], dict[str, str]]:
             k: {"who": who, "minutes": mins, "resolved": res is not None}
             for k, who, mins, res in rows
         }
-        names = {i: n for i, n in await db.execute(select(Member.id, Member.display_name))}
+        names = {
+            i: n for i, n in await db.execute(select(Member.id, Member.display_name))
+        }
         alias = {
             a.strip().lower(): names[m]
-            for a, m in await db.execute(select(MemberAlias.alias, MemberAlias.member_id))
+            for a, m in await db.execute(
+                select(MemberAlias.alias, MemberAlias.member_id)
+            )
             if m in names
         }
     return ours, alias
@@ -102,11 +111,15 @@ async def mark_missing(frm: date) -> dict:
     for something that was, at some point, real logged work."""
     jira = await jira_side(frm)
     async with Session() as db:
-        items = list(await db.scalars(
-            select(EntryItem)
-            .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
-            .where(EntryItem.jira_issue_key.isnot(None), DailyEntry.entry_date >= frm)
-        ))
+        items = list(
+            await db.scalars(
+                select(EntryItem)
+                .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+                .where(
+                    EntryItem.jira_issue_key.isnot(None), DailyEntry.entry_date >= frm
+                )
+            )
+        )
         changed = {"flagged": 0, "cleared": 0}
         for item in items:
             missing = item.jira_issue_key not in jira
@@ -146,13 +159,17 @@ async def main() -> int:
         row[1] += 1
         row[3] += o["minutes"] or 0
 
-    print(f"  {'member':<20}{'jira n':>7}{'our n':>7}{'jira min':>10}{'our min':>9}  ok")
+    print(
+        f"  {'member':<20}{'jira n':>7}{'our n':>7}{'jira min':>10}{'our min':>9}  ok"
+    )
     tot = [0, 0, 0, 0]
     for who, (jn, on, jm, om) in sorted(per.items(), key=lambda x: -x[1][2]):
         for i, v in enumerate((jn, on, jm, om)):
             tot[i] += v
-        print(f"  {who:<20}{jn:>7}{on:>7}{jm:>10}{om:>9}  "
-              f"{'yes' if jn == on and jm == om else 'NO'}")
+        print(
+            f"  {who:<20}{jn:>7}{on:>7}{jm:>10}{om:>9}  "
+            f"{'yes' if jn == on and jm == om else 'NO'}"
+        )
     print(f"  {'TOTAL':<20}{tot[0]:>7}{tot[1]:>7}{tot[2]:>10}{tot[3]:>9}")
 
     print(f"\n  missing from our db : {len(missing)} {missing[:8]}")
@@ -161,11 +178,17 @@ async def main() -> int:
     print(f"  wrong assignee      : {len(drift_owner)} {drift_owner[:5]}")
 
     gap = tot[2] - tot[3]
-    print(f"\n  effort gap: {gap} min ({gap / 60:.1f}h) of {tot[2] / 60:.1f}h "
-          f"= {abs(gap) / tot[2] * 100 if tot[2] else 0:.2f}%")
+    print(
+        f"\n  effort gap: {gap} min ({gap / 60:.1f}h) of {tot[2] / 60:.1f}h "
+        f"= {abs(gap) / tot[2] * 100 if tot[2] else 0:.2f}%"
+    )
 
     clean = not (missing or extra or drift_effort or drift_owner)
-    print("\n  CLEAN" if clean else "\n  DRIFT — run backfill_jira --refresh --incremental")
+    print(
+        "\n  CLEAN"
+        if clean
+        else "\n  DRIFT — run backfill_jira --refresh --incremental"
+    )
     return 0 if clean else 1
 
 

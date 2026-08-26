@@ -20,7 +20,7 @@ import collections
 from datetime import UTC, date, datetime, timedelta
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from core.config import settings
 from core.database import Session
@@ -45,12 +45,14 @@ DEFAULT_FROM = date(2026, 5, 4)
 # averaging loses the truth.
 SUSPECT_OVER = 600
 
-FIELDS = ("summary,created,updated,resolutiondate,resolution,priority,status,assignee,"
-          "issuetype,duedate,customfield_10526,customfield_10230,customfield_10235,"
-          "customfield_10233,customfield_10225,customfield_10521,customfield_10240,"
-          # [CHART] Time in Status and Resolution SLA. Jira computes both; the
-          # alternative is replaying every changelog ourselves.
-          "customfield_10013,customfield_10530")
+FIELDS = (
+    "summary,created,updated,resolutiondate,resolution,priority,status,assignee,"
+    "issuetype,duedate,customfield_10526,customfield_10230,customfield_10235,"
+    "customfield_10233,customfield_10225,customfield_10521,customfield_10240,"
+    # [CHART] Time in Status and Resolution SLA. Jira computes both; the
+    # alternative is replaying every changelog ourselves.
+    "customfield_10013,customfield_10530"
+)
 
 # `customfield_10529` (Time Taken to Resolve) and `customfield_10522` (Resolved
 # On) look like they'd serve here and don't: 10529 returns negative values
@@ -80,10 +82,16 @@ UNASSIGNED = "Unassigned"
 
 # Jira's status vocabulary -> ours.
 STATUS_MAP = {
-    "to do": "open", "open": "open", "backlog": "open",
-    "in progress": "in_progress", "review": "in_progress",
-    "blocked": "blocked", "on hold": "blocked",
-    "done": "closed", "closed": "closed", "resolved": "closed",
+    "to do": "open",
+    "open": "open",
+    "backlog": "open",
+    "in progress": "in_progress",
+    "review": "in_progress",
+    "blocked": "blocked",
+    "on hold": "blocked",
+    "done": "closed",
+    "closed": "closed",
+    "resolved": "closed",
     "invalid request": "closed",
 }
 
@@ -99,7 +107,9 @@ def _val(raw):
     if raw is None:
         return None
     if isinstance(raw, list):
-        return next((v.get("value") or v.get("name") for v in raw if isinstance(v, dict)), None)
+        return next(
+            (v.get("value") or v.get("name") for v in raw if isinstance(v, dict)), None
+        )
     if isinstance(raw, dict):
         return raw.get("value") or raw.get("name")
     return raw
@@ -111,8 +121,11 @@ def _vals(raw) -> list[str]:
     if raw is None:
         return []
     if isinstance(raw, list):
-        return [v.get("value") or v.get("name") for v in raw
-                if isinstance(v, dict) and (v.get("value") or v.get("name"))]
+        return [
+            v.get("value") or v.get("name")
+            for v in raw
+            if isinstance(v, dict) and (v.get("value") or v.get("name"))
+        ]
     if isinstance(raw, dict):
         name = raw.get("value") or raw.get("name")
         return [name] if name else []
@@ -148,7 +161,9 @@ def _time_in_status(raw: str | None, names: dict[str, str]) -> dict[str, int] | 
         sid, _count, ms = bits
         if not ms.lstrip("-").isdigit():
             continue
-        out[names.get(sid, f"status:{sid}")] = out.get(names.get(sid, f"status:{sid}"), 0) + int(ms)
+        out[names.get(sid, f"status:{sid}")] = out.get(
+            names.get(sid, f"status:{sid}"), 0
+        ) + int(ms)
     return out or None
 
 
@@ -157,7 +172,9 @@ async def _status_names(c: httpx.AsyncClient) -> dict[str, str]:
     return {s["id"]: s["name"] for s in r.json()} if r.status_code < 400 else {}
 
 
-async def fetch(frm: date, since: datetime | None = None) -> tuple[list[dict], dict[str, str]]:
+async def fetch(
+    frm: date, since: datetime | None = None
+) -> tuple[list[dict], dict[str, str]]:
     """TCE issues since `frm`, narrowed to those touched since `since`. GET only.
 
     Filtering on `updated` rather than `created` is what makes this usable as a
@@ -186,7 +203,9 @@ async def fetch(frm: date, since: datetime | None = None) -> tuple[list[dict], d
                 params["nextPageToken"] = token
             r = await c.get("/rest/api/3/search/jql", params=params)
             if r.status_code >= 400:
-                raise RuntimeError(f"Jira search failed: HTTP {r.status_code} {r.text[:200]}")
+                raise RuntimeError(
+                    f"Jira search failed: HTTP {r.status_code} {r.text[:200]}"
+                )
             body = r.json()
             out += body.get("issues", [])
             token = body.get("nextPageToken")
@@ -283,7 +302,10 @@ async def _entry_for(db, entries: dict, member_id: int, on: date, stats) -> int:
     entry_id = entries.get((member_id, on))
     if entry_id is None:
         entry = DailyEntry(
-            member_id=member_id, entry_date=on, kind="plan", source="jira",
+            member_id=member_id,
+            entry_date=on,
+            kind="plan",
+            source="jira",
             idempotency_key=f"jira:{member_id}:{on.isoformat()}",
         )
         db.add(entry)
@@ -293,8 +315,13 @@ async def _entry_for(db, entries: dict, member_id: int, on: date, stats) -> int:
     return entry_id
 
 
-async def run(frm: date, dry_run: bool, create_missing: bool,
-              refresh: bool = False, incremental: bool = False) -> dict:
+async def run(
+    frm: date,
+    dry_run: bool,
+    create_missing: bool,
+    refresh: bool = False,
+    incremental: bool = False,
+) -> dict:
     started = datetime.now(UTC).replace(tzinfo=None)
     since = None
     if incremental:
@@ -307,8 +334,10 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
             since = _naive(cursor.last_synced_at) - timedelta(minutes=10)
 
     issues, status_names = await fetch(frm, since)
-    print(f"fetched {len(issues)} issues since {frm}"
-          + (f", updated since {since:%Y-%m-%d %H:%M}" if since else ""))
+    print(
+        f"fetched {len(issues)} issues since {frm}"
+        + (f", updated since {since:%Y-%m-%d %H:%M}" if since else "")
+    )
 
     by_type = collections.Counter(i["fields"]["issuetype"]["name"] for i in issues)
     print("  " + ", ".join(f"{k}={v}" for k, v in by_type.most_common()))
@@ -320,21 +349,30 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
         }
         people = await resolve_people(db, names, create_missing)
 
-        task_cache = {n: i for n, i in await db.execute(select(TaskType.name, TaskType.id))}
-        question_cache = {n: i for n, i in await db.execute(select(QuestionType.name, QuestionType.id))}
+        task_cache = {
+            n: i for n, i in await db.execute(select(TaskType.name, TaskType.id))
+        }
+        question_cache = {
+            n: i
+            for n, i in await db.execute(select(QuestionType.name, QuestionType.id))
+        }
         other_id = task_cache.get("Others") or task_cache.get("Other")
 
         seen = {
-            k for (k,) in await db.execute(
-                select(EntryItem.jira_issue_key).where(EntryItem.jira_issue_key.isnot(None))
+            k
+            for (k,) in await db.execute(
+                select(EntryItem.jira_issue_key).where(
+                    EntryItem.jira_issue_key.isnot(None)
+                )
             )
         }
         # One synthetic plan per member per day holds that day's issues.
         entries = {
             (m, d): i
             for m, d, i in await db.execute(
-                select(DailyEntry.member_id, DailyEntry.entry_date, DailyEntry.id)
-                .where(DailyEntry.kind == "plan")
+                select(
+                    DailyEntry.member_id, DailyEntry.entry_date, DailyEntry.id
+                ).where(DailyEntry.kind == "plan")
             )
         }
 
@@ -394,9 +432,13 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
             entry_id = await _entry_for(db, entries, member_id, on, stats)
             item = EntryItem(
                 entry_id=entry_id,
-                task_type_id=await _lookup(db, TaskType, _val(f.get("customfield_10230")),
-                                           task_cache) or other_id,
-                count=f.get("customfield_10233") and int(f["customfield_10233"]) or None,
+                task_type_id=await _lookup(
+                    db, TaskType, _val(f.get("customfield_10230")), task_cache
+                )
+                or other_id,
+                count=f.get("customfield_10233")
+                and int(f["customfield_10233"])
+                or None,
                 jira_issue_key=key,
                 jira_issue_url=f"{settings.JIRA_BASE_URL}/browse/{key}",
                 jira_state="ok",
@@ -409,14 +451,23 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
                 for name in _vals(f.get("customfield_10235"))
             ]
             if question_type_ids:
-                await db.execute(entry_item_question_types.insert(), [
-                    {"entry_item_id": item.id, "question_type_id": qid}
-                    for qid in question_type_ids
-                ])
-            db.add(EntryItemStatusEvent(
-                entry_item_id=item.id, to_status=status, source="jira",
-                changed_at=_naive(_dt(f.get("resolutiondate")) or _dt(f["created"])),
-            ))
+                await db.execute(
+                    entry_item_question_types.insert(),
+                    [
+                        {"entry_item_id": item.id, "question_type_id": qid}
+                        for qid in question_type_ids
+                    ],
+                )
+            db.add(
+                EntryItemStatusEvent(
+                    entry_item_id=item.id,
+                    to_status=status,
+                    source="jira",
+                    changed_at=_naive(
+                        _dt(f.get("resolutiondate")) or _dt(f["created"])
+                    ),
+                )
+            )
             stats["imported"] += 1
             if item.effort_suspect:
                 stats["suspect_effort"] += 1
@@ -429,7 +480,11 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
             if row is None:
                 db.add(SyncCursor(key=CURSOR, last_synced_at=started, last_status="ok"))
             else:
-                row.last_synced_at, row.last_status, row.last_error = started, "ok", None
+                row.last_synced_at, row.last_status, row.last_error = (
+                    started,
+                    "ok",
+                    None,
+                )
             await db.commit()
         else:
             await db.rollback()
@@ -441,17 +496,32 @@ async def run(frm: date, dry_run: bool, create_missing: bool,
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--from", dest="frm", default=DEFAULT_FROM.isoformat())
-    ap.add_argument("--dry-run", action="store_true",
-                    help="report what would happen, write nothing")
-    ap.add_argument("--refresh", action="store_true",
-                    help="update already-imported rows with newly captured fields")
-    ap.add_argument("--create-missing-members", action="store_true",
-                    help="unknown Jira assignees become inactive members instead of skipping")
-    ap.add_argument("--incremental", action="store_true",
-                    help="only fetch issues updated since the last run")
+    ap.add_argument(
+        "--dry-run", action="store_true", help="report what would happen, write nothing"
+    )
+    ap.add_argument(
+        "--refresh",
+        action="store_true",
+        help="update already-imported rows with newly captured fields",
+    )
+    ap.add_argument(
+        "--create-missing-members",
+        action="store_true",
+        help="unknown Jira assignees become inactive members instead of skipping",
+    )
+    ap.add_argument(
+        "--incremental",
+        action="store_true",
+        help="only fetch issues updated since the last run",
+    )
     args = ap.parse_args()
-    await run(date.fromisoformat(args.frm), args.dry_run,
-              args.create_missing_members, args.refresh, args.incremental)
+    await run(
+        date.fromisoformat(args.frm),
+        args.dry_run,
+        args.create_missing_members,
+        args.refresh,
+        args.incremental,
+    )
 
 
 if __name__ == "__main__":

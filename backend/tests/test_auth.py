@@ -51,7 +51,9 @@ async def test_deactivating_revokes_access(seat, monkeypatch):
 
 async def test_superadmins_get_in_with_no_member_row(monkeypatch):
     """The bootstrap: env-sourced, so a bad members table can't lock everyone out."""
-    monkeypatch.setattr(settings, "SUPERADMIN_EMAILS", "boss@hackerearth.com, other@x.com")
+    monkeypatch.setattr(
+        settings, "SUPERADMIN_EMAILS", "boss@hackerearth.com, other@x.com"
+    )
     async with Session() as db:
         assert await _may_sign_in(db, "boss@hackerearth.com")
         assert await _may_sign_in(db, "  BOSS@hackerearth.com ")
@@ -63,7 +65,9 @@ def test_superadmin_list_is_parsed_leniently(monkeypatch):
     assert settings.superadmins == {"a@x.com", "b@x.com"}
 
 
-async def test_claiming_promotes_a_superadmin_and_links_the_account(seat, monkeypatch, fake_user):
+async def test_claiming_promotes_a_superadmin_and_links_the_account(
+    seat, monkeypatch, fake_user
+):
     monkeypatch.setattr(settings, "SUPERADMIN_EMAILS", SEAT)
     async with Session() as db:
         await _claim_member(db, fake_user, SEAT)
@@ -73,7 +77,9 @@ async def test_claiming_promotes_a_superadmin_and_links_the_account(seat, monkey
         assert member.is_active
 
 
-async def test_claiming_does_not_promote_an_ordinary_member(seat, monkeypatch, fake_user):
+async def test_claiming_does_not_promote_an_ordinary_member(
+    seat, monkeypatch, fake_user
+):
     monkeypatch.setattr(settings, "SUPERADMIN_EMAILS", "")
     async with Session() as db:
         await _claim_member(db, fake_user, SEAT)
