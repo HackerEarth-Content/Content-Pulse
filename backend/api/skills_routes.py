@@ -13,7 +13,9 @@ from schemas.skills import (
 )
 from services import skills as svc
 
-router = APIRouter(prefix="/api/skills", tags=["skills"], dependencies=[Depends(current_user)])
+router = APIRouter(
+    prefix="/api/skills", tags=["skills"], dependencies=[Depends(current_user)]
+)
 
 admin_only = Depends(require_role(*ADMINS))
 
@@ -31,12 +33,16 @@ async def get_window(db: AsyncSession = Depends(get_session)):
 @router.patch("/window", response_model=WindowOut, dependencies=[admin_only])
 async def patch_window(body: WindowPatch, db: AsyncSession = Depends(get_session)):
     return await svc.set_window(
-        db, open_weekdays=body.open_weekdays, excluded_member_ids=body.excluded_member_ids,
+        db,
+        open_weekdays=body.open_weekdays,
+        excluded_member_ids=body.excluded_member_ids,
     )
 
 
 @router.get("/ratings/me")
-async def get_my_ratings(db: AsyncSession = Depends(get_session), viewer: Viewer = Depends(get_viewer)):
+async def get_my_ratings(
+    db: AsyncSession = Depends(get_session), viewer: Viewer = Depends(get_viewer)
+):
     if viewer.member is None:
         raise svc.err(403, "no_member", "Your account isn't linked to a team member.")
     return await svc.member_ratings(db, viewer.member.id)
@@ -51,7 +57,9 @@ async def save_my_ratings(
     if viewer.member is None:
         raise svc.err(403, "no_member", "Your account isn't linked to a team member.")
     return await svc.upsert_ratings(
-        db, viewer.member.id, [(r.skill_id, r.level) for r in body.ratings],
+        db,
+        viewer.member.id,
+        [(r.skill_id, r.level) for r in body.ratings],
     )
 
 

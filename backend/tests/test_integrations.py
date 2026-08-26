@@ -19,8 +19,9 @@ DAY = "2030-07-08"
 
 
 def transport(handler):
-    return lambda: httpx.AsyncClient(base_url="https://jira.test",
-                                     transport=httpx.MockTransport(handler), timeout=5)
+    return lambda: httpx.AsyncClient(
+        base_url="https://jira.test", transport=httpx.MockTransport(handler), timeout=5
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -44,25 +45,42 @@ async def cached_options():
         for name in ("Content Tasks", "Content Requests"):
             key = f"jira_options:{name}"
             if await db.get(IntegrationSetting, key) is None:
-                db.add(IntegrationSetting(key=key, value={
-                    "task_type": {"Internal meeting": "10235", "Documentation": "10240"},
-                    "question_type": {"SQL": "10247"},
-                }))
+                db.add(
+                    IntegrationSetting(
+                        key=key,
+                        value={
+                            "task_type": {
+                                "Internal meeting": "10235",
+                                "Documentation": "10240",
+                            },
+                            "question_type": {"SQL": "10247"},
+                        },
+                    )
+                )
         await db.commit()
 
 
 # ── Jira ──────────────────────────────────────────────────────────────────────
 
 
-async def test_push_item_stores_key_and_marks_ok(client, member, task_type, monkeypatch):
-    plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
-    })).json()
+async def test_push_item_stores_key_and_marks_ok(
+    client, member, task_type, monkeypatch
+):
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
+            },
+        )
+    ).json()
     item_id = plan["items"][0]["id"]
 
-    monkeypatch.setattr(jira, "_client", transport(
-        lambda r: httpx.Response(201, json={"key": "TCE-1"})))
+    monkeypatch.setattr(
+        jira, "_client", transport(lambda r: httpx.Response(201, json={"key": "TCE-1"}))
+    )
     await jira.push_item(item_id)
 
     async with Session() as db:
@@ -74,14 +92,25 @@ async def test_push_item_stores_key_and_marks_ok(client, member, task_type, monk
 async def test_push_item_records_failure_without_losing_the_task(
     client, member, task_type, monkeypatch
 ):
-    plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
-    })).json()
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
+            },
+        )
+    ).json()
     item_id = plan["items"][0]["id"]
 
-    monkeypatch.setattr(jira, "_client", transport(
-        lambda r: httpx.Response(403, json={"errorMessages": ["no permission"]})))
+    monkeypatch.setattr(
+        jira,
+        "_client",
+        transport(
+            lambda r: httpx.Response(403, json={"errorMessages": ["no permission"]})
+        ),
+    )
     await jira.push_item(item_id)
 
     async with Session() as db:
@@ -97,43 +126,68 @@ async def test_editing_summary_after_create_updates_jiras_summary_field(
     actual summary field, not just sit in our own notes column — a status
     change already pushed a comment, but that's not the same as the issue's
     title actually changing to match."""
-    plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "notes": "first draft", "due_at": DAY}],
-    })).json()
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [
+                    {"task_type_id": task_type, "notes": "first draft", "due_at": DAY}
+                ],
+            },
+        )
+    ).json()
     item_id = plan["items"][0]["id"]
 
     async with Session() as db:
         item = await db.get(EntryItem, item_id)
-        item.jira_issue_key, item.jira_issue_url = "TCE-9", "https://jira.test/browse/TCE-9"
+        item.jira_issue_key, item.jira_issue_url = (
+            "TCE-9",
+            "https://jira.test/browse/TCE-9",
+        )
         await db.commit()
 
     sent = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "PUT":
-            sent["fields"] = httpx.Response(200, content=request.content).json()["fields"]
+            sent["fields"] = httpx.Response(200, content=request.content).json()[
+                "fields"
+            ]
             sent["path"] = request.url.path
             return httpx.Response(204)
         return httpx.Response(200, json={"fields": {}})
 
     monkeypatch.setattr(jira, "_client", transport(handler))
-    await client.patch(f"/api/entry-items/{item_id}", json={"notes": "the real summary now"})
+    await client.patch(
+        f"/api/entry-items/{item_id}", json={"notes": "the real summary now"}
+    )
     await asyncio.sleep(0.05)  # the sync runs as a BackgroundTask after the response
 
     assert sent["path"] == "/rest/api/3/issue/TCE-9"
     assert "the real summary now" in sent["fields"]["summary"]
 
 
-async def test_push_fields_is_a_noop_without_a_jira_key(client, member, task_type, monkeypatch):
-    plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
-    })).json()
+async def test_push_fields_is_a_noop_without_a_jira_key(
+    client, member, task_type, monkeypatch
+):
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
+            },
+        )
+    ).json()
     item_id = plan["items"][0]["id"]
 
     calls = []
-    monkeypatch.setattr(jira, "_client", transport(lambda r: calls.append(r) or httpx.Response(200)))
+    monkeypatch.setattr(
+        jira, "_client", transport(lambda r: calls.append(r) or httpx.Response(200))
+    )
     await jira.push_fields(item_id)
     assert calls == [], "no jira_issue_key — nothing to sync"
 
@@ -145,7 +199,9 @@ async def test_closed_transition_steps_through_in_progress(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(f"{request.method} {request.url.path}")
         if request.method == "GET" and request.url.path.endswith("/transitions"):
-            first = sum(1 for c in calls if c.endswith("/transitions") and c.startswith("GET"))
+            first = sum(
+                1 for c in calls if c.endswith("/transitions") and c.startswith("GET")
+            )
             options = [{"id": "11", "to": {"name": "In Progress"}}]
             if first > 1:  # only after we stepped through
                 options.append({"id": "31", "to": {"name": "Done"}})
@@ -163,18 +219,31 @@ async def test_closed_transition_steps_through_in_progress(monkeypatch):
 
 
 async def test_transition_without_a_matching_target_raises(monkeypatch):
-    monkeypatch.setattr(jira, "_client", transport(
-        lambda r: httpx.Response(200, json={"transitions": [{"id": "1", "to": {"name": "Parked"}}]})))
+    monkeypatch.setattr(
+        jira,
+        "_client",
+        transport(
+            lambda r: httpx.Response(
+                200, json={"transitions": [{"id": "1", "to": {"name": "Parked"}}]}
+            )
+        ),
+    )
     async with Session() as db:
         with pytest.raises(RuntimeError, match="No transition"):
             await jira.transition(db, "TCE-1", "blocked")
 
 
 async def test_jira_disabled_is_not_a_failure(client, member, task_type, monkeypatch):
-    plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
-    })).json()
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
+            },
+        )
+    ).json()
     monkeypatch.setattr(settings, "JIRA_API_TOKEN", "")
     await jira.push_item(plan["items"][0]["id"])
 
@@ -185,11 +254,19 @@ async def test_jira_disabled_is_not_a_failure(client, member, task_type, monkeyp
 # ── Slack ─────────────────────────────────────────────────────────────────────
 
 
-async def test_entry_posts_once_and_is_idempotent(client, member, task_type, monkeypatch):
-    plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
-    })).json()
+async def test_entry_posts_once_and_is_idempotent(
+    client, member, task_type, monkeypatch
+):
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
+            },
+        )
+    ).json()
 
     sent = []
 
@@ -207,9 +284,16 @@ async def test_entry_posts_once_and_is_idempotent(client, member, task_type, mon
 
 
 async def test_slack_failure_never_raises(client, member, task_type, monkeypatch):
-    plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY, "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
-    })).json()
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
+            },
+        )
+    ).json()
 
     async def boom(method, payload):
         raise RuntimeError("channel_not_found")
@@ -221,17 +305,36 @@ async def test_slack_failure_never_raises(client, member, task_type, monkeypatch
 def test_reply_text_renders_tasks(client):
     from datetime import date
     from types import SimpleNamespace as N
+
     entry = N(
-        kind="update", entry_date=date(2030, 1, 1),
-        member=N(display_name="Ada"), raw_text=None,
-        items=[N(jira_issue_key="TCE-9", jira_issue_url="http://j/TCE-9",
-                 task_type=N(name="Content review"), customer="Acme",
-                 question_type=N(name="SQL"), count=3, status="in_progress",
-                 effort_minutes=90, due_at=None, notes="halfway")],
+        kind="update",
+        entry_date=date(2030, 1, 1),
+        member=N(display_name="Ada"),
+        raw_text=None,
+        items=[
+            N(
+                jira_issue_key="TCE-9",
+                jira_issue_url="http://j/TCE-9",
+                task_type=N(name="Content review"),
+                customer="Acme",
+                question_type=N(name="SQL"),
+                count=3,
+                status="in_progress",
+                effort_minutes=90,
+                due_at=None,
+                notes="halfway",
+            )
+        ],
     )
     text = slack.reply_text(entry)
-    assert "*Ada* — ✅ Update for Tuesday, 01 Jan — 1h 30m logged, 0 closed, 1 still open" in text
-    assert "<http://j/TCE-9|TCE-9> · Content review · *Acme* · ⏳ In Progress · 1h 30m" in text
+    assert (
+        "*Ada* — ✅ Update for Tuesday, 01 Jan — 1h 30m logged, 0 closed, 1 still open"
+        in text
+    )
+    assert (
+        "<http://j/TCE-9|TCE-9> · Content review · *Acme* · ⏳ In Progress · 1h 30m"
+        in text
+    )
     assert "_halfway_" in text
 
 
@@ -257,10 +360,14 @@ async def test_roll_call_excludes_test_fixtures_and_reports_status(
         planned_id = planned_member.id
 
     try:
-        await client.post("/api/entries/plans", json={
-            "member_id": planned_id, "entry_date": DAY,
-            "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
-        })
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": planned_id,
+                "entry_date": DAY,
+                "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
+            },
+        )
 
         sent = []
 
@@ -290,11 +397,21 @@ async def test_roll_call_excludes_test_fixtures_and_reports_status(
         # ON DELETE RESTRICT from daily_entries — the plan filed above has to
         # go first.
         async with Session() as db:
-            ids = (await db.execute(
-                select(Member.id).where(Member.display_name.in_([PLANNED, NO_PLAN]))
-            )).scalars().all()
+            ids = (
+                (
+                    await db.execute(
+                        select(Member.id).where(
+                            Member.display_name.in_([PLANNED, NO_PLAN])
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
             if ids:
-                await db.execute(delete(DailyEntry).where(DailyEntry.member_id.in_(ids)))
+                await db.execute(
+                    delete(DailyEntry).where(DailyEntry.member_id.in_(ids))
+                )
                 await db.execute(delete(Member).where(Member.id.in_(ids)))
             await db.commit()
 
@@ -303,33 +420,45 @@ async def test_roll_call_excludes_test_fixtures_and_reports_status(
 
 
 def payload(**over):
-    return {"member": "PyTest Member", "kind": "plan", "date": DAY,
-            "items": [{"taskType": "Documentation", "count": 2}]} | over
+    return {
+        "member": "PyTest Member",
+        "kind": "plan",
+        "date": DAY,
+        "items": [{"taskType": "Documentation", "count": 2}],
+    } | over
 
 
 async def test_intake_requires_the_token(client, member):
     assert (await client.post("/api/intake/slack", json=payload())).status_code == 401
-    r = await client.post("/api/intake/slack", json=payload(),
-                          headers={"X-Intake-Token": "wrong"})
+    r = await client.post(
+        "/api/intake/slack", json=payload(), headers={"X-Intake-Token": "wrong"}
+    )
     assert r.status_code == 401
 
 
 async def test_intake_creates_an_entry(client, member):
-    r = await client.post("/api/intake/slack", json=payload(),
-                          headers={"X-Intake-Token": "s3cret"})
+    r = await client.post(
+        "/api/intake/slack", json=payload(), headers={"X-Intake-Token": "s3cret"}
+    )
     assert r.status_code == 201
     assert r.json()["items"] == 1 and r.json()["duplicate"] is False
 
 
 async def test_intake_rejects_an_unknown_member(client, member):
-    r = await client.post("/api/intake/slack", json=payload(member="Shivendrra"),
-                          headers={"X-Intake-Token": "s3cret"})
+    r = await client.post(
+        "/api/intake/slack",
+        json=payload(member="Shivendrra"),
+        headers={"X-Intake-Token": "s3cret"},
+    )
     assert r.status_code == 422 and r.json()["detail"]["code"] == "unknown_member"
 
 
 async def test_intake_matches_names_case_insensitively(client, member):
-    r = await client.post("/api/intake/slack", json=payload(member="  pytest member "),
-                          headers={"X-Intake-Token": "s3cret"})
+    r = await client.post(
+        "/api/intake/slack",
+        json=payload(member="  pytest member "),
+        headers={"X-Intake-Token": "s3cret"},
+    )
     assert r.status_code == 201
 
 
@@ -354,13 +483,25 @@ async def test_intake_rejects_an_unknown_task_type(client, member):
 async def test_writes_are_off_by_default(client, member, task_type, monkeypatch):
     """The guard that stops a test run minting tickets in a live project."""
     monkeypatch.setattr(settings, "JIRA_WRITES_ENABLED", False)
-    plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY, "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
-    })).json()
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
+            },
+        )
+    ).json()
 
     called = []
-    monkeypatch.setattr(jira, "_client", transport(
-        lambda r: called.append(r) or httpx.Response(201, json={"key": "TCE-NOPE"})))
+    monkeypatch.setattr(
+        jira,
+        "_client",
+        transport(
+            lambda r: called.append(r) or httpx.Response(201, json={"key": "TCE-NOPE"})
+        ),
+    )
     await jira.push_item(plan["items"][0]["id"])
 
     assert not called, "no HTTP request may leave the process when writes are off"
@@ -370,7 +511,9 @@ async def test_writes_are_off_by_default(client, member, task_type, monkeypatch)
         assert item.jira_state == "none"
 
 
-async def test_created_issue_carries_every_field(client, member, task_type, monkeypatch):
+async def test_created_issue_carries_every_field(
+    client, member, task_type, monkeypatch
+):
     """A ticket with no task type, customer or assignee is invisible to the
     reporting this app does — so assert the whole payload, not just the key."""
     from core.database import Session as S
@@ -383,11 +526,26 @@ async def test_created_issue_carries_every_field(client, member, task_type, monk
         await db.commit()
         qt_id = qt.id
 
-    plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "question_type_ids": [qt_id], "count": 4,
-                   "customer": "Entri", "due_at": DAY, "effort_minutes": 90, "notes": "n"}],
-    })).json()
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [
+                    {
+                        "task_type_id": task_type,
+                        "question_type_ids": [qt_id],
+                        "count": 4,
+                        "customer": "Entri",
+                        "due_at": DAY,
+                        "effort_minutes": 90,
+                        "notes": "n",
+                    }
+                ],
+            },
+        )
+    ).json()
 
     sent = {}
 
@@ -408,7 +566,9 @@ async def test_created_issue_carries_every_field(client, member, task_type, monk
     assert sent["issuetype"]["name"] == "Content Tasks"
 
 
-async def test_assignee_resolved_from_email_and_cached(client, member, task_type, monkeypatch):
+async def test_assignee_resolved_from_email_and_cached(
+    client, member, task_type, monkeypatch
+):
     """No jira_account_id yet, but the member has an email — resolve it via
     Jira's user search instead of leaving the ticket unassigned, and remember
     it so the next ticket skips the lookup."""
@@ -422,10 +582,16 @@ async def test_assignee_resolved_from_email_and_cached(client, member, task_type
         m.email, m.jira_account_id = "person@example.com", None
         await db.commit()
 
-    plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
-    })).json()
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [{"task_type_id": task_type, "notes": "n", "due_at": DAY}],
+            },
+        )
+    ).json()
 
     sent = {}
     searched = []
@@ -472,6 +638,7 @@ async def test_create_issue_is_always_content_task_and_links_parent(monkeypatch)
         return httpx.Response(200, json={"fields": {}})
 
     monkeypatch.setattr(jira, "_client", transport(handler))
+
     # Stubbed rather than seeded through `cached_options`: this shared dev DB
     # already has a real "Content Tasks" cache with its own option ids, and
     # writing a placeholder over it would corrupt that row for every test
@@ -480,17 +647,32 @@ async def test_create_issue_is_always_content_task_and_links_parent(monkeypatch)
         return {"task_type": {"Documentation": "10240"}, "question_type": {}}
 
     monkeypatch.setattr(jira, "option_ids", fake_option_ids)
-    entry = N(kind="plan", entry_date="2030-07-08", source="web", raw_text=None,
-              member=N(display_name="Ada", jira_account_id=None))
-    item = N(task_type=N(name="Documentation"), question_types=[], customer="Entri",
-             count=None, notes=None, due_at=None, effort_minutes=None,
-             pipeline="content_request", parent_issue_key="TCE-1")
+    entry = N(
+        kind="plan",
+        entry_date="2030-07-08",
+        source="web",
+        raw_text=None,
+        member=N(display_name="Ada", jira_account_id=None),
+    )
+    item = N(
+        task_type=N(name="Documentation"),
+        question_types=[],
+        customer="Entri",
+        count=None,
+        notes=None,
+        due_at=None,
+        effort_minutes=None,
+        pipeline="content_request",
+        parent_issue_key="TCE-1",
+    )
 
     async with Session() as db:
         await jira.create_issue(db, entry, item)
 
     assert sent["issuetype"]["name"] == "Content Tasks"
-    assert "parent" not in sent, "parent field 400s between same-level types, never send it"
+    assert "parent" not in sent, (
+        "parent field 400s between same-level types, never send it"
+    )
     assert link == {
         "type": {"name": "Relates"},
         "inwardIssue": {"key": "TCE-43"},
@@ -499,7 +681,8 @@ async def test_create_issue_is_always_content_task_and_links_parent(monkeypatch)
     assert "customfield_10225" not in sent, "Content Tasks carry no customer field"
     assert sent["customfield_10230"] == {"id": "10240"}, "task type by option id"
 
-    sent.clear(); link.clear()
+    sent.clear()
+    link.clear()
     item.pipeline, item.parent_issue_key = "content_task", None
     async with Session() as db:
         await jira.create_issue(db, entry, item)
@@ -515,7 +698,11 @@ async def test_issue_exists_rejects_leaf_types_as_parents(monkeypatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         key = request.url.path.rsplit("/", 1)[-1]
-        types = {"TCE-1": "Content Requests", "TCE-2": "Content Tasks", "TCE-3": "TCE subtask"}
+        types = {
+            "TCE-1": "Content Requests",
+            "TCE-2": "Content Tasks",
+            "TCE-3": "TCE subtask",
+        }
         if key not in types:
             return httpx.Response(404, json={})
         return httpx.Response(200, json={"fields": {"issuetype": {"name": types[key]}}})
@@ -535,10 +722,16 @@ def test_title_leads_with_work_and_customer_over_notes():
     from types import SimpleNamespace as N
 
     entry = N(member=N(display_name="Ada"), entry_date=DAY)
-    item = N(task_type=N(name="Documentation"), customer="Acme Corp",
-             notes="fix the onboarding guide typo\nsecond line ignored")
+    item = N(
+        task_type=N(name="Documentation"),
+        customer="Acme Corp",
+        notes="fix the onboarding guide typo\nsecond line ignored",
+    )
 
-    assert jira._title(entry, item) == "Documentation — Acme Corp: fix the onboarding guide typo"
+    assert (
+        jira._title(entry, item)
+        == "Documentation — Acme Corp: fix the onboarding guide typo"
+    )
 
 
 def test_title_falls_back_to_who_and_when_without_notes():
@@ -572,11 +765,25 @@ async def test_rate_limit_is_obeyed(monkeypatch):
     monkeypatch.setattr(jira.asyncio, "sleep", fake_sleep)
 
     from types import SimpleNamespace as N
-    entry = N(kind="plan", entry_date="2030-07-08", source="web", raw_text=None,
-              member=N(display_name="Ada", jira_account_id=None))
-    item = N(task_type=N(name="Documentation"), question_types=[], customer=None,
-             count=None, notes=None, due_at=None, effort_minutes=None,
-             pipeline="content_task", parent_issue_key=None)
+
+    entry = N(
+        kind="plan",
+        entry_date="2030-07-08",
+        source="web",
+        raw_text=None,
+        member=N(display_name="Ada", jira_account_id=None),
+    )
+    item = N(
+        task_type=N(name="Documentation"),
+        question_types=[],
+        customer=None,
+        count=None,
+        notes=None,
+        due_at=None,
+        effort_minutes=None,
+        pipeline="content_task",
+        parent_issue_key=None,
+    )
     async with Session() as db:
         key, _ = await jira.create_issue(db, entry, item)
 
@@ -594,11 +801,25 @@ async def test_client_errors_are_not_retried(monkeypatch):
 
     monkeypatch.setattr(jira, "_client", transport(handler))
     from types import SimpleNamespace as N
-    entry = N(kind="plan", entry_date="2030-07-08", source="web", raw_text=None,
-              member=N(display_name="Ada", jira_account_id=None))
-    item = N(task_type=N(name="Documentation"), question_types=[], customer=None,
-             count=None, notes=None, due_at=None, effort_minutes=None,
-             pipeline="content_task", parent_issue_key=None)
+
+    entry = N(
+        kind="plan",
+        entry_date="2030-07-08",
+        source="web",
+        raw_text=None,
+        member=N(display_name="Ada", jira_account_id=None),
+    )
+    item = N(
+        task_type=N(name="Documentation"),
+        question_types=[],
+        customer=None,
+        count=None,
+        notes=None,
+        due_at=None,
+        effort_minutes=None,
+        pipeline="content_task",
+        parent_issue_key=None,
+    )
     async with Session() as db:
         with pytest.raises(RuntimeError, match="bad field"):
             await jira.create_issue(db, entry, item)

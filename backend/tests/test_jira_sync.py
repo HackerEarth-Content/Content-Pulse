@@ -16,7 +16,8 @@ def test_time_in_status_decodes_jiras_format():
     """Verified against TCE-9216: 51m + 27m against 79m actual elapsed."""
     names = {"10000": "TO DO", "10044": "In Progress", "10148": "Done"}
     got = bf._time_in_status(
-        "10000_*:*_1_*:*_3079866_*|*_10044_*:*_1_*:*_1654946_*|*_10148_*:*_1_*:*_0", names
+        "10000_*:*_1_*:*_3079866_*|*_10044_*:*_1_*:*_1654946_*|*_10148_*:*_1_*:*_0",
+        names,
     )
     assert got == {"TO DO": 3079866, "In Progress": 1654946, "Done": 0}
     assert round(sum(got.values()) / 60000) == 79
@@ -28,7 +29,9 @@ def test_time_in_status_keeps_statuses_it_cannot_name():
     assert got == {"status:99999": 600000}
 
 
-@pytest.mark.parametrize("raw", [None, "", "garbage", "10000_*:*_1", "10000_*:*_1_*:*_x"])
+@pytest.mark.parametrize(
+    "raw", [None, "", "garbage", "10000_*:*_1", "10000_*:*_1_*:*_x"]
+)
 def test_time_in_status_survives_junk(raw):
     assert bf._time_in_status(raw, {}) in (None, {})
 
@@ -43,10 +46,13 @@ def test_naive_converts_to_utc():
 
 def _payload(**fields) -> dict:
     base = {
-        "summary": "x", "created": "2026-08-07T09:54:42.000+0000",
+        "summary": "x",
+        "created": "2026-08-07T09:54:42.000+0000",
         "resolutiondate": "2026-08-07T11:13:50.000+0000",
-        "issuetype": {"name": "Content Requests"}, "duedate": None,
-        "customfield_10526": 60.0, "resolution": {"name": "Done"},
+        "issuetype": {"name": "Content Requests"},
+        "duedate": None,
+        "customfield_10526": 60.0,
+        "resolution": {"name": "Done"},
         "priority": {"name": "P2"},
         "customfield_10530": {"value": "Met"},
         "customfield_10013": "10000_*:*_1_*:*_3079866",
@@ -79,7 +85,9 @@ def test_apply_flags_implausible_effort_without_discarding_it():
 
 def test_apply_records_a_missed_sla_and_an_unevaluated_one():
     missed, absent = _Item(), _Item()
-    bf._apply(missed, _payload(customfield_10530={"value": "Missed"}), "closed", "Done", {})
+    bf._apply(
+        missed, _payload(customfield_10530={"value": "Missed"}), "closed", "Done", {}
+    )
     bf._apply(absent, _payload(customfield_10530=None), "closed", "Done", {})
     assert missed.sla_met is False
     assert absent.sla_met is None, "no verdict is not a failed verdict"
@@ -101,7 +109,8 @@ def _patch(monkeypatch, seen: list) -> None:
     already cost an afternoon once on the rate-limit test."""
     real = httpx.AsyncClient
     monkeypatch.setattr(
-        bf.httpx, "AsyncClient",
+        bf.httpx,
+        "AsyncClient",
         lambda **kw: real(**{**kw, "transport": _mock(seen)}),
     )
 
@@ -131,7 +140,14 @@ async def test_fetch_without_a_watermark_reads_the_whole_window(monkeypatch):
 def test_status_map_covers_every_state_jira_actually_uses():
     """An unmapped status silently became 'open', which is how closed work stayed
     in the open column."""
-    for name in ("To Do", "In Progress", "Done", "REVIEW", "Blocked", "Invalid Request"):
+    for name in (
+        "To Do",
+        "In Progress",
+        "Done",
+        "REVIEW",
+        "Blocked",
+        "Invalid Request",
+    ):
         assert name.strip().lower() in bf.STATUS_MAP, name
 
 

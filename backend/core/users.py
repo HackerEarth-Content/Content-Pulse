@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, Request
+from fastapi import Depends
 from fastapi_users import BaseUserManager, FastAPIUsers
 from fastapi_users.authentication import (
     AuthenticationBackend,
@@ -71,14 +71,18 @@ async def _may_sign_in(session, email: str) -> bool:
     lowered = email.strip().lower()
     if lowered in settings.superadmins:
         return True
-    return bool(await session.scalar(
-        select(Member.id).where(
-            func.lower(Member.email) == lowered, Member.is_active.is_(True)
+    return bool(
+        await session.scalar(
+            select(Member.id).where(
+                func.lower(Member.email) == lowered, Member.is_active.is_(True)
+            )
         )
-    ))
+    )
 
 
-google_oauth_client = GoogleOAuth2(settings.GOOGLE_CLIENT_ID, settings.GOOGLE_CLIENT_SECRET)
+google_oauth_client = GoogleOAuth2(
+    settings.GOOGLE_CLIENT_ID, settings.GOOGLE_CLIENT_SECRET
+)
 
 
 class UserManager(BaseUserManager[User, str]):
@@ -88,8 +92,15 @@ class UserManager(BaseUserManager[User, str]):
     def parse_id(self, value: Any) -> str:
         return str(value)
 
-    async def oauth_callback(self, oauth_name: str, access_token: str, account_id: str,
-                             account_email: str, *args, **kwargs) -> User:
+    async def oauth_callback(
+        self,
+        oauth_name: str,
+        access_token: str,
+        account_id: str,
+        account_email: str,
+        *args,
+        **kwargs,
+    ) -> User:
         session = self.user_db.session
         if not await _may_sign_in(session, account_email):
             raise OAuthNotAllowedError(account_email)
@@ -98,7 +109,9 @@ class UserManager(BaseUserManager[User, str]):
             oauth_name, access_token, account_id, account_email, *args, **kwargs
         )
         if not user.name:
-            user = await self.user_db.update(user, {"name": account_email.split("@")[0]})
+            user = await self.user_db.update(
+                user, {"name": account_email.split("@")[0]}
+            )
 
         # Match on email, not display_name — the Django app compared name to
         # username, which broke the moment someone's name had a space in it.
@@ -140,7 +153,9 @@ auth_backend = AuthenticationBackend(
     name="cookie", transport=CookieTransport(**_cookie_kwargs), get_strategy=_jwt
 )
 oauth_backend = AuthenticationBackend(
-    name="oauth-cookie", transport=RedirectCookieTransport(**_cookie_kwargs), get_strategy=_jwt
+    name="oauth-cookie",
+    transport=RedirectCookieTransport(**_cookie_kwargs),
+    get_strategy=_jwt,
 )
 
 fastapi_users = FastAPIUsers[User, str](get_user_manager, [auth_backend])

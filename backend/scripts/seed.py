@@ -42,10 +42,26 @@ TASK_TYPES = [
 ]
 
 QUESTION_TYPES = [
-    "Programming", "SQL", "Frontend", "Full Stack", "Automation Testing",
-    "DevOps", "Machine Learning", "Diagram", "Data Science", "File Upload",
-    "Project", "Java Project", "C# Project", "Python Project", "Subjective",
-    "Multiple Choice", "Approximate", "Golf", "RegExp", "FileEval",
+    "Programming",
+    "SQL",
+    "Frontend",
+    "Full Stack",
+    "Automation Testing",
+    "DevOps",
+    "Machine Learning",
+    "Diagram",
+    "Data Science",
+    "File Upload",
+    "Project",
+    "Java Project",
+    "C# Project",
+    "Python Project",
+    "Subjective",
+    "Multiple Choice",
+    "Approximate",
+    "Golf",
+    "RegExp",
+    "FileEval",
 ]
 
 
@@ -64,11 +80,14 @@ async def seed_lookups(db: AsyncSession) -> None:
         )
 
     await db.flush()
-    print(f"lookups: {len(TASK_TYPES)} task types, "
-          f"{len(QUESTION_TYPES)} question types")
+    print(
+        f"lookups: {len(TASK_TYPES)} task types, {len(QUESTION_TYPES)} question types"
+    )
 
 
-async def _lookup_id(db: AsyncSession, model, name: str | None, cache: dict) -> int | None:
+async def _lookup_id(
+    db: AsyncSession, model, name: str | None, cache: dict
+) -> int | None:
     """Resolve a free-text value to a lookup row, adding unknown ones as
     inactive — the old app stored these as plain strings, so history contains
     values that were never on any dropdown."""
@@ -95,7 +114,10 @@ async def import_sqlite(db: AsyncSession, path: str) -> None:
     src = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     src.row_factory = sqlite3.Row
 
-    members = {name: id_ for name, id_ in await db.execute(select(Member.display_name, Member.id))}
+    members = {
+        name: id_
+        for name, id_ in await db.execute(select(Member.display_name, Member.id))
+    }
     old_member = {}
     for r in src.execute("SELECT * FROM tracker_member"):
         if r["display_name"] not in members:
@@ -152,9 +174,8 @@ async def import_sqlite(db: AsyncSession, path: str) -> None:
             member_id=old_member[r["member_id"]],
             raw_text=r["raw_text"],
             source="import",
-            idempotency_key="import:" + "+".join(
-                str(i) for i in [r["id"], *folded.get(r["id"], [])]
-            ),
+            idempotency_key="import:"
+            + "+".join(str(i) for i in [r["id"], *folded.get(r["id"], [])]),
             slack_reply_ts=r["slack_reply_ts"],
         )
         db.add(e)
@@ -162,15 +183,22 @@ async def import_sqlite(db: AsyncSession, path: str) -> None:
         fresh.add(r["id"])
         for old_id in [r["id"], *folded.get(r["id"], [])]:
             old_entry[old_id] = e.id
-    print(f"entries: {len(fresh)} new, {len(set(seen.values()))} already present"
-          + (f", {sum(len(v) for v in folded.values())} duplicate plans merged" if folded else ""))
+    print(
+        f"entries: {len(fresh)} new, {len(set(seen.values()))} already present"
+        + (
+            f", {sum(len(v) for v in folded.values())} duplicate plans merged"
+            if folded
+            else ""
+        )
+    )
 
     old_item = {}
     rows = src.execute("SELECT * FROM tracker_entryitem ORDER BY entry_id, id")
     for i, r in enumerate(x for x in rows if survivor[x["entry_id"]] in fresh):
         it = EntryItem(
             entry_id=old_entry[r["entry_id"]],
-            task_type_id=await _lookup_id(db, TaskType, r["task_type"], task_cache) or other_id,
+            task_type_id=await _lookup_id(db, TaskType, r["task_type"], task_cache)
+            or other_id,
             customer=r["customer"],
             count=r["count"] or None,
             notes=r["notes"],
@@ -183,15 +211,25 @@ async def import_sqlite(db: AsyncSession, path: str) -> None:
         )
         db.add(it)
         await db.flush()
-        if qt_id := await _lookup_id(db, QuestionType, r["question_type"], question_cache):
-            await db.execute(entry_item_question_types.insert(),
-                              [{"entry_item_id": it.id, "question_type_id": qt_id}])
+        if qt_id := await _lookup_id(
+            db, QuestionType, r["question_type"], question_cache
+        ):
+            await db.execute(
+                entry_item_question_types.insert(),
+                [{"entry_item_id": it.id, "question_type_id": qt_id}],
+            )
         old_item[r["id"]] = it.id
         # No transition history exists upstream; one row so cycle-time queries
         # have a floor to measure from.
-        db.add(EntryItemStatusEvent(entry_item_id=it.id, to_status=r["status"], source="import"))
+        db.add(
+            EntryItemStatusEvent(
+                entry_item_id=it.id, to_status=r["status"], source="import"
+            )
+        )
 
-    for r in src.execute("SELECT id, plan_item_id FROM tracker_entryitem WHERE plan_item_id IS NOT NULL"):
+    for r in src.execute(
+        "SELECT id, plan_item_id FROM tracker_entryitem WHERE plan_item_id IS NOT NULL"
+    ):
         if (new := old_item.get(r["plan_item_id"])) and (mine := old_item.get(r["id"])):
             (await db.get(EntryItem, mine)).plan_item_id = new
     print(f"items: {len(old_item)} new")
@@ -207,12 +245,14 @@ async def import_sqlite(db: AsyncSession, path: str) -> None:
             )
         ):
             continue
-        db.add(SlackDayThread(
-            digest_date=_as_date(r["digest_date"]),
-            kind=r["kind"],
-            channel=channel,
-            parent_ts=r["parent_ts"],
-        ))
+        db.add(
+            SlackDayThread(
+                digest_date=_as_date(r["digest_date"]),
+                kind=r["kind"],
+                channel=channel,
+                parent_ts=r["parent_ts"],
+            )
+        )
         threads += 1
     print(f"slack threads: {threads}")
     src.close()
@@ -220,7 +260,9 @@ async def import_sqlite(db: AsyncSession, path: str) -> None:
 
 async def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--import", dest="sqlite_path", help="path to the Django db.sqlite3")
+    ap.add_argument(
+        "--import", dest="sqlite_path", help="path to the Django db.sqlite3"
+    )
     args = ap.parse_args()
 
     async with Session() as db:

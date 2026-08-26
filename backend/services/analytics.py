@@ -70,12 +70,18 @@ def _item_where(s: Scope) -> list:
 
     assessments = sorted(ASSESSMENT_REQUEST_TYPES)
     if s.area == "content_assessment":
-        where += [EntryItem.pipeline == "content_request",
-                  EntryItem.request_type.in_(assessments)]
+        where += [
+            EntryItem.pipeline == "content_request",
+            EntryItem.request_type.in_(assessments),
+        ]
     elif s.area == "content_request":
-        where += [EntryItem.pipeline == "content_request",
-                  or_(EntryItem.request_type.is_(None),
-                      EntryItem.request_type.notin_(assessments))]
+        where += [
+            EntryItem.pipeline == "content_request",
+            or_(
+                EntryItem.request_type.is_(None),
+                EntryItem.request_type.notin_(assessments),
+            ),
+        ]
     elif s.area:
         where.append(EntryItem.pipeline == s.area)
     return where
@@ -107,9 +113,7 @@ def _effort():
 
 
 def _status_cols() -> list:
-    return [
-        func.count().filter(EntryItem.status == st).label(st) for st in STATUSES
-    ]
+    return [func.count().filter(EntryItem.status == st).label(st) for st in STATUSES]
 
 
 def _days(frm: date, to: date) -> list[date]:
@@ -120,21 +124,27 @@ def _days(frm: date, to: date) -> list[date]:
 
 
 async def summary(db: AsyncSession, s: Scope) -> dict:
-    row = (await db.execute(_from_tasks(
-        s,
-        func.count().label("tasks"),
-        func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
-        _effort(),
-        func.count(distinct(DailyEntry.member_id)).label("members"),
-        *_status_cols(),
-    ))).one()
+    row = (
+        await db.execute(
+            _from_tasks(
+                s,
+                func.count().label("tasks"),
+                func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+                _effort(),
+                func.count(distinct(DailyEntry.member_id)).label("members"),
+                *_status_cols(),
+            )
+        )
+    ).one()
 
-    entries = (await db.execute(
-        select(
-            func.count().filter(DailyEntry.kind == "plan").label("plans"),
-            func.count().filter(DailyEntry.kind == "update").label("updates"),
-        ).where(*_entry_where(s))
-    )).one()
+    entries = (
+        await db.execute(
+            select(
+                func.count().filter(DailyEntry.kind == "plan").label("plans"),
+                func.count().filter(DailyEntry.kind == "update").label("updates"),
+            ).where(*_entry_where(s))
+        )
+    ).one()
 
     done = row.closed
     return {
@@ -153,22 +163,28 @@ async def summary(db: AsyncSession, s: Scope) -> dict:
 async def trend(db: AsyncSession, s: Scope) -> list[dict]:
     """Zero-filled — a chart that skips weekends lies about the gap."""
     task_rows = {
-        r.d: r for r in await db.execute(_from_tasks(
-            s,
-            DailyEntry.entry_date.label("d"),
-            func.count().label("tasks"),
-            func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
-            _effort(),
-            func.count().filter(EntryItem.status == "closed").label("closed"),
-        ).group_by(DailyEntry.entry_date))
+        r.d: r
+        for r in await db.execute(
+            _from_tasks(
+                s,
+                DailyEntry.entry_date.label("d"),
+                func.count().label("tasks"),
+                func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
+                _effort(),
+                func.count().filter(EntryItem.status == "closed").label("closed"),
+            ).group_by(DailyEntry.entry_date)
+        )
     }
     entry_rows = {
-        r.d: r for r in await db.execute(
+        r.d: r
+        for r in await db.execute(
             select(
                 DailyEntry.entry_date.label("d"),
                 func.count().filter(DailyEntry.kind == "plan").label("plans"),
                 func.count().filter(DailyEntry.kind == "update").label("updates"),
-            ).where(*_entry_where(s)).group_by(DailyEntry.entry_date)
+            )
+            .where(*_entry_where(s))
+            .group_by(DailyEntry.entry_date)
         )
     }
     return [
@@ -205,8 +221,10 @@ async def by_member(db: AsyncSession, s: Scope) -> list[dict]:
     )
     return [
         {
-            "member_id": r.member_id, "member": r.member,
-            "tasks": r.tasks, "volume": int(r.volume),
+            "member_id": r.member_id,
+            "member": r.member,
+            "tasks": r.tasks,
+            "volume": int(r.volume),
             "effort_minutes": int(r.effort_minutes),
             **{st: getattr(r, st) for st in STATUSES},
             "completion_rate": round(r.closed / r.tasks, 4) if r.tasks else None,
@@ -218,11 +236,12 @@ async def by_member(db: AsyncSession, s: Scope) -> list[dict]:
 def _area_col():
     """Assessment work is a Request *type* inside Content Requests, not its own
     issue type, so the reporting areas don't line up 1:1 with pipelines."""
-    assessments = ", ".join(f"'{v}'" for v in sorted(ASSESSMENT_REQUEST_TYPES))
     return case(
         (
-            and_(EntryItem.pipeline == "content_request",
-                 EntryItem.request_type.in_(sorted(ASSESSMENT_REQUEST_TYPES))),
+            and_(
+                EntryItem.pipeline == "content_request",
+                EntryItem.request_type.in_(sorted(ASSESSMENT_REQUEST_TYPES)),
+            ),
             "content_assessment",
         ),
         else_=EntryItem.pipeline,
@@ -235,22 +254,27 @@ async def by_area(db: AsyncSession, s: Scope) -> list[dict]:
     area = _area_col()
     rows = await db.execute(
         _from_tasks(
-            s, area,
+            s,
+            area,
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
             _effort(),
             func.count(distinct(DailyEntry.member_id)).label("members"),
             func.count(distinct(EntryItem.customer)).label("customers"),
             *_status_cols(),
-        ).group_by(area).order_by(func.count().desc())
+        )
+        .group_by(area)
+        .order_by(func.count().desc())
     )
     return [
         {
             "area": r.area,
             "label": AREA_LABELS.get(r.area, r.area.replace("_", " ").title()),
-            "tasks": r.tasks, "volume": int(r.volume),
+            "tasks": r.tasks,
+            "volume": int(r.volume),
             "effort_minutes": int(r.effort_minutes),
-            "members": r.members, "customers": r.customers,
+            "members": r.members,
+            "customers": r.customers,
             **{st: getattr(r, st) for st in STATUSES},
         }
         for r in rows
@@ -272,7 +296,8 @@ async def area_by_member(db: AsyncSession, s: Scope) -> list[dict]:
     area = _area_col()
     rows = await db.execute(
         _from_tasks(
-            s, area,
+            s,
+            area,
             Member.display_name.label("member"),
             DailyEntry.member_id.label("member_id"),
             func.count().label("tasks"),
@@ -286,20 +311,33 @@ async def area_by_member(db: AsyncSession, s: Scope) -> list[dict]:
     grouped: dict[str, dict] = {}
     for r in rows:
         bucket = grouped.setdefault(
-            r.area, {"area": r.area, "label": _label(r.area),
-                     "tasks": 0, "effort_minutes": 0, "members": []}
+            r.area,
+            {
+                "area": r.area,
+                "label": _label(r.area),
+                "tasks": 0,
+                "effort_minutes": 0,
+                "members": [],
+            },
         )
         bucket["tasks"] += r.tasks
         bucket["effort_minutes"] += int(r.effort_minutes)
-        bucket["members"].append({
-            "member_id": r.member_id, "member": r.member, "tasks": r.tasks,
-            "effort_minutes": int(r.effort_minutes), "closed": r.closed,
-        })
+        bucket["members"].append(
+            {
+                "member_id": r.member_id,
+                "member": r.member,
+                "tasks": r.tasks,
+                "effort_minutes": int(r.effort_minutes),
+                "closed": r.closed,
+            }
+        )
     # Share is computed after the totals are known, so it always sums to 1.
     for bucket in grouped.values():
         total = bucket["effort_minutes"]
         for m in bucket["members"]:
-            m["share_of_area"] = round(m["effort_minutes"] / total, 4) if total else None
+            m["share_of_area"] = (
+                round(m["effort_minutes"] / total, 4) if total else None
+            )
     return sorted(grouped.values(), key=lambda b: -b["effort_minutes"])
 
 
@@ -321,16 +359,32 @@ async def effort_breakdown(db: AsyncSession, s: Scope) -> dict:
             .group_by(col)
             .order_by(func.coalesce(func.sum(EntryItem.effort_minutes), 0).desc())
             .limit(25)
-            if extra is None else extra
+            if extra is None
+            else extra
         )
-        return [{"key": r.key, "label": r.key, "tasks": r.tasks,
-                 "effort_minutes": int(r.effort_minutes)} for r in rows]
+        return [
+            {
+                "key": r.key,
+                "label": r.key,
+                "tasks": r.tasks,
+                "effort_minutes": int(r.effort_minutes),
+            }
+            for r in rows
+        ]
 
-    total = (await db.execute(
-        _from_tasks(s, _effort(), func.count().label("tasks"),
-                    func.count().filter(EntryItem.effort_minutes.is_(None)).label("unlogged"),
-                    func.count().filter(EntryItem.effort_suspect).label("suspect"))
-    )).one()
+    total = (
+        await db.execute(
+            _from_tasks(
+                s,
+                _effort(),
+                func.count().label("tasks"),
+                func.count()
+                .filter(EntryItem.effort_minutes.is_(None))
+                .label("unlogged"),
+                func.count().filter(EntryItem.effort_suspect).label("suspect"),
+            )
+        )
+    ).one()
 
     by_area_rows = await split(area)
     # Assessment work is a Request type inside Content Requests, not a
@@ -338,7 +392,9 @@ async def effort_breakdown(db: AsyncSession, s: Scope) -> dict:
     # folds it back in rather than showing it as separate work. (The
     # Requests screen wants the split kept, so this is local to this
     # function, not to `_area_col`/`by_area` itself.)
-    assessment = next((r for r in by_area_rows if r["key"] == "content_assessment"), None)
+    assessment = next(
+        (r for r in by_area_rows if r["key"] == "content_assessment"), None
+    )
     if assessment is not None:
         by_area_rows = [r for r in by_area_rows if r["key"] != "content_assessment"]
         request = next((r for r in by_area_rows if r["key"] == "content_request"), None)
@@ -379,30 +435,54 @@ async def effort_breakdown(db: AsyncSession, s: Scope) -> dict:
         "tasks_without_effort": total.unlogged,
         "tasks_with_suspect_effort": total.suspect,
         "by_area": by_area_rows,
-        "by_task_type": await split(TaskType.name, extra=(
-            _from_tasks(s, TaskType.name.label("key"), func.count().label("tasks"), _effort())
-            .join(TaskType, TaskType.id == EntryItem.task_type_id)
-            .where(EntryItem.effort_minutes.isnot(None))
-            .group_by(TaskType.name)
-            .order_by(func.coalesce(func.sum(EntryItem.effort_minutes), 0).desc())
-            .limit(25)
-        )),
-        "by_customer": await split(
-            func.coalesce(EntryItem.customer, "(no customer)")),
-        "by_member": await split(Member.display_name, extra=(
-            _from_tasks(s, Member.display_name.label("key"), func.count().label("tasks"), _effort())
-            .join(Member, Member.id == DailyEntry.member_id)
-            .where(EntryItem.effort_minutes.isnot(None))
-            .group_by(Member.display_name)
-            .order_by(func.coalesce(func.sum(EntryItem.effort_minutes), 0).desc())
-            .limit(25)
-        )),
+        "by_task_type": await split(
+            TaskType.name,
+            extra=(
+                _from_tasks(
+                    s,
+                    TaskType.name.label("key"),
+                    func.count().label("tasks"),
+                    _effort(),
+                )
+                .join(TaskType, TaskType.id == EntryItem.task_type_id)
+                .where(EntryItem.effort_minutes.isnot(None))
+                .group_by(TaskType.name)
+                .order_by(func.coalesce(func.sum(EntryItem.effort_minutes), 0).desc())
+                .limit(25)
+            ),
+        ),
+        "by_customer": await split(func.coalesce(EntryItem.customer, "(no customer)")),
+        "by_member": await split(
+            Member.display_name,
+            extra=(
+                _from_tasks(
+                    s,
+                    Member.display_name.label("key"),
+                    func.count().label("tasks"),
+                    _effort(),
+                )
+                .join(Member, Member.id == DailyEntry.member_id)
+                .where(EntryItem.effort_minutes.isnot(None))
+                .group_by(Member.display_name)
+                .order_by(func.coalesce(func.sum(EntryItem.effort_minutes), 0).desc())
+                .limit(25)
+            ),
+        ),
         "top_tickets": [
-            {"id": r.id, "notes": r.notes, "effort_minutes": r.effort_minutes,
-             "suspect": r.suspect, "jira_issue_key": r.jira_issue_key,
-             "jira_issue_url": r.jira_issue_url, "customer": r.customer,
-             "status": r.status, "entry_date": r.entry_date.isoformat(),
-             "member": r.member, "area": r.area, "area_label": _label(r.area)}
+            {
+                "id": r.id,
+                "notes": r.notes,
+                "effort_minutes": r.effort_minutes,
+                "suspect": r.suspect,
+                "jira_issue_key": r.jira_issue_key,
+                "jira_issue_url": r.jira_issue_url,
+                "customer": r.customer,
+                "status": r.status,
+                "entry_date": r.entry_date.isoformat(),
+                "member": r.member,
+                "area": r.area,
+                "area_label": _label(r.area),
+            }
             for r in tickets
         ],
     }
@@ -411,21 +491,31 @@ async def effort_breakdown(db: AsyncSession, s: Scope) -> dict:
 async def quality_mix(db: AsyncSession, s: Scope) -> dict:
     """Priority and SLA, straight from Jira. Both were being fetched and thrown
     away until the fields were captured."""
+
     async def group(col):
         rows = await db.execute(
             _from_tasks(s, col.label("key"), func.count().label("tasks"), _effort())
-            .group_by(col).order_by(func.count().desc())
+            .group_by(col)
+            .order_by(func.count().desc())
         )
-        return [{"key": r.key or "(none)", "tasks": r.tasks,
-                 "effort_minutes": int(r.effort_minutes)} for r in rows]
+        return [
+            {
+                "key": r.key or "(none)",
+                "tasks": r.tasks,
+                "effort_minutes": int(r.effort_minutes),
+            }
+            for r in rows
+        ]
 
-    sla = (await db.execute(
-        _from_tasks(
-            s,
-            func.count().filter(EntryItem.sla_met.is_(True)).label("met"),
-            func.count().filter(EntryItem.sla_met.is_(False)).label("missed"),
+    sla = (
+        await db.execute(
+            _from_tasks(
+                s,
+                func.count().filter(EntryItem.sla_met.is_(True)).label("met"),
+                func.count().filter(EntryItem.sla_met.is_(False)).label("missed"),
+            )
         )
-    )).one()
+    ).one()
     return {
         "by_priority": await group(EntryItem.priority),
         "sla_met": sla.met,
@@ -433,7 +523,8 @@ async def quality_mix(db: AsyncSession, s: Scope) -> dict:
         # Jira only evaluates an SLA on about half the issues, so a bare
         # "met" count would read as a pass rate over everything.
         "sla_rate": round(sla.met / (sla.met + sla.missed), 4)
-        if (sla.met + sla.missed) else None,
+        if (sla.met + sla.missed)
+        else None,
     }
 
 
@@ -441,15 +532,23 @@ async def by_request_type(db: AsyncSession, s: Scope) -> list[dict]:
     """Inside Content Requests: what kind of request was it?"""
     rows = await db.execute(
         _from_tasks(
-            s, EntryItem.request_type,
-            func.count().label("tasks"), _effort(),
+            s,
+            EntryItem.request_type,
+            func.count().label("tasks"),
+            _effort(),
         )
         .where(EntryItem.request_type.isnot(None))
         .group_by(EntryItem.request_type)
         .order_by(func.count().desc())
     )
-    return [{"request_type": r.request_type, "tasks": r.tasks,
-             "effort_minutes": int(r.effort_minutes)} for r in rows]
+    return [
+        {
+            "request_type": r.request_type,
+            "tasks": r.tasks,
+            "effort_minutes": int(r.effort_minutes),
+        }
+        for r in rows
+    ]
 
 
 async def by_pipeline(db: AsyncSession, s: Scope) -> list[dict]:
@@ -475,9 +574,11 @@ async def by_pipeline(db: AsyncSession, s: Scope) -> list[dict]:
         {
             "pipeline": r.pipeline,
             "label": r.label or r.pipeline.replace("_", " ").title(),
-            "tasks": r.tasks, "volume": int(r.volume),
+            "tasks": r.tasks,
+            "volume": int(r.volume),
             "effort_minutes": int(r.effort_minutes),
-            "members": r.members, "customers": r.customers,
+            "members": r.members,
+            "customers": r.customers,
             **{st: getattr(r, st) for st in STATUSES},
         }
         for r in rows
@@ -499,9 +600,13 @@ async def by_task_type(db: AsyncSession, s: Scope) -> list[dict]:
         .order_by(func.count().desc())
     )
     return [
-        {"task_type": r.task_type, "tasks": r.tasks, "volume": int(r.volume),
-         "effort_minutes": int(r.effort_minutes),
-         **{st: getattr(r, st) for st in STATUSES}}
+        {
+            "task_type": r.task_type,
+            "tasks": r.tasks,
+            "volume": int(r.volume),
+            "effort_minutes": int(r.effort_minutes),
+            **{st: getattr(r, st) for st in STATUSES},
+        }
         for r in rows
     ]
 
@@ -516,14 +621,21 @@ async def by_question_type(db: AsyncSession, s: Scope) -> list[dict]:
             func.count().label("tasks"),
             func.coalesce(func.sum(EntryItem.count), 0).label("volume"),
         )
-        .join(entry_item_question_types,
-              entry_item_question_types.c.entry_item_id == EntryItem.id)
-        .join(QuestionType, QuestionType.id == entry_item_question_types.c.question_type_id)
+        .join(
+            entry_item_question_types,
+            entry_item_question_types.c.entry_item_id == EntryItem.id,
+        )
+        .join(
+            QuestionType,
+            QuestionType.id == entry_item_question_types.c.question_type_id,
+        )
         .group_by(QuestionType.name)
         .order_by(func.count().desc())
     )
-    return [{"question_type": r.question_type, "tasks": r.tasks, "volume": int(r.volume)}
-            for r in rows]
+    return [
+        {"question_type": r.question_type, "tasks": r.tasks, "volume": int(r.volume)}
+        for r in rows
+    ]
 
 
 async def by_customer(db: AsyncSession, s: Scope, limit: int = 20) -> list[dict]:
@@ -542,10 +654,16 @@ async def by_customer(db: AsyncSession, s: Scope, limit: int = 20) -> list[dict]
         .order_by(func.count().desc())
         .limit(limit)
     )
-    return [{"customer": r.customer, "tasks": r.tasks, "volume": int(r.volume),
-             "effort_minutes": int(r.effort_minutes),
-             "outstanding": r.outstanding} for r in rows]
-
+    return [
+        {
+            "customer": r.customer,
+            "tasks": r.tasks,
+            "volume": int(r.volume),
+            "effort_minutes": int(r.effort_minutes),
+            "outstanding": r.outstanding,
+        }
+        for r in rows
+    ]
 
 
 # ── flow, timing, adherence ───────────────────────────────────────────────────
@@ -620,35 +738,51 @@ async def cycle_time(db: AsyncSession, s: Scope) -> dict:
             .where(measurable)
         )
 
-    overall = (await db.execute(
-        q(func.count().label("n"), median.label("median"), p90.label("p90"))
-    )).one()
+    overall = (
+        await db.execute(
+            q(func.count().label("n"), median.label("median"), p90.label("p90"))
+        )
+    ).one()
     # Denominator is finished work, not `status = 'closed'`: an issue can carry
     # a resolution while our status map still reads it as open, which made
     # coverage come out at 1.001 — more measured than eligible.
-    counts = (await db.execute(
-        _from_tasks(
-            s,
-            func.count().filter(or_(EntryItem.status == "closed", closed.isnot(None)))
-            .label("eligible"),
-            func.count().filter(and_(resolved, retroactive)).label("retro"),
-        ).outerjoin(ev, ev.c.item_id == EntryItem.id)
-    )).one()
+    counts = (
+        await db.execute(
+            _from_tasks(
+                s,
+                func.count()
+                .filter(or_(EntryItem.status == "closed", closed.isnot(None)))
+                .label("eligible"),
+                func.count().filter(and_(resolved, retroactive)).label("retro"),
+            ).outerjoin(ev, ev.c.item_id == EntryItem.id)
+        )
+    ).one()
     eligible = counts.eligible
 
     per_member = await db.execute(
-        q(Member.display_name.label("member"), func.count().label("n"), median.label("median"))
+        q(
+            Member.display_name.label("member"),
+            func.count().label("n"),
+            median.label("median"),
+        )
         .join(Member, Member.id == DailyEntry.member_id)
         .group_by(Member.display_name)
         .order_by(median.desc())
     )
     per_type = await db.execute(
-        q(TaskType.name.label("task_type"), func.count().label("n"), median.label("median"))
+        q(
+            TaskType.name.label("task_type"),
+            func.count().label("n"),
+            median.label("median"),
+        )
         .join(TaskType, TaskType.id == EntryItem.task_type_id)
         .group_by(TaskType.name)
         .order_by(median.desc())
     )
-    r2 = lambda v: round(float(v), 2) if v is not None else None
+
+    def r2(v):
+        return round(float(v), 2) if v is not None else None
+
     return {
         "closed_tasks": overall.n,
         "measured_of_closed": eligible,
@@ -656,10 +790,18 @@ async def cycle_time(db: AsyncSession, s: Scope) -> dict:
         "coverage": round(overall.n / eligible, 4) if eligible else None,
         "median_hours": r2(overall.median),
         "p90_hours": r2(overall.p90),
-        "by_member": [{"member": r.member, "closed_tasks": r.n, "median_hours": r2(r.median)}
-                      for r in per_member],
-        "by_task_type": [{"task_type": r.task_type, "closed_tasks": r.n,
-                          "median_hours": r2(r.median)} for r in per_type],
+        "by_member": [
+            {"member": r.member, "closed_tasks": r.n, "median_hours": r2(r.median)}
+            for r in per_member
+        ],
+        "by_task_type": [
+            {
+                "task_type": r.task_type,
+                "closed_tasks": r.n,
+                "median_hours": r2(r.median),
+            }
+            for r in per_type
+        ],
     }
 
 
@@ -686,7 +828,8 @@ async def plan_adherence(db: AsyncSession, s: Scope) -> list[dict]:
             func.count().label("planned"),
             func.count().filter(reported).label("reported"),
             func.count().filter(EntryItem.status == "closed").label("closed"),
-            func.count().filter(and_(~reported, EntryItem.status != "closed"))
+            func.count()
+            .filter(and_(~reported, EntryItem.status != "closed"))
             .label("no_update"),
         )
         .select_from(EntryItem)
@@ -698,8 +841,12 @@ async def plan_adherence(db: AsyncSession, s: Scope) -> list[dict]:
     )
     return [
         {
-            "member_id": r.member_id, "member": r.member, "planned": r.planned,
-            "reported": r.reported, "closed": r.closed, "no_update": r.no_update,
+            "member_id": r.member_id,
+            "member": r.member,
+            "planned": r.planned,
+            "reported": r.reported,
+            "closed": r.closed,
+            "no_update": r.no_update,
             "report_rate": round(r.reported / r.planned, 4) if r.planned else None,
             "close_rate": round(r.closed / r.planned, 4) if r.planned else None,
         }
@@ -721,16 +868,20 @@ async def plan_daily_status(db: AsyncSession, s: Scope) -> list[dict]:
     only ever closes tickets that way never shows as having reported.
     """
     planned = {
-        (r.member_id, r.entry_date) for r in await db.execute(
+        (r.member_id, r.entry_date)
+        for r in await db.execute(
             select(DailyEntry.member_id, DailyEntry.entry_date)
-            .where(*_entry_where(s), DailyEntry.kind == "plan", DailyEntry.source != "jira")
+            .where(
+                *_entry_where(s), DailyEntry.kind == "plan", DailyEntry.source != "jira"
+            )
             .distinct()
         )
     }
     range_start, _ = day_bounds_utc(s.frm)
     _, range_end = day_bounds_utc(s.to)
     updated = {
-        (r.member_id, r.entry_date) for r in await db.execute(
+        (r.member_id, r.entry_date)
+        for r in await db.execute(
             select(DailyEntry.member_id, DailyEntry.entry_date)
             .where(*_entry_where(s), DailyEntry.kind == "update")
             .distinct()
@@ -753,16 +904,21 @@ async def plan_daily_status(db: AsyncSession, s: Scope) -> list[dict]:
         .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
         .where(*status_change_where)
     ):
-        updated.add((r.member_id, r.changed_at.replace(tzinfo=UTC).astimezone(TZ).date()))
+        updated.add(
+            (r.member_id, r.changed_at.replace(tzinfo=UTC).astimezone(TZ).date())
+        )
     # Tickets logged for that day — same de-dup as `tasks()`, so an update row
     # that's just progress on an existing plan item isn't counted twice.
     created: dict[tuple[int, date], int] = {}
     for r in await db.execute(
         select(DailyEntry.member_id, DailyEntry.entry_date)
-        .select_from(EntryItem).join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+        .select_from(EntryItem)
+        .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
         .where(*_item_where(s))
     ):
-        created[r.member_id, r.entry_date] = created.get((r.member_id, r.entry_date), 0) + 1
+        created[r.member_id, r.entry_date] = (
+            created.get((r.member_id, r.entry_date), 0) + 1
+        )
     # Closed *on* that day, not planned that day — a ticket planned Monday and
     # closed Wednesday belongs to Wednesday's count, not Monday's. `changed_at`
     # is a naive-UTC instant, so the range and the day it's bucketed into both
@@ -797,9 +953,13 @@ async def plan_daily_status(db: AsyncSession, s: Scope) -> list[dict]:
     days = _days(s.frm, s.to)
     return [
         {
-            "member_id": member_id, "member": member, "entry_date": d.isoformat(),
-            "planned": (member_id, d) in planned, "updated": (member_id, d) in updated,
-            "created": created.get((member_id, d), 0), "closed": closed.get((member_id, d), 0),
+            "member_id": member_id,
+            "member": member,
+            "entry_date": d.isoformat(),
+            "planned": (member_id, d) in planned,
+            "updated": (member_id, d) in updated,
+            "created": created.get((member_id, d), 0),
+            "closed": closed.get((member_id, d), 0),
         }
         for member_id, member in members
         for d in days
@@ -818,24 +978,36 @@ async def aging(db: AsyncSession, s: Scope, today: date) -> dict:
         .group_by(bucket)
     )
     counts = {r.bucket: r.tasks for r in rows}
-    return {"buckets": [{"bucket": b, "tasks": counts.get(b, 0)}
-                        for b in ("0-2", "3-7", "8-14", "15+")]}
+    return {
+        "buckets": [
+            {"bucket": b, "tasks": counts.get(b, 0)}
+            for b in ("0-2", "3-7", "8-14", "15+")
+        ]
+    }
 
 
 async def due_risk(db: AsyncSession, s: Scope, today: date) -> dict:
     """`due_at` is captured on every task and then used for nothing."""
     week_end = today + timedelta(days=7)
-    row = (await db.execute(
-        _from_tasks(
-            s,
-            func.count().filter(EntryItem.due_at < today).label("overdue"),
-            func.count().filter(EntryItem.due_at == today).label("due_today"),
-            func.count().filter(EntryItem.due_at.between(today, week_end)).label("due_week"),
-            func.count().filter(EntryItem.due_at.is_(None)).label("no_due_date"),
-        ).where(EntryItem.status != "closed")
-    )).one()
-    return {"overdue": row.overdue, "due_today": row.due_today,
-            "due_this_week": row.due_week, "no_due_date": row.no_due_date}
+    row = (
+        await db.execute(
+            _from_tasks(
+                s,
+                func.count().filter(EntryItem.due_at < today).label("overdue"),
+                func.count().filter(EntryItem.due_at == today).label("due_today"),
+                func.count()
+                .filter(EntryItem.due_at.between(today, week_end))
+                .label("due_week"),
+                func.count().filter(EntryItem.due_at.is_(None)).label("no_due_date"),
+            ).where(EntryItem.status != "closed")
+        )
+    ).one()
+    return {
+        "overdue": row.overdue,
+        "due_today": row.due_today,
+        "due_this_week": row.due_week,
+        "no_due_date": row.no_due_date,
+    }
 
 
 async def throughput(db: AsyncSession, s: Scope) -> list[dict]:
@@ -856,7 +1028,9 @@ async def throughput(db: AsyncSession, s: Scope) -> list[dict]:
         .group_by(func.date(EntryItemStatusEvent.changed_at))
     )
     counts = {r.d: r.closed for r in rows}
-    return [{"date": d.isoformat(), "closed": counts.get(d, 0)} for d in _days(s.frm, s.to)]
+    return [
+        {"date": d.isoformat(), "closed": counts.get(d, 0)} for d in _days(s.frm, s.to)
+    ]
 
 
 async def workload(db: AsyncSession, s: Scope) -> list[dict]:
@@ -872,17 +1046,30 @@ async def workload(db: AsyncSession, s: Scope) -> list[dict]:
         .join(Member, Member.id == DailyEntry.member_id)
         .group_by(Member.display_name, DailyEntry.entry_date)
     )
-    return [{"member": r.member, "date": r.d.isoformat(), "tasks": r.tasks,
-             "volume": int(r.volume), "effort_minutes": int(r.effort_minutes)}
-            for r in rows]
+    return [
+        {
+            "member": r.member,
+            "date": r.d.isoformat(),
+            "tasks": r.tasks,
+            "volume": int(r.volume),
+            "effort_minutes": int(r.effort_minutes),
+        }
+        for r in rows
+    ]
 
 
-async def open_items(db: AsyncSession, s: Scope, today: date, limit: int = 200) -> list[dict]:
+async def open_items(
+    db: AsyncSession, s: Scope, today: date, limit: int = 200
+) -> list[dict]:
     rows = await db.execute(
         _from_tasks(
             s,
-            EntryItem.id, EntryItem.status, EntryItem.notes, EntryItem.customer,
-            EntryItem.due_at, EntryItem.count,
+            EntryItem.id,
+            EntryItem.status,
+            EntryItem.notes,
+            EntryItem.customer,
+            EntryItem.due_at,
+            EntryItem.count,
             TaskType.name.label("task_type"),
             Member.display_name.label("member"),
             DailyEntry.entry_date,
@@ -895,9 +1082,14 @@ async def open_items(db: AsyncSession, s: Scope, today: date, limit: int = 200) 
     )
     return [
         {
-            "id": r.id, "member": r.member, "task_type": r.task_type,
-            "status": r.status, "customer": r.customer, "count": r.count,
-            "notes": r.notes, "entry_date": r.entry_date.isoformat(),
+            "id": r.id,
+            "member": r.member,
+            "task_type": r.task_type,
+            "status": r.status,
+            "customer": r.customer,
+            "count": r.count,
+            "notes": r.notes,
+            "entry_date": r.entry_date.isoformat(),
             "due_at": r.due_at.isoformat() if r.due_at else None,
             "age_days": (today - r.entry_date).days,
             "overdue": bool(r.due_at and r.due_at < today and r.status != "closed"),
@@ -908,17 +1100,28 @@ async def open_items(db: AsyncSession, s: Scope, today: date, limit: int = 200) 
 
 async def data_quality(db: AsyncSession, s: Scope) -> dict:
     tagged = select(entry_item_question_types.c.entry_item_id)
-    row = (await db.execute(_from_tasks(
-        s,
-        func.count().label("tasks"),
-        func.count().filter(func.trim(func.coalesce(EntryItem.notes, "")) == "").label("no_notes"),
-        func.count().filter(EntryItem.count.is_(None)).label("no_count"),
-        func.count().filter(func.trim(func.coalesce(EntryItem.customer, "")) == "")
-        .label("no_customer"),
-        func.count().filter(EntryItem.id.notin_(tagged)).label("no_question_type"),
-        func.count().filter(EntryItem.due_at.is_(None)).label("no_due_date"),
-        func.count().filter(EntryItem.effort_minutes.is_(None)).label("no_effort"),
-    ))).one()
+    row = (
+        await db.execute(
+            _from_tasks(
+                s,
+                func.count().label("tasks"),
+                func.count()
+                .filter(func.trim(func.coalesce(EntryItem.notes, "")) == "")
+                .label("no_notes"),
+                func.count().filter(EntryItem.count.is_(None)).label("no_count"),
+                func.count()
+                .filter(func.trim(func.coalesce(EntryItem.customer, "")) == "")
+                .label("no_customer"),
+                func.count()
+                .filter(EntryItem.id.notin_(tagged))
+                .label("no_question_type"),
+                func.count().filter(EntryItem.due_at.is_(None)).label("no_due_date"),
+                func.count()
+                .filter(EntryItem.effort_minutes.is_(None))
+                .label("no_effort"),
+            )
+        )
+    ).one()
 
     # Plans nobody ever reported against — the loudest quality signal here.
     mirror = select(EntryItem.plan_item_id).where(EntryItem.plan_item_id.isnot(None))
@@ -936,8 +1139,11 @@ async def data_quality(db: AsyncSession, s: Scope) -> dict:
     return {
         "tasks": row.tasks,
         "missing": {
-            "notes": row.no_notes, "count": row.no_count, "customer": row.no_customer,
-            "question_type": row.no_question_type, "due_date": row.no_due_date,
+            "notes": row.no_notes,
+            "count": row.no_count,
+            "customer": row.no_customer,
+            "question_type": row.no_question_type,
+            "due_date": row.no_due_date,
             "effort": row.no_effort,
         },
         "plans_with_unreported_tasks": silent or 0,

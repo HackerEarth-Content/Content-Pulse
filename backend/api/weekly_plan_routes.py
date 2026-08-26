@@ -14,8 +14,11 @@ from schemas.weekly_plan import (
 )
 from services import weekly_plan as svc
 
-router = APIRouter(prefix="/api/weekly-plan", tags=["weekly-plan"],
-                   dependencies=[Depends(current_user)])
+router = APIRouter(
+    prefix="/api/weekly-plan",
+    tags=["weekly-plan"],
+    dependencies=[Depends(current_user)],
+)
 
 leads_only = Depends(require_role(*LEADS))
 
@@ -74,11 +77,17 @@ async def patch_weekly_plan_item(
     if viewer.member is None:
         raise svc.err(403, "no_member", "Your account isn't linked to a team member.")
     item = await svc.patch_item(
-        db, item_id, viewer.member.id, status=body.status, achievement=body.achievement,
+        db,
+        item_id,
+        viewer.member.id,
+        status=body.status,
+        achievement=body.achievement,
     )
     return WeeklyPlanItemOut.of(item)
 
 
-@router.get("/completion", response_model=WeeklyPlanCompletionOut, dependencies=[leads_only])
+@router.get(
+    "/completion", response_model=WeeklyPlanCompletionOut, dependencies=[leads_only]
+)
 async def weekly_plan_completion(week: date, db: AsyncSession = Depends(get_session)):
     return await svc.completion(db, week)

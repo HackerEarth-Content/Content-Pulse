@@ -20,7 +20,9 @@ from schemas.entries import (
 from services import analytics as an
 from services.entries import err
 
-router = APIRouter(prefix="/api", tags=["members"], dependencies=[Depends(current_user)])
+router = APIRouter(
+    prefix="/api", tags=["members"], dependencies=[Depends(current_user)]
+)
 
 # Real role gating. SUPERADMIN_EMAILS short-circuits it inside require_role, so
 # the screen used to grant roles is never locked behind having one.
@@ -41,14 +43,21 @@ async def list_members(
         where.append(Member.is_active == is_active)
     if q:
         where.append(Member.display_name.ilike(f"%{q}%"))
-    return list(await db.scalars(select(Member).where(*where).order_by(Member.display_name)))
+    return list(
+        await db.scalars(select(Member).where(*where).order_by(Member.display_name))
+    )
 
 
-@router.post("/members", response_model=MemberOut, status_code=201, dependencies=[admin_only])
+@router.post(
+    "/members", response_model=MemberOut, status_code=201, dependencies=[admin_only]
+)
 async def create_member(data: MemberIn, db: AsyncSession = Depends(get_session)):
-    if await db.scalar(select(Member).where(
-        func.lower(func.trim(Member.display_name)) == data.display_name.strip().lower()
-    )):
+    if await db.scalar(
+        select(Member).where(
+            func.lower(func.trim(Member.display_name))
+            == data.display_name.strip().lower()
+        )
+    ):
         raise err(409, "member_exists", "A member with that name already exists.")
     member = Member(**data.model_dump())
     db.add(member)
@@ -56,8 +65,12 @@ async def create_member(data: MemberIn, db: AsyncSession = Depends(get_session))
     return member
 
 
-@router.patch("/members/{member_id}", response_model=MemberOut, dependencies=[admin_only])
-async def patch_member(member_id: int, patch: MemberPatch, db: AsyncSession = Depends(get_session)):
+@router.patch(
+    "/members/{member_id}", response_model=MemberOut, dependencies=[admin_only]
+)
+async def patch_member(
+    member_id: int, patch: MemberPatch, db: AsyncSession = Depends(get_session)
+):
     member = await db.get(Member, member_id)
     if member is None:
         raise err(404, "not_found", "No such member.")
@@ -77,7 +90,9 @@ async def remove_member(member_id: int, db: AsyncSession = Depends(get_session))
         raise err(404, "not_found", "No such member.")
 
     entries = await db.scalar(
-        select(func.count()).select_from(DailyEntry).where(DailyEntry.member_id == member_id)
+        select(func.count())
+        .select_from(DailyEntry)
+        .where(DailyEntry.member_id == member_id)
     )
     if entries:
         member.is_active = False
@@ -86,8 +101,8 @@ async def remove_member(member_id: int, db: AsyncSession = Depends(get_session))
             "deleted": False,
             "entries": entries,
             "detail": f"{member.display_name} has {entries} logged "
-                      f"{'entry' if entries == 1 else 'entries'}, so their history was kept "
-                      "and their access revoked.",
+            f"{'entry' if entries == 1 else 'entries'}, so their history was kept "
+            "and their access revoked.",
         }
 
     name = member.display_name
@@ -123,16 +138,22 @@ async def member_profile(
 
     totals, team_totals = await an.summary(db, mine), await an.summary(db, team)
     return {
-        "member": {"id": member.id, "display_name": member.display_name,
-                   "role": member.role, "email": member.email},
+        "member": {
+            "id": member.id,
+            "display_name": member.display_name,
+            "role": member.role,
+            "email": member.email,
+        },
         "range": {"from": start.isoformat(), "to": end.isoformat()},
         # Unified: every pipeline folded into one set of headline numbers.
         "totals": totals,
         "share_of_team": {
             "tasks": round(totals["tasks"] / team_totals["tasks"], 4)
-            if team_totals["tasks"] else None,
+            if team_totals["tasks"]
+            else None,
             "effort": round(totals["effort_minutes"] / team_totals["effort_minutes"], 4)
-            if team_totals["effort_minutes"] else None,
+            if team_totals["effort_minutes"]
+            else None,
         },
         "by_pipeline": await an.by_pipeline(db, mine),
         "by_task_type": await an.by_task_type(db, mine),
@@ -175,11 +196,22 @@ async def list_lookups(
 ):
     model = _model(kind)
     where = [] if include_inactive else [model.is_active.is_(True)]
-    return list(await db.scalars(select(model).where(*where).order_by(model.sort_order, model.name)))
+    return list(
+        await db.scalars(
+            select(model).where(*where).order_by(model.sort_order, model.name)
+        )
+    )
 
 
-@router.post("/meta/lookups/{kind}", response_model=LookupOut, status_code=201, dependencies=[admin_only])
-async def create_lookup(kind: str, body: LookupIn, db: AsyncSession = Depends(get_session)):
+@router.post(
+    "/meta/lookups/{kind}",
+    response_model=LookupOut,
+    status_code=201,
+    dependencies=[admin_only],
+)
+async def create_lookup(
+    kind: str, body: LookupIn, db: AsyncSession = Depends(get_session)
+):
     model = _model(kind)
     name = body.name.strip()
     if await db.scalar(select(model).where(func.lower(model.name) == name.lower())):
@@ -190,9 +222,16 @@ async def create_lookup(kind: str, body: LookupIn, db: AsyncSession = Depends(ge
     return row
 
 
-@router.patch("/meta/lookups/{kind}/{lookup_id}", response_model=LookupOut, dependencies=[admin_only])
+@router.patch(
+    "/meta/lookups/{kind}/{lookup_id}",
+    response_model=LookupOut,
+    dependencies=[admin_only],
+)
 async def patch_lookup(
-    kind: str, lookup_id: int, body: LookupPatch, db: AsyncSession = Depends(get_session)
+    kind: str,
+    lookup_id: int,
+    body: LookupPatch,
+    db: AsyncSession = Depends(get_session),
 ):
     """Rename or retire. Retiring keeps history intact — the value stops being
     offered on forms but every task already using it still reads correctly."""

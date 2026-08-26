@@ -42,13 +42,18 @@ async def window_state(db: AsyncSession) -> dict:
 
 
 async def set_window(
-    db: AsyncSession, *, open_weekdays: list[int] | None, excluded_member_ids: list[int] | None,
+    db: AsyncSession,
+    *,
+    open_weekdays: list[int] | None,
+    excluded_member_ids: list[int] | None,
 ) -> dict:
     row = await _setting(db)
     value = dict(row.value)
     if open_weekdays is not None:
         if any(d < 0 or d > 6 for d in open_weekdays):
-            raise err(422, "bad_weekday", "Weekdays must be 0 (Monday) through 6 (Sunday).")
+            raise err(
+                422, "bad_weekday", "Weekdays must be 0 (Monday) through 6 (Sunday)."
+            )
         value["open_weekdays"] = sorted(set(open_weekdays))
     if excluded_member_ids is not None:
         value["excluded_member_ids"] = sorted(set(excluded_member_ids))
@@ -60,13 +65,19 @@ async def set_window(
 async def _guard_window(db: AsyncSession) -> None:
     state = await window_state(db)
     if not state["open"]:
-        raise err(422, "window_closed", "Skill entry isn't open today — check with an admin.")
+        raise err(
+            422, "window_closed", "Skill entry isn't open today — check with an admin."
+        )
 
 
 async def list_skills(db: AsyncSession) -> list[Skill]:
-    return list(await db.scalars(
-        select(Skill).where(Skill.is_active.is_(True)).order_by(Skill.category, Skill.sort_order)
-    ))
+    return list(
+        await db.scalars(
+            select(Skill)
+            .where(Skill.is_active.is_(True))
+            .order_by(Skill.category, Skill.sort_order)
+        )
+    )
 
 
 async def member_ratings(db: AsyncSession, member_id: int) -> dict[int, int]:
@@ -77,7 +88,9 @@ async def member_ratings(db: AsyncSession, member_id: int) -> dict[int, int]:
 
 
 async def upsert_ratings(
-    db: AsyncSession, member_id: int, ratings: list[tuple[int, int]],
+    db: AsyncSession,
+    member_id: int,
+    ratings: list[tuple[int, int]],
 ) -> dict[int, int]:
     await _guard_window(db)
 
@@ -96,7 +109,9 @@ async def upsert_ratings(
         if row := existing.get(skill_id):
             row.level = level
         else:
-            db.add(MemberSkillRating(member_id=member_id, skill_id=skill_id, level=level))
+            db.add(
+                MemberSkillRating(member_id=member_id, skill_id=skill_id, level=level)
+            )
     await db.commit()
     return await member_ratings(db, member_id)
 
@@ -109,11 +124,13 @@ async def team_matrix(db: AsyncSession) -> tuple[list[Skill], list[dict]]:
     excluded = set(state["excluded_member_ids"])
 
     skills = await list_skills(db)
-    members = list(await db.scalars(
-        select(Member)
-        .where(Member.is_active.is_(True), Member.id.notin_(excluded or [-1]))
-        .order_by(Member.display_name)
-    ))
+    members = list(
+        await db.scalars(
+            select(Member)
+            .where(Member.is_active.is_(True), Member.id.notin_(excluded or [-1]))
+            .order_by(Member.display_name)
+        )
+    )
     ratings = list(await db.scalars(select(MemberSkillRating)))
     by_member: dict[int, dict[int, int]] = {}
     for r in ratings:

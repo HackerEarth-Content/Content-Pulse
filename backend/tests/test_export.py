@@ -13,13 +13,16 @@ DAY = "2030-09-10"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-@pytest.mark.parametrize("raw", [
-    '=HYPERLINK("http://evil","claim")',
-    "+1234",
-    "-cmd|' /c calc'!A0",
-    "@SUM(A1:A9)",
-    "\tstartswith tab",
-])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '=HYPERLINK("http://evil","claim")',
+        "+1234",
+        "-cmd|' /c calc'!A0",
+        "@SUM(A1:A9)",
+        "\tstartswith tab",
+    ],
+)
 def test_dangerous_cells_are_quoted(raw):
     assert safe(raw) == "'" + raw
 
@@ -31,17 +34,32 @@ def test_ordinary_values_pass_through(raw):
 
 @pytest.fixture
 async def logged(client, member, task_type):
-    plan = (await client.post("/api/entries/plans", json={
-        "member_id": member, "entry_date": DAY,
-        "items": [{"task_type_id": task_type, "count": 4, "customer": "Acme",
-                   "notes": '=cmd|calc', "due_at": DAY}],
-    })).json()
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [
+                    {
+                        "task_type_id": task_type,
+                        "count": 4,
+                        "customer": "Acme",
+                        "notes": "=cmd|calc",
+                        "due_at": DAY,
+                    }
+                ],
+            },
+        )
+    ).json()
     return plan
 
 
 async def test_work_log_xlsx_is_a_real_workbook(client, logged, member):
-    r = await client.get("/api/exports/work-log.xlsx",
-                         params={"from": DAY, "to": DAY, "member_id": member})
+    r = await client.get(
+        "/api/exports/work-log.xlsx",
+        params={"from": DAY, "to": DAY, "member_id": member},
+    )
     assert r.status_code == 200 and r.headers["content-type"] == XLSX
     assert "work-log-2030-09-10" in r.headers["content-disposition"]
 
@@ -56,8 +74,10 @@ async def test_work_log_xlsx_is_a_real_workbook(client, logged, member):
 
 
 async def test_work_log_csv_quotes_formulas_too(client, logged, member):
-    r = await client.get("/api/exports/work-log.csv",
-                         params={"from": DAY, "to": DAY, "member_id": member})
+    r = await client.get(
+        "/api/exports/work-log.csv",
+        params={"from": DAY, "to": DAY, "member_id": member},
+    )
     assert r.status_code == 200
     rows = list(csv.reader(io.StringIO(r.text)))
     assert rows[0][0] == "Date"
@@ -66,12 +86,19 @@ async def test_work_log_csv_quotes_formulas_too(client, logged, member):
 
 
 async def test_analytics_workbook_has_a_sheet_per_breakdown(client, logged, member):
-    r = await client.get("/api/exports/analytics.xlsx",
-                         params={"from": DAY, "to": DAY, "member_id": member})
+    r = await client.get(
+        "/api/exports/analytics.xlsx",
+        params={"from": DAY, "to": DAY, "member_id": member},
+    )
     assert r.status_code == 200
     wb = load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames == ["Summary", "By member", "By task type",
-                             "Plan adherence", "By customer"]
+    assert wb.sheetnames == [
+        "Summary",
+        "By member",
+        "By task type",
+        "Plan adherence",
+        "By customer",
+    ]
     assert wb["By member"].cell(row=2, column=1).value == "PyTest Member"
 
 

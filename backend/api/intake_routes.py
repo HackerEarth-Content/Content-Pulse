@@ -59,59 +59,86 @@ async def intake(
     db: AsyncSession = Depends(get_session),
 ):
     if payload.idempotency_key:
-        existing = await db.scalar(select(DailyEntry.id).where(
-            DailyEntry.idempotency_key == payload.idempotency_key
-        ))
+        existing = await db.scalar(
+            select(DailyEntry.id).where(
+                DailyEntry.idempotency_key == payload.idempotency_key
+            )
+        )
         if existing:
             return {"entry_id": existing, "items": 0, "duplicate": True}
 
     name = payload.member.strip()
-    member = await db.scalar(select(Member).where(
-        func.lower(func.trim(Member.display_name)) == name.lower()
-    ))
+    member = await db.scalar(
+        select(Member).where(func.lower(func.trim(Member.display_name)) == name.lower())
+    )
     # The Django app get_or_create'd here, so every typo minted a new member and
     # split that person's metrics across the duplicates. Reject instead.
     if member is None:
-        raise err(422, "unknown_member",
-                  f"No member named {name!r}. Add them first, or fix the Slack workflow.")
+        raise err(
+            422,
+            "unknown_member",
+            f"No member named {name!r}. Add them first, or fix the Slack workflow.",
+        )
 
     entry_date = payload.entry_date or today()
     if payload.kind == "plan":
-        clash = await db.scalar(select(DailyEntry.id).where(
-            DailyEntry.member_id == member.id,
-            DailyEntry.entry_date == entry_date,
-            DailyEntry.kind == "plan",
-        ))
+        clash = await db.scalar(
+            select(DailyEntry.id).where(
+                DailyEntry.member_id == member.id,
+                DailyEntry.entry_date == entry_date,
+                DailyEntry.kind == "plan",
+            )
+        )
         if clash:
-            raise err(409, "plan_exists", "That member already has a plan for that date.",
-                      entry_id=clash)
+            raise err(
+                409,
+                "plan_exists",
+                "That member already has a plan for that date.",
+                entry_id=clash,
+            )
 
     entry = DailyEntry(
-        member_id=member.id, entry_date=entry_date, kind=payload.kind,
-        raw_text=payload.raw_text, source="slack",
+        member_id=member.id,
+        entry_date=entry_date,
+        kind=payload.kind,
+        raw_text=payload.raw_text,
+        source="slack",
         idempotency_key=payload.idempotency_key,
     )
     db.add(entry)
     await db.flush()
 
     types = {
-        name.lower(): id_ for name, id_ in
-        await db.execute(select(func.lower(TaskType.name), TaskType.id))
+        name.lower(): id_
+        for name, id_ in await db.execute(
+            select(func.lower(TaskType.name), TaskType.id)
+        )
     }
     created = []
     for order, raw in enumerate(payload.items):
         task_type_id = types.get(raw.task_type.strip().lower())
         if task_type_id is None:
-            raise err(422, "unknown_task_type", f"No task type named {raw.task_type!r}.")
+            raise err(
+                422, "unknown_task_type", f"No task type named {raw.task_type!r}."
+            )
         status = "open" if payload.kind == "plan" else "closed"
         item = EntryItem(
-            entry_id=entry.id, task_type_id=task_type_id, customer=raw.customer,
-            count=raw.count, notes=raw.notes, status=status, sort_order=order,
+            entry_id=entry.id,
+            task_type_id=task_type_id,
+            customer=raw.customer,
+            count=raw.count,
+            notes=raw.notes,
+            status=status,
+            sort_order=order,
             jira_state="pending" if payload.kind == "plan" else "none",
         )
         db.add(item)
         await db.flush()
-        db.add(EntryItemStatusEvent(entry_item_id=item.id, to_status=status, source="slack"))
+        db.add(
+            EntryItemStatusEvent(
+                entry_item_id=item.id, to_status=status, source="slack"
+            )
+        )
         created.append(item.id)
 
     await db.commit()

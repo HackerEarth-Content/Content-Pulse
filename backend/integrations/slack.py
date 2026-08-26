@@ -22,10 +22,17 @@ from core.orm import DailyEntry, EntryItem, Member
 log = logging.getLogger(__name__)
 
 STATUS_EMOJI = {"open": "◻️", "in_progress": "⏳", "blocked": "🚫", "closed": "✅"}
-WEEKLY_STATUS_EMOJI = {"yet_to_start": "◻️", "in_progress": "⏳", "blocked": "🚫", "completed": "✅"}
+WEEKLY_STATUS_EMOJI = {
+    "yet_to_start": "◻️",
+    "in_progress": "⏳",
+    "blocked": "🚫",
+    "completed": "✅",
+}
 WEEKLY_STATUS_LABEL = {
-    "yet_to_start": "not started", "in_progress": "in progress",
-    "blocked": "blocked", "completed": "done",
+    "yet_to_start": "not started",
+    "in_progress": "in progress",
+    "blocked": "blocked",
+    "completed": "done",
 }
 
 
@@ -59,6 +66,8 @@ def _plain(html: str | None) -> str:
     field (bold/italic/bullets only — see richtext.ts) — Slack mrkdwn doesn't
     read HTML, so this strips tags rather than showing them literally."""
     return " ".join(_TAG_RE.sub(" ", html or "").split())
+
+
 API = "https://slack.com/api"
 
 
@@ -73,7 +82,8 @@ async def _call(method: str, payload: dict) -> dict:
         raise SlackDisabled("SLACK_WRITES_ENABLED is off — nothing was posted")
     async with httpx.AsyncClient(timeout=15) as c:
         r = await c.post(
-            f"{API}/{method}", json=payload,
+            f"{API}/{method}",
+            json=payload,
             headers={"Authorization": f"Bearer {settings.SLACK_BOT_TOKEN}"},
         )
     body = r.json()
@@ -85,13 +95,18 @@ async def _call(method: str, payload: dict) -> dict:
 def _line(n: int, item, kind: str) -> str:
     parts = []
     if item.jira_issue_key:
-        parts.append(f"<{item.jira_issue_url}|{item.jira_issue_key}>"
-                     if item.jira_issue_url else item.jira_issue_key)
+        parts.append(
+            f"<{item.jira_issue_url}|{item.jira_issue_key}>"
+            if item.jira_issue_url
+            else item.jira_issue_key
+        )
     parts.append(item.task_type.name)
     if item.customer and item.customer.strip():
         parts.append(f"*{item.customer.strip()}*")
     if kind == "update":
-        parts.append(f"{STATUS_EMOJI.get(item.status, '')} {item.status.replace('_', ' ').title()}")
+        parts.append(
+            f"{STATUS_EMOJI.get(item.status, '')} {item.status.replace('_', ' ').title()}"
+        )
         if item.effort_minutes:
             parts.append(_mins(item.effort_minutes))
     else:
@@ -99,14 +114,19 @@ def _line(n: int, item, kind: str) -> str:
         if phrase:
             parts.append(phrase)
     line = f"{n}. " + " · ".join(parts)
-    return line + (f"\n    _{item.notes.strip()}_" if item.notes and item.notes.strip() else "")
+    return line + (
+        f"\n    _{item.notes.strip()}_" if item.notes and item.notes.strip() else ""
+    )
 
 
 def plan_parent_text(entry: DailyEntry, mention: str) -> str:
     """One parent message per plan, name + summary — the ticket breakdown is
     posted separately as thread replies, one per ticket (see `_post_plan`)."""
     day_label = entry.entry_date.strftime("%A, %d %b")
-    lines = [f"📋 *{entry.member.display_name} — Plan for {day_label}*" + _plan_summary(entry)]
+    lines = [
+        f"📋 *{entry.member.display_name} — Plan for {day_label}*"
+        + _plan_summary(entry)
+    ]
     if mention:
         lines.append(f"cc {mention}")
     if entry.items:
@@ -143,7 +163,9 @@ def reply_text(entry: DailyEntry) -> str:
         extra = f" — {_mins(effort)} logged, {closed} closed"
         if still_open:
             extra += f", {still_open} still open"
-    lines = [f"*{entry.member.display_name}* — {icon} for {day_label}{extra if entry.items else ''}"]
+    lines = [
+        f"*{entry.member.display_name}* — {icon} for {day_label}{extra if entry.items else ''}"
+    ]
     if entry.items:
         lines += [_line(i, it, entry.kind) for i, it in enumerate(entry.items, 1)]
     else:
@@ -166,7 +188,9 @@ def _type_summary(items) -> str:
     return ", ".join(parts)
 
 
-def parent_text(on: date, kind: str, entries: list[DailyEntry], mention: str = "") -> str:
+def parent_text(
+    on: date, kind: str, entries: list[DailyEntry], mention: str = ""
+) -> str:
     """Shared day-level parent — still used for updates. Plans get their own
     per-person parent instead, see `plan_parent_text`."""
     icon = "📋 *Daily Plans*" if kind == "plan" else "✅ *Daily Updates*"
@@ -195,8 +219,10 @@ def parent_text(on: date, kind: str, entries: list[DailyEntry], mention: str = "
     for e in entries:
         if e.items:
             n = len(e.items)
-            lines.append(f"• {e.member.display_name} — {n} ticket{'s' if n != 1 else ''} "
-                        f"({_type_summary(e.items)})")
+            lines.append(
+                f"• {e.member.display_name} — {n} ticket{'s' if n != 1 else ''} "
+                f"({_type_summary(e.items)})"
+            )
         else:
             lines.append(f"• {e.member.display_name} — nothing logged")
 
@@ -209,35 +235,51 @@ def parent_text(on: date, kind: str, entries: list[DailyEntry], mention: str = "
 async def _entries_for(db, on: date, kind: str) -> list[DailyEntry]:
     # Same rule as members_without_a_plan/today_status: a Jira-sync mirror of
     # ticket activity is not someone filing a plan or update in this app.
-    return list(await db.scalars(
-        select(DailyEntry)
-        .options(selectinload(DailyEntry.items))
-        .where(DailyEntry.entry_date == on, DailyEntry.kind == kind,
-               DailyEntry.source != "jira")
-        .order_by(DailyEntry.created_at)
-    ))
+    return list(
+        await db.scalars(
+            select(DailyEntry)
+            .options(selectinload(DailyEntry.items))
+            .where(
+                DailyEntry.entry_date == on,
+                DailyEntry.kind == kind,
+                DailyEntry.source != "jira",
+            )
+            .order_by(DailyEntry.created_at)
+        )
+    )
 
 
 async def _post_plan(db, channel: str, entry: DailyEntry, mention: str) -> None:
     """Its own parent message, one thread reply per ticket — a plan is
     already one-per-member-per-day, so the entry IS the parent, no shared
     day thread to coordinate with (contrast `post_entry`'s update path)."""
-    sent = await _call("chat.postMessage", {"channel": channel, "text": plan_parent_text(entry, mention)})
+    sent = await _call(
+        "chat.postMessage",
+        {"channel": channel, "text": plan_parent_text(entry, mention)},
+    )
     entry.slack_reply_ts = sent["ts"]
     await db.commit()
 
     if not entry.items:
-        await _call("chat.postMessage", {
-            "channel": channel, "thread_ts": entry.slack_reply_ts,
-            "text": entry.raw_text or "_Nothing logged._",
-        })
+        await _call(
+            "chat.postMessage",
+            {
+                "channel": channel,
+                "thread_ts": entry.slack_reply_ts,
+                "text": entry.raw_text or "_Nothing logged._",
+            },
+        )
         return
     for i, item in enumerate(entry.items, 1):
         try:
-            await _call("chat.postMessage", {
-                "channel": channel, "thread_ts": entry.slack_reply_ts,
-                "text": _line(i, item, "plan"),
-            })
+            await _call(
+                "chat.postMessage",
+                {
+                    "channel": channel,
+                    "thread_ts": entry.slack_reply_ts,
+                    "text": _line(i, item, "plan"),
+                },
+            )
         except Exception:
             # One bad ticket reply must not stop the rest from posting.
             log.warning("plan ticket thread reply failed for item %s", item.id)
@@ -253,7 +295,8 @@ async def post_entry(entry_id: int) -> None:
     channel = settings.SLACK_CHANNEL
     async with Session() as db:
         entry = await db.scalar(
-            select(DailyEntry).options(selectinload(DailyEntry.items))
+            select(DailyEntry)
+            .options(selectinload(DailyEntry.items))
             .where(DailyEntry.id == entry_id)
         )
         if entry is None or entry.slack_reply_ts or entry.kind != "plan":
@@ -278,14 +321,22 @@ async def post_digest(on: date, kind: str, dry_run: bool = False) -> dict:
     if dry_run:
         if kind == "plan":
             # Plans no longer share one day parent — one preview per entry.
-            return {"entries": [
-                {"parent": plan_parent_text(e, mention),
-                 "replies": [_line(i, it, "plan") for i, it in enumerate(e.items, 1)]
-                            or [e.raw_text or "_Nothing logged._"]}
-                for e in entries
-            ]}
-        return {"parent": parent_text(on, kind, entries, mention),
-                "replies": [reply_text(e) for e in entries]}
+            return {
+                "entries": [
+                    {
+                        "parent": plan_parent_text(e, mention),
+                        "replies": [
+                            _line(i, it, "plan") for i, it in enumerate(e.items, 1)
+                        ]
+                        or [e.raw_text or "_Nothing logged._"],
+                    }
+                    for e in entries
+                ]
+            }
+        return {
+            "parent": parent_text(on, kind, entries, mention),
+            "replies": [reply_text(e) for e in entries],
+        }
 
     posted = sum(e.slack_reply_ts is None for e in entries)
     for entry in entries:
@@ -303,7 +354,9 @@ async def post_digest(on: date, kind: str, dry_run: bool = False) -> dict:
 _slack_id_cache: dict[str, str | None] = {}
 
 
-async def _mention(slack_user_id: str | None, email: str | None, display_name: str) -> str:
+async def _mention(
+    slack_user_id: str | None, email: str | None, display_name: str
+) -> str:
     """`<@U123>`, so the channel actually pings them.
 
     A `slack_user_id` set on the member (Settings) wins outright — no API
@@ -330,7 +383,9 @@ async def _pinned_mention(db) -> str:
     """The one person cc'd on every plan/update post — `SLACK_PLAN_MENTION_EMAIL`,
     resolved to a Slack mention via their member row. Empty string (no mention
     added) if no member has that email — never lets a bad setting break the post."""
-    member = await db.scalar(select(Member).where(Member.email == settings.SLACK_PLAN_MENTION_EMAIL))
+    member = await db.scalar(
+        select(Member).where(Member.email == settings.SLACK_PLAN_MENTION_EMAIL)
+    )
     if not member:
         return ""
     return await _mention(member.slack_user_id, member.email, member.display_name)
@@ -342,7 +397,13 @@ async def _pinned_mention(db) -> str:
 # name. ponytail: name-matching a known fixture list, not a real "is_test"
 # column — the real fix is tests/conftest.py's own noted TODO, a separate
 # test database.
-_TEST_FIXTURE_NAMES = {"PyTest Member", "PyTest AE", "PyTest Admin", "RBAC Ada", "RBAC Grace"}
+_TEST_FIXTURE_NAMES = {
+    "PyTest Member",
+    "PyTest AE",
+    "PyTest Admin",
+    "RBAC Ada",
+    "RBAC Grace",
+}
 
 
 async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
@@ -363,20 +424,31 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
 
     async with Session() as db:
         planned = {
-            mid: name for mid, name in await db.execute(
+            mid: name
+            for mid, name in await db.execute(
                 select(DailyEntry.member_id, Member.display_name)
                 .join(Member, Member.id == DailyEntry.member_id)
-                .where(DailyEntry.entry_date == on, DailyEntry.kind == "plan",
-                       DailyEntry.source != "jira")
+                .where(
+                    DailyEntry.entry_date == on,
+                    DailyEntry.kind == "plan",
+                    DailyEntry.source != "jira",
+                )
             )
         }
         updated_ids = await updated_member_ids(db, on)
-        active = list(await db.execute(
-            select(Member.id, Member.display_name, Member.email, Member.slack_user_id)
-            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES),
-                   Member.email.is_distinct_from(settings.SLACK_PLAN_MENTION_EMAIL))
-            .order_by(Member.display_name)
-        ))
+        active = list(
+            await db.execute(
+                select(
+                    Member.id, Member.display_name, Member.email, Member.slack_user_id
+                )
+                .where(
+                    Member.is_active.is_(True),
+                    Member.display_name.notin_(_TEST_FIXTURE_NAMES),
+                    Member.email.is_distinct_from(settings.SLACK_PLAN_MENTION_EMAIL),
+                )
+                .order_by(Member.display_name)
+            )
+        )
         mention = await _pinned_mention(db)
 
         # One real ticket, one row — a plan row or an unmirrored update, same
@@ -385,9 +457,13 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
         stats: dict[int, dict[str, int]] = {}
         for mid, effort, status in await db.execute(
             select(DailyEntry.member_id, EntryItem.effort_minutes, EntryItem.status)
-            .select_from(EntryItem).join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
-            .where(DailyEntry.entry_date == on, DailyEntry.source != "jira",
-                   or_(DailyEntry.kind == "plan", EntryItem.plan_item_id.is_(None)))
+            .select_from(EntryItem)
+            .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+            .where(
+                DailyEntry.entry_date == on,
+                DailyEntry.source != "jira",
+                or_(DailyEntry.kind == "plan", EntryItem.plan_item_id.is_(None)),
+            )
         ):
             s = stats.setdefault(mid, {"tickets": 0, "effort": 0, "closed": 0})
             s["tickets"] += 1
@@ -404,9 +480,15 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
         return stats.get(mid, {"tickets": 0, "effort": 0, "closed": 0})
 
     async def names(rows: list) -> str:
-        return ", ".join(
-            [await _mention(slack_id, email, name) for _, name, email, slack_id in rows]
-        ) or "—"
+        return (
+            ", ".join(
+                [
+                    await _mention(slack_id, email, name)
+                    for _, name, email, slack_id in rows
+                ]
+            )
+            or "—"
+        )
 
     async def bullet_list(rows: list, describe) -> str:
         out = []
@@ -423,29 +505,53 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
         summary = f"{len(planned_rows)} of {len(active)} people have filed today's plan"
         if total_tickets:
             summary += f" · {total_tickets} ticket{'s' if total_tickets != 1 else ''} planned across the team"
-        lines = [f"📋 *Plan check-in — {day}*", summary, "",
-                  f"✅ *Planned* ({len(planned_rows)})",
-                  await bullet_list(planned_rows,
-                                    lambda s: f"{s['tickets']} ticket{'s' if s['tickets'] != 1 else ''}")]
+        lines = [
+            f"📋 *Plan check-in — {day}*",
+            summary,
+            "",
+            f"✅ *Planned* ({len(planned_rows)})",
+            await bullet_list(
+                planned_rows,
+                lambda s: f"{s['tickets']} ticket{'s' if s['tickets'] != 1 else ''}",
+            ),
+        ]
         if no_plan:
             lines += ["", f"❌ *No plan yet* ({len(no_plan)})", await names(no_plan)]
     else:
         total_effort = sum(stat_for(r[0])["effort"] for r in done)
         total_closed = sum(stat_for(r[0])["closed"] for r in done)
-        summary = f"{len(done)} of {len(planned_rows)} planned today have logged an update"
+        summary = (
+            f"{len(done)} of {len(planned_rows)} planned today have logged an update"
+        )
         if total_effort or total_closed:
             summary += f" · {_mins(total_effort)} logged, {total_closed} tickets closed"
-        lines = [f"✅ *Update check-in — {day}*", summary, "",
-                  f"✅ *Updated* ({len(done)})",
-                  await bullet_list(done, lambda s: f"{_mins(s['effort'])} logged, {s['closed']} closed")]
+        lines = [
+            f"✅ *Update check-in — {day}*",
+            summary,
+            "",
+            f"✅ *Updated* ({len(done)})",
+            await bullet_list(
+                done, lambda s: f"{_mins(s['effort'])} logged, {s['closed']} closed"
+            ),
+        ]
         if pending:
-            lines += ["", f"⏳ *Still pending* ({len(pending)})",
-                      await bullet_list(pending, lambda s: (
-                          f"planned {s['tickets']} ticket{'s' if s['tickets'] != 1 else ''}, "
-                          "nothing reported yet"
-                      ))]
+            lines += [
+                "",
+                f"⏳ *Still pending* ({len(pending)})",
+                await bullet_list(
+                    pending,
+                    lambda s: (
+                        f"planned {s['tickets']} ticket{'s' if s['tickets'] != 1 else ''}, "
+                        "nothing reported yet"
+                    ),
+                ),
+            ]
         if no_plan:
-            lines += ["", f"⚠️ *Never planned today* ({len(no_plan)})", await names(no_plan)]
+            lines += [
+                "",
+                f"⚠️ *Never planned today* ({len(no_plan)})",
+                await names(no_plan),
+            ]
 
     if mention:
         lines += ["", f"cc {mention}"]
@@ -454,7 +560,10 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
     if dry_run:
         return {"text": "\n".join(lines)}
     try:
-        await _call("chat.postMessage", {"channel": settings.SLACK_CHANNEL, "text": "\n".join(lines)})
+        await _call(
+            "chat.postMessage",
+            {"channel": settings.SLACK_CHANNEL, "text": "\n".join(lines)},
+        )
         return {"posted": True}
     except SlackDisabled as e:
         return {"posted": False, "reason": str(e)}
@@ -482,17 +591,22 @@ def _weekly_describe_friday(rows: list[tuple[str, str, str]]) -> str:
         parts = []
         for action, achievement, status in rows:
             emoji = WEEKLY_STATUS_EMOJI.get(status, "◻️")
-            parts.append(f"{emoji} {_plain(achievement) if achievement else _plain(action)}")
+            parts.append(
+                f"{emoji} {_plain(achievement) if achievement else _plain(action)}"
+            )
         return ", ".join(parts)
     counts = Counter(status for _, _, status in rows)
     order = ("completed", "blocked", "in_progress", "yet_to_start")
     return ", ".join(
         f"{WEEKLY_STATUS_EMOJI[s]} {counts[s]} {WEEKLY_STATUS_LABEL[s]}"
-        for s in order if counts.get(s)
+        for s in order
+        if counts.get(s)
     )
 
 
-async def post_weekly_plan_status(week_start: date, phase: str, dry_run: bool = False) -> dict:
+async def post_weekly_plan_status(
+    week_start: date, phase: str, dry_run: bool = False
+) -> dict:
     """Monday 11:59pm reports who's filed this week's plan; Friday 11:59pm
     reports who's updated it — same shape as `post_roll_call`, one week wide
     instead of one day.
@@ -500,17 +614,28 @@ async def post_weekly_plan_status(week_start: date, phase: str, dry_run: bool = 
     from core.orm import WeeklyPlanItem
 
     async with Session() as db:
-        active = list(await db.execute(
-            select(Member.id, Member.display_name, Member.email, Member.slack_user_id)
-            .where(Member.is_active.is_(True), Member.display_name.notin_(_TEST_FIXTURE_NAMES),
-                   Member.email.is_distinct_from(settings.SLACK_PLAN_MENTION_EMAIL))
-            .order_by(Member.display_name)
-        ))
+        active = list(
+            await db.execute(
+                select(
+                    Member.id, Member.display_name, Member.email, Member.slack_user_id
+                )
+                .where(
+                    Member.is_active.is_(True),
+                    Member.display_name.notin_(_TEST_FIXTURE_NAMES),
+                    Member.email.is_distinct_from(settings.SLACK_PLAN_MENTION_EMAIL),
+                )
+                .order_by(Member.display_name)
+            )
+        )
         mention = await _pinned_mention(db)
         items_by_member: dict[int, list[tuple[str, str, str]]] = {}
         for mid, action, achievement, status in await db.execute(
-            select(WeeklyPlanItem.member_id, WeeklyPlanItem.action,
-                   WeeklyPlanItem.achievement, WeeklyPlanItem.status)
+            select(
+                WeeklyPlanItem.member_id,
+                WeeklyPlanItem.action,
+                WeeklyPlanItem.achievement,
+                WeeklyPlanItem.status,
+            )
             .where(WeeklyPlanItem.week_start == week_start)
             .order_by(WeeklyPlanItem.id)
         ):
@@ -518,7 +643,8 @@ async def post_weekly_plan_status(week_start: date, phase: str, dry_run: bool = 
 
     filed_ids = set(items_by_member)
     updated_ids = {
-        mid for mid, rows in items_by_member.items()
+        mid
+        for mid, rows in items_by_member.items()
         if any(status != "yet_to_start" for _, _, status in rows)
     }
     done_ids = filed_ids if phase == "monday" else updated_ids
@@ -527,9 +653,15 @@ async def post_weekly_plan_status(week_start: date, phase: str, dry_run: bool = 
     describe = _weekly_describe_monday if phase == "monday" else _weekly_describe_friday
 
     async def names(rows: list) -> str:
-        return ", ".join(
-            [await _mention(slack_id, email, name) for _, name, email, slack_id in rows]
-        ) or "—"
+        return (
+            ", ".join(
+                [
+                    await _mention(slack_id, email, name)
+                    for _, name, email, slack_id in rows
+                ]
+            )
+            or "—"
+        )
 
     async def bullet_list(rows: list) -> str:
         out = []
@@ -545,16 +677,23 @@ async def post_weekly_plan_status(week_start: date, phase: str, dry_run: bool = 
     summary = f"{len(done)} of {len(active)} people have {verb} this week's plan"
     if phase == "monday":
         if total_actions:
-            summary += f" · {total_actions} action{'s' if total_actions != 1 else ''} planned"
+            summary += (
+                f" · {total_actions} action{'s' if total_actions != 1 else ''} planned"
+            )
     else:
         by_status = Counter(s for rows in items_by_member.values() for _, _, s in rows)
         if by_status:
-            summary += (f" · {by_status['completed']} completed, "
-                        f"{by_status['in_progress']} in progress, {by_status['blocked']} blocked")
+            summary += (
+                f" · {by_status['completed']} completed, "
+                f"{by_status['in_progress']} in progress, {by_status['blocked']} blocked"
+            )
 
     lines = [
-        f"🗓️ *Weekly plan {verb} — {week_label}*", summary, "",
-        f"✅ *{verb.title()}* ({len(done)})", await bullet_list(done),
+        f"🗓️ *Weekly plan {verb} — {week_label}*",
+        summary,
+        "",
+        f"✅ *{verb.title()}* ({len(done)})",
+        await bullet_list(done),
     ]
     if missing:
         lines += ["", f"❌ *Not yet {verb}* ({len(missing)})", await names(missing)]
@@ -564,7 +703,10 @@ async def post_weekly_plan_status(week_start: date, phase: str, dry_run: bool = 
     if dry_run:
         return {"text": "\n".join(lines)}
     try:
-        await _call("chat.postMessage", {"channel": settings.SLACK_CHANNEL, "text": "\n".join(lines)})
+        await _call(
+            "chat.postMessage",
+            {"channel": settings.SLACK_CHANNEL, "text": "\n".join(lines)},
+        )
         return {"posted": True}
     except SlackDisabled as e:
         return {"posted": False, "reason": str(e)}

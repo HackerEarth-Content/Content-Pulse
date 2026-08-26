@@ -45,8 +45,10 @@ DEFAULTS: dict[str, Any] = {
     # has; swap it for a dedicated one if TCE ever adds "is part of".
     "parent_link_type": "Relates",
     "status_names": {
-        "open": ["To Do"], "in_progress": ["In Progress"],
-        "blocked": ["Blocked"], "closed": ["Done"],
+        "open": ["To Do"],
+        "in_progress": ["In Progress"],
+        "blocked": ["Blocked"],
+        "closed": ["Done"],
     },
     # Validator-required custom fields on the Done transition, with the neutral
     # fallbacks the Django client used.
@@ -91,7 +93,9 @@ async def _send(c: httpx.AsyncClient, method: str, path: str, **kw) -> httpx.Res
         r = await c.request(method, path, **kw)
         if r.status_code == 429:
             wait = float(r.headers.get("Retry-After") or delay)
-            log.warning("jira rate limited, waiting %.1fs (attempt %d)", wait, attempt + 1)
+            log.warning(
+                "jira rate limited, waiting %.1fs (attempt %d)", wait, attempt + 1
+            )
             await asyncio.sleep(min(wait, 60))
         elif 500 <= r.status_code < 600:
             log.warning("jira %s on %s, retrying in %.1fs", r.status_code, path, delay)
@@ -118,7 +122,9 @@ def _explain(r: httpx.Response) -> str:
         body = r.json()
     except ValueError:
         return f"HTTP {r.status_code}: {r.text[:200]}"
-    detail = body.get("errorMessages") or [f"{k}: {v}" for k, v in (body.get("errors") or {}).items()]
+    detail = body.get("errorMessages") or [
+        f"{k}: {v}" for k, v in (body.get("errors") or {}).items()
+    ]
     return f"HTTP {r.status_code}: {'; '.join(map(str, detail)) or r.text[:200]}"
 
 
@@ -147,15 +153,21 @@ async def issue_exists(db, key: str) -> bool:
 
 def _adf(text: str) -> dict:
     return {
-        "type": "doc", "version": 1,
+        "type": "doc",
+        "version": 1,
         "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": line}] if line else []}
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": line}] if line else [],
+            }
             for line in (text or "").split("\n")
         ],
     }
 
 
-async def option_ids(db, c: httpx.AsyncClient, cfg: dict, issue_type: str) -> dict[str, dict]:
+async def option_ids(
+    db, c: httpx.AsyncClient, cfg: dict, issue_type: str
+) -> dict[str, dict]:
     """Jira wants option *ids*, not the labels we store. Fetch the map once from
     createmeta and cache it — 45 Task Types and 11 Question types that change
     about never. Refreshed by deleting the `jira_options` settings row."""
@@ -175,8 +187,14 @@ async def option_ids(db, c: httpx.AsyncClient, cfg: dict, issue_type: str) -> di
 
     f = cfg["done_fields"]
     value = {
-        name: {o["value"]: o["id"] for o in (fields.get(fid, {}).get("allowedValues") or [])}
-        for name, fid in (("task_type", f["task_type"]), ("question_type", f["question_type"]))
+        name: {
+            o["value"]: o["id"]
+            for o in (fields.get(fid, {}).get("allowedValues") or [])
+        }
+        for name, fid in (
+            ("task_type", f["task_type"]),
+            ("question_type", f["question_type"]),
+        )
     }
     db.add(IntegrationSetting(key=key, value=value))
     await db.commit()
@@ -206,7 +224,9 @@ async def _account_id(db, c: httpx.AsyncClient, member) -> str | None:
         return member.jira_account_id
     if not getattr(member, "email", None):
         return None
-    r = await c.get("/rest/api/3/user/search", params={"query": member.email, "maxResults": 1})
+    r = await c.get(
+        "/rest/api/3/user/search", params={"query": member.email, "maxResults": 1}
+    )
     users = r.json() if r.status_code < 400 else []
     if not isinstance(users, list) or not users:
         return None
@@ -234,7 +254,9 @@ def _title(entry: DailyEntry, item: EntryItem) -> str:
 def _describe(entry: DailyEntry, item: EntryItem) -> str:
     lines = [
         f"ContentOps — {entry.kind.title()} — {entry.entry_date} — {entry.member.display_name}",
-        f"Source: {entry.source}", "", f"Task: {item.task_type.name}",
+        f"Source: {entry.source}",
+        "",
+        f"Task: {item.task_type.name}",
     ]
     if item.question_types:
         lines.append(f"Question type: {', '.join(q.name for q in item.question_types)}")
@@ -299,10 +321,12 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
         else:
             log.warning(
                 "no Jira task-type option matches %r for issue type %r — field left unset",
-                item.task_type.name, issue_type,
+                item.task_type.name,
+                issue_type,
             )
         matched_qts = [
-            qt for q in item.question_types
+            qt
+            for q in item.question_types
             if (qt := _find_option(options["question_type"], q.name))
         ]
         if matched_qts:
@@ -319,23 +343,37 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
             try:
                 await _link_parent(c, cfg, key, item.parent_issue_key)
             except Exception as e:
-                log.warning("created %s but failed to link it to parent %s: %s",
-                            key, item.parent_issue_key, e)
+                log.warning(
+                    "created %s but failed to link it to parent %s: %s",
+                    key,
+                    item.parent_issue_key,
+                    e,
+                )
     return key, f"{settings.JIRA_BASE_URL}/browse/{key}"
 
 
-async def _link_parent(c: httpx.AsyncClient, cfg: dict, key: str, parent_key: str) -> None:
-    r = await _send(c, "POST", "/rest/api/3/issueLink", json={
-        "type": {"name": cfg["parent_link_type"]},
-        "inwardIssue": {"key": key},
-        "outwardIssue": {"key": parent_key},
-    })
+async def _link_parent(
+    c: httpx.AsyncClient, cfg: dict, key: str, parent_key: str
+) -> None:
+    r = await _send(
+        c,
+        "POST",
+        "/rest/api/3/issueLink",
+        json={
+            "type": {"name": cfg["parent_link_type"]},
+            "inwardIssue": {"key": key},
+            "outwardIssue": {"key": parent_key},
+        },
+    )
     if r.status_code >= 400:
         raise RuntimeError(_explain(r))
 
 
 async def _done_fields(
-    c: httpx.AsyncClient, cfg: dict, key: str, due_at: date | None,
+    c: httpx.AsyncClient,
+    cfg: dict,
+    key: str,
+    due_at: date | None,
     effort_minutes: int | None = None,
 ) -> dict:
     """Carry the issue's existing values back through the Done transition, so a
@@ -393,17 +431,30 @@ def _pick(transitions: list[dict], want: set[str]) -> dict | None:
     return None
 
 
-async def transition(db, key: str, status: str, *, comment: str | None = None,
-                     due_at: date | None = None, effort_minutes: int | None = None,
-                     pipeline: str | None = None, task_type_name: str | None = None) -> None:
+async def transition(
+    db,
+    key: str,
+    status: str,
+    *,
+    comment: str | None = None,
+    due_at: date | None = None,
+    effort_minutes: int | None = None,
+    pipeline: str | None = None,
+    task_type_name: str | None = None,
+) -> None:
     cfg = await config(db)
     _writes_allowed()
     want = {n.lower() for n in cfg["status_names"].get(status, [])}
 
     async with _client() as c:
+
         async def options() -> list[dict]:
-            r = await _send(c, "GET", f"/rest/api/3/issue/{key}/transitions",
-                            params={"expand": "transitions.fields"})
+            r = await _send(
+                c,
+                "GET",
+                f"/rest/api/3/issue/{key}/transitions",
+                params={"expand": "transitions.fields"},
+            )
             if r.status_code >= 400:
                 raise RuntimeError(_explain(r))
             return r.json().get("transitions", [])
@@ -413,10 +464,16 @@ async def transition(db, key: str, status: str, *, comment: str | None = None,
 
         if chosen is None and status == "closed":
             # Done only appears once the issue is In Progress. Step through.
-            step = _pick(available, {n.lower() for n in cfg["status_names"]["in_progress"]})
+            step = _pick(
+                available, {n.lower() for n in cfg["status_names"]["in_progress"]}
+            )
             if step:
-                await _send(c, "POST", f"/rest/api/3/issue/{key}/transitions",
-                            json={"transition": {"id": step["id"]}})
+                await _send(
+                    c,
+                    "POST",
+                    f"/rest/api/3/issue/{key}/transitions",
+                    json={"transition": {"id": step["id"]}},
+                )
                 chosen = _pick(await options(), want)
 
         if chosen is None:
@@ -440,7 +497,11 @@ async def transition(db, key: str, status: str, *, comment: str | None = None,
         # `_done_fields` read back from Jira, so our freshly-chosen type
         # always wins over Jira's currently-stored one.
         if task_type_name:
-            issue_type = ISSUE_TYPES.get(pipeline, cfg["issue_type"]) if pipeline else cfg["issue_type"]
+            issue_type = (
+                ISSUE_TYPES.get(pipeline, cfg["issue_type"])
+                if pipeline
+                else cfg["issue_type"]
+            )
             options_map = await option_ids(db, c, cfg, issue_type)
             if tt := _find_option(options_map["task_type"], task_type_name):
                 fields[cfg["done_fields"]["task_type"]] = {"id": tt}
@@ -453,8 +514,12 @@ async def transition(db, key: str, status: str, *, comment: str | None = None,
         if r.status_code >= 400:
             # A workflow that doesn't expose the due-date field on its screen
             # rejects the whole payload — retry bare so the status still moves.
-            r = await _send(c, "POST", f"/rest/api/3/issue/{key}/transitions",
-                            json={"transition": {"id": chosen["id"]}})
+            r = await _send(
+                c,
+                "POST",
+                f"/rest/api/3/issue/{key}/transitions",
+                json={"transition": {"id": chosen["id"]}},
+            )
             if r.status_code >= 400:
                 raise RuntimeError(_explain(r))
 
@@ -465,10 +530,14 @@ async def transition(db, key: str, status: str, *, comment: str | None = None,
 async def _audit(db, action: str, item: EntryItem, detail: dict) -> None:
     """audit_log has existed unused since the schema was written. Every Jira
     write lands here, so "who made this ticket" is answerable."""
-    db.add(AuditLog(
-        action=action, entity_type="entry_item", entity_id=str(item.id),
-        payload={"jira_issue_key": item.jira_issue_key, **detail},
-    ))
+    db.add(
+        AuditLog(
+            action=action,
+            entity_type="entry_item",
+            entity_id=str(item.id),
+            payload={"jira_issue_key": item.jira_issue_key, **detail},
+        )
+    )
 
 
 async def push_item(item_id: int) -> None:
@@ -489,9 +558,15 @@ async def push_item(item_id: int) -> None:
                 # says — the option lookup below must match that, not the
                 # reporting pipeline, or it fetches the wrong issue type's
                 # Task Type dropdown for the ticket that actually exists.
-                await transition(db, key, item.status, comment=item.notes,
-                                 due_at=item.due_at, effort_minutes=item.effort_minutes,
-                                 task_type_name=item.task_type.name)
+                await transition(
+                    db,
+                    key,
+                    item.status,
+                    comment=item.notes,
+                    due_at=item.due_at,
+                    effort_minutes=item.effort_minutes,
+                    task_type_name=item.task_type.name,
+                )
         except JiraDisabled as e:
             item.jira_state, item.jira_error = "none", str(e)
         except Exception as e:
@@ -508,12 +583,23 @@ async def push_status(item_id: int, status: str, note: str | None = None) -> Non
         if item is None or not item.jira_issue_key:
             return
         try:
-            await transition(db, item.jira_issue_key, status, comment=note,
-                             due_at=item.due_at, effort_minutes=item.effort_minutes,
-                             pipeline=item.pipeline, task_type_name=item.task_type.name)
+            await transition(
+                db,
+                item.jira_issue_key,
+                status,
+                comment=note,
+                due_at=item.due_at,
+                effort_minutes=item.effort_minutes,
+                pipeline=item.pipeline,
+                task_type_name=item.task_type.name,
+            )
             item.jira_state, item.jira_error = "ok", None
-            await _audit(db, "jira.transition", item,
-                         {"to": status, "effort_minutes": item.effort_minutes})
+            await _audit(
+                db,
+                "jira.transition",
+                item,
+                {"to": status, "effort_minutes": item.effort_minutes},
+            )
         except JiraDisabled:
             return
         except Exception as e:
@@ -542,7 +628,10 @@ async def push_fields(item_id: int) -> None:
                 if tt := _find_option(options["task_type"], item.task_type.name):
                     fields[f["task_type"]] = {"id": tt}
                 r = await _send(
-                    c, "PUT", f"/rest/api/3/issue/{item.jira_issue_key}", json={"fields": fields}
+                    c,
+                    "PUT",
+                    f"/rest/api/3/issue/{item.jira_issue_key}",
+                    json={"fields": fields},
                 )
             if r.status_code >= 400:
                 raise RuntimeError(_explain(r))
@@ -573,14 +662,25 @@ async def cancel_issue(key: str) -> None:
                 if r.status_code >= 400:
                     raise RuntimeError(_explain(r))
                 available = r.json().get("transitions", [])
-                chosen = _pick(available, {"cancelled", "canceled", "won't do", "wont do", "rejected"})
+                chosen = _pick(
+                    available,
+                    {"cancelled", "canceled", "won't do", "wont do", "rejected"},
+                )
                 if chosen is None:
-                    chosen = _pick(available, {n.lower() for n in cfg["status_names"]["closed"]})
+                    chosen = _pick(
+                        available, {n.lower() for n in cfg["status_names"]["closed"]}
+                    )
                 if chosen is None:
-                    log.warning("no cancel/close transition available for %s after delete", key)
+                    log.warning(
+                        "no cancel/close transition available for %s after delete", key
+                    )
                     return
-                r = await _send(c, "POST", f"/rest/api/3/issue/{key}/transitions",
-                                json={"transition": {"id": chosen["id"]}})
+                r = await _send(
+                    c,
+                    "POST",
+                    f"/rest/api/3/issue/{key}/transitions",
+                    json={"transition": {"id": chosen["id"]}},
+                )
                 if r.status_code >= 400:
                     raise RuntimeError(_explain(r))
         except Exception as e:
@@ -591,9 +691,13 @@ async def sweep_pending(limit: int = 25) -> int:
     """BackgroundTasks die with the process — a restart mid-write strands items
     on `pending`. This is the safety net that a real broker would provide."""
     async with Session() as db:
-        ids = list(await db.scalars(
-            select(EntryItem.id).where(EntryItem.jira_state == "pending").limit(limit)
-        ))
+        ids = list(
+            await db.scalars(
+                select(EntryItem.id)
+                .where(EntryItem.jira_state == "pending")
+                .limit(limit)
+            )
+        )
     for item_id in ids:
         await push_item(item_id)
     return len(ids)

@@ -16,8 +16,9 @@ from core.deps import ADMINS, LEADS, Viewer, get_viewer, require_role
 from core.users import current_user
 from services import analytics as an
 
-router = APIRouter(prefix="/api/analytics", tags=["analytics"],
-                   dependencies=[Depends(current_user)])
+router = APIRouter(
+    prefix="/api/analytics", tags=["analytics"], dependencies=[Depends(current_user)]
+)
 
 
 async def scope(
@@ -35,9 +36,16 @@ async def scope(
     start, end = resolve_range(period, frm, to)
     if start > end:
         from services.entries import err
+
         raise err(422, "bad_range", "`from` is after `to`.")
-    return an.Scope(frm=start, to=end, member_id=viewer.scope(member_id),
-                    task_type_id=task_type_id, pipeline=pipeline, area=area)
+    return an.Scope(
+        frm=start,
+        to=end,
+        member_id=viewer.scope(member_id),
+        task_type_id=task_type_id,
+        pipeline=pipeline,
+        area=area,
+    )
 
 
 async def team_scope(
@@ -54,9 +62,16 @@ async def team_scope(
     start, end = resolve_range(period, frm, to)
     if start > end:
         from services.entries import err
+
         raise err(422, "bad_range", "`from` is after `to`.")
-    return an.Scope(frm=start, to=end, member_id=member_id,
-                    task_type_id=task_type_id, pipeline=pipeline, area=area)
+    return an.Scope(
+        frm=start,
+        to=end,
+        member_id=member_id,
+        task_type_id=task_type_id,
+        pipeline=pipeline,
+        area=area,
+    )
 
 
 Scope = Depends(scope)
@@ -111,10 +126,10 @@ async def by_question_type(s: an.Scope = TeamScope, db: AsyncSession = DB):
 
 
 @router.get("/by-customer", dependencies=[admin_only])
-async def by_customer(limit: int = Query(20, ge=1, le=100), s: an.Scope = TeamScope,
-                      db: AsyncSession = DB):
+async def by_customer(
+    limit: int = Query(20, ge=1, le=100), s: an.Scope = TeamScope, db: AsyncSession = DB
+):
     return await an.by_customer(db, s, limit)
-
 
 
 @router.get("/effort-breakdown", dependencies=[admin_only])
@@ -175,8 +190,9 @@ async def workload(s: an.Scope = TeamScope, db: AsyncSession = DB):
 
 
 @router.get("/open-items")
-async def open_items(limit: int = Query(200, ge=1, le=1000), s: an.Scope = Scope,
-                     db: AsyncSession = DB):
+async def open_items(
+    limit: int = Query(200, ge=1, le=1000), s: an.Scope = Scope, db: AsyncSession = DB
+):
     return await an.open_items(db, s, today(), limit)
 
 

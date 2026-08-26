@@ -24,7 +24,9 @@ from schemas.entries import (
 from services import entries as svc
 from services import publish
 
-router = APIRouter(prefix="/api", tags=["entries"], dependencies=[Depends(current_user)])
+router = APIRouter(
+    prefix="/api", tags=["entries"], dependencies=[Depends(current_user)]
+)
 
 admin_only = Depends(require_role(*ADMINS))
 
@@ -47,17 +49,34 @@ async def list_entries(
 ):
     frm, to = resolve_range(period, frm, to)
     rows, total = await svc.list_entries(
-        db, frm=frm, to=to, member_id=viewer.scope(member_id), kind=kind, status_=status,
-        task_type_id=task_type_id, customer=customer, q=q, page=page, page_size=page_size,
+        db,
+        frm=frm,
+        to=to,
+        member_id=viewer.scope(member_id),
+        kind=kind,
+        status_=status,
+        task_type_id=task_type_id,
+        customer=customer,
+        q=q,
+        page=page,
+        page_size=page_size,
     )
-    return Page(items=[EntryOut.of(r) for r in rows], total=total, page=page, page_size=page_size)
+    return Page(
+        items=[EntryOut.of(r) for r in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/today")
-async def today_status(db: AsyncSession = Depends(get_session),
-                       viewer: Viewer = Depends(get_viewer)):
+async def today_status(
+    db: AsyncSession = Depends(get_session), viewer: Viewer = Depends(get_viewer)
+):
     """The strip at the top of every page: today's plan/update state."""
-    return await svc.today_status(db, today(), viewer.member.id if viewer.member else None)
+    return await svc.today_status(
+        db, today(), viewer.member.id if viewer.member else None
+    )
 
 
 @router.get("/work-log", response_model=Page[WorkLogRow])
@@ -80,17 +99,34 @@ async def work_log(
     """One row per ticket — what the work-log screen actually shows."""
     frm, to = resolve_range(period, frm, to)
     rows, total = await svc.list_items(
-        db, frm=frm, to=to, member_id=viewer.scope(member_id), kind=kind, status_=status,
-        task_type_id=task_type_id, pipeline=pipeline, customer=customer, q=q,
-        page=page, page_size=page_size,
+        db,
+        frm=frm,
+        to=to,
+        member_id=viewer.scope(member_id),
+        kind=kind,
+        status_=status,
+        task_type_id=task_type_id,
+        pipeline=pipeline,
+        customer=customer,
+        q=q,
+        page=page,
+        page_size=page_size,
     )
-    return Page(items=[WorkLogRow.of(i, e) for i, e in rows],
-                total=total, page=page, page_size=page_size)
+    return Page(
+        items=[WorkLogRow.of(i, e) for i, e in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/entries/plan", response_model=EntryOut)
-async def get_plan(member_id: int, on: date, db: AsyncSession = Depends(get_session),
-                   viewer: Viewer = Depends(get_viewer)):
+async def get_plan(
+    member_id: int,
+    on: date,
+    db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
+):
     """Prefills the update form. 404 `no_plan` is expected, not an error — the
     UI offers 'log as extra work' instead."""
     plan = await svc.get_plan(db, viewer.scope(member_id) or member_id, on)
@@ -100,9 +136,14 @@ async def get_plan(member_id: int, on: date, db: AsyncSession = Depends(get_sess
 
 
 @router.get("/entries/{entry_id}", response_model=EntryOut)
-async def get_entry(entry_id: int, db: AsyncSession = Depends(get_session),
-                    viewer: Viewer = Depends(get_viewer)):
-    entry = await db.scalar(svc._loaded(select(DailyEntry).where(DailyEntry.id == entry_id)))
+async def get_entry(
+    entry_id: int,
+    db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
+):
+    entry = await db.scalar(
+        svc._loaded(select(DailyEntry).where(DailyEntry.id == entry_id))
+    )
     # 404 rather than 403 for someone else's entry — a 403 confirms it exists.
     if entry is None or not viewer.may_write_for(entry.member_id):
         raise svc.err(404, "not_found", "No such entry.")
@@ -110,10 +151,13 @@ async def get_entry(entry_id: int, db: AsyncSession = Depends(get_session),
 
 
 @router.post("/entries/plans", response_model=EntryOut, status_code=201)
-async def create_plan(data: PlanIn, background: BackgroundTasks,
-                      db: AsyncSession = Depends(get_session),
-                      user: User = Depends(current_user),
-                      viewer: Viewer = Depends(get_viewer)):
+async def create_plan(
+    data: PlanIn,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    viewer: Viewer = Depends(get_viewer),
+):
     data.member_id = viewer.writer_id(data.member_id)
     entry = await svc.create_plan(db, data, user.id)
     await _dispatch(db, background, entry)
@@ -121,10 +165,13 @@ async def create_plan(data: PlanIn, background: BackgroundTasks,
 
 
 @router.post("/entries/updates", response_model=EntryOut, status_code=201)
-async def create_update(data: UpdateIn, background: BackgroundTasks,
-                        db: AsyncSession = Depends(get_session),
-                        user: User = Depends(current_user),
-                        viewer: Viewer = Depends(get_viewer)):
+async def create_update(
+    data: UpdateIn,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    viewer: Viewer = Depends(get_viewer),
+):
     data.member_id = viewer.writer_id(data.member_id)
     entry = await svc.create_update(db, data, user.id)
     await _dispatch(db, background, entry)
@@ -162,8 +209,16 @@ async def _dispatch(db: AsyncSession, background: BackgroundTasks, entry) -> Non
 async def jira_state(entry_id: int, db: AsyncSession = Depends(get_session)):
     """Polled by the form until nothing is `pending`."""
     rows = await db.scalars(select(EntryItem).where(EntryItem.entry_id == entry_id))
-    items = [{"id": i.id, "jira_state": i.jira_state, "jira_issue_key": i.jira_issue_key,
-              "jira_issue_url": i.jira_issue_url, "jira_error": i.jira_error} for i in rows]
+    items = [
+        {
+            "id": i.id,
+            "jira_state": i.jira_state,
+            "jira_issue_key": i.jira_issue_key,
+            "jira_issue_url": i.jira_issue_url,
+            "jira_error": i.jira_error,
+        }
+        for i in rows
+    ]
     return {"items": items, "pending": any(i["jira_state"] == "pending" for i in items)}
 
 
@@ -175,15 +230,26 @@ async def retry_jira(item_id: int, background: BackgroundTasks):
 
 
 @router.patch("/entry-items/{item_id}", response_model=ItemOut)
-async def patch_item(item_id: int, patch: ItemPatch, background: BackgroundTasks,
-                     db: AsyncSession = Depends(get_session),
-                     user: User = Depends(current_user),
-                     viewer: Viewer = Depends(get_viewer)):
+async def patch_item(
+    item_id: int,
+    patch: ItemPatch,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+    viewer: Viewer = Depends(get_viewer),
+):
     await _owned(db, viewer, item_id)
     item = await svc.patch_item(
-        db, item_id, status_=patch.status, count=patch.count,
-        notes=patch.notes, comment=patch.comment, due_at=patch.due_at, user_id=user.id,
-        effort_minutes=patch.effort_minutes, task_type_id=patch.task_type_id,
+        db,
+        item_id,
+        status_=patch.status,
+        count=patch.count,
+        notes=patch.notes,
+        comment=patch.comment,
+        due_at=patch.due_at,
+        user_id=user.id,
+        effort_minutes=patch.effort_minutes,
+        task_type_id=patch.task_type_id,
     )
     if patch.status and item.jira_issue_key:
         # Task type rides along on this same transition call now (see
@@ -191,14 +257,19 @@ async def patch_item(item_id: int, patch: ItemPatch, background: BackgroundTasks
         # run after it and could lose a race against Jira's own
         # transition-time field defaults.
         background.add_task(jira.push_status, item.id, item.status, patch.comment)
-    if (patch.task_type_id is not None or patch.notes is not None) and item.jira_issue_key:
+    if (
+        patch.task_type_id is not None or patch.notes is not None
+    ) and item.jira_issue_key:
         background.add_task(jira.push_fields, item.id)
     return ItemOut.of(item)
 
 
 @router.get("/entry-items/{item_id}/history", response_model=list[StatusEventOut])
-async def item_history(item_id: int, db: AsyncSession = Depends(get_session),
-                       viewer: Viewer = Depends(get_viewer)):
+async def item_history(
+    item_id: int,
+    db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
+):
     await _owned(db, viewer, item_id)
     rows = await db.scalars(
         select(EntryItemStatusEvent)
@@ -218,8 +289,9 @@ async def _owned(db: AsyncSession, viewer: Viewer, item_id: int) -> EntryItem:
 
 
 @router.delete("/entry-items/{item_id}", status_code=204, dependencies=[admin_only])
-async def delete_item(item_id: int, background: BackgroundTasks,
-                      db: AsyncSession = Depends(get_session)):
+async def delete_item(
+    item_id: int, background: BackgroundTasks, db: AsyncSession = Depends(get_session)
+):
     """Unlike deleting a whole entry, deleting one ticket also cancels its
     linked Jira issue — this is the explicit 'get rid of this ticket' action.
     Destructive and irreversible enough that even the ticket's own owner
@@ -235,8 +307,11 @@ async def delete_item(item_id: int, background: BackgroundTasks,
 
 
 @router.delete("/entries/{entry_id}", status_code=204)
-async def delete_entry(entry_id: int, db: AsyncSession = Depends(get_session),
-                       viewer: Viewer = Depends(get_viewer)):
+async def delete_entry(
+    entry_id: int,
+    db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
+):
     """Items cascade. Any Jira issues stay — deleting a log row shouldn't
     silently delete someone's ticket."""
     entry = await db.get(DailyEntry, entry_id)

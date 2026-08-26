@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 
 from core.database import Session
 from core.dates import resolve_range
-from core.orm import AREA_LABELS, DailyEntry, EntryItem, Member
+from core.orm import DailyEntry, EntryItem, Member
 from services import analytics as an
 
 PERIODS = [None, "today", "yesterday", "week", "month", "quarter"]
@@ -35,7 +35,9 @@ fails: list[str] = []
 def check(ok: bool, what: str, detail: str = "") -> None:
     if not ok:
         fails.append(f"{what} {detail}".strip())
-    print(f"  {'ok  ' if ok else 'FAIL'} {what}{('  ' + detail) if detail and not ok else ''}")
+    print(
+        f"  {'ok  ' if ok else 'FAIL'} {what}{('  ' + detail) if detail and not ok else ''}"
+    )
 
 
 async def audit_window(db, label: str, frm: date, to: date) -> None:
@@ -46,27 +48,41 @@ async def audit_window(db, label: str, frm: date, to: date) -> None:
     pipes = await an.by_pipeline(db, s)
     types = await an.by_task_type(db, s)
 
-    print(f"\n{label}  {frm}..{to}   tasks={total['tasks']} effort={total['effort_minutes']}")
+    print(
+        f"\n{label}  {frm}..{to}   tasks={total['tasks']} effort={total['effort_minutes']}"
+    )
 
-    check(sum(m["tasks"] for m in members) == total["tasks"],
-          "per-member tasks sum to the headline",
-          f"{sum(m['tasks'] for m in members)} != {total['tasks']}")
-    check(sum(m["effort_minutes"] for m in members) == total["effort_minutes"],
-          "per-member effort sums to the headline",
-          f"{sum(m['effort_minutes'] for m in members)} != {total['effort_minutes']}")
+    check(
+        sum(m["tasks"] for m in members) == total["tasks"],
+        "per-member tasks sum to the headline",
+        f"{sum(m['tasks'] for m in members)} != {total['tasks']}",
+    )
+    check(
+        sum(m["effort_minutes"] for m in members) == total["effort_minutes"],
+        "per-member effort sums to the headline",
+        f"{sum(m['effort_minutes'] for m in members)} != {total['effort_minutes']}",
+    )
     # Areas must partition: every ticket in exactly one, none lost, none twice.
-    check(sum(a["tasks"] for a in areas) == total["tasks"],
-          "areas partition the work",
-          f"{sum(a['tasks'] for a in areas)} != {total['tasks']}")
-    check(sum(a["effort_minutes"] for a in areas) == total["effort_minutes"],
-          "area effort partitions the work",
-          f"{sum(a['effort_minutes'] for a in areas)} != {total['effort_minutes']}")
-    check(sum(p["tasks"] for p in pipes) == total["tasks"],
-          "pipelines partition the work",
-          f"{sum(p['tasks'] for p in pipes)} != {total['tasks']}")
-    check(sum(t["tasks"] for t in types) == total["tasks"],
-          "task types partition the work",
-          f"{sum(t['tasks'] for t in types)} != {total['tasks']}")
+    check(
+        sum(a["tasks"] for a in areas) == total["tasks"],
+        "areas partition the work",
+        f"{sum(a['tasks'] for a in areas)} != {total['tasks']}",
+    )
+    check(
+        sum(a["effort_minutes"] for a in areas) == total["effort_minutes"],
+        "area effort partitions the work",
+        f"{sum(a['effort_minutes'] for a in areas)} != {total['effort_minutes']}",
+    )
+    check(
+        sum(p["tasks"] for p in pipes) == total["tasks"],
+        "pipelines partition the work",
+        f"{sum(p['tasks'] for p in pipes)} != {total['tasks']}",
+    )
+    check(
+        sum(t["tasks"] for t in types) == total["tasks"],
+        "task types partition the work",
+        f"{sum(t['tasks'] for t in types)} != {total['tasks']}",
+    )
     # Jira owns the issue-type vocabulary, so an unknown type is slugged rather
     # than dropped. What matters is that it still reads as words, not that it
     # was known in advance.
@@ -74,8 +90,11 @@ async def audit_window(db, label: str, frm: date, to: date) -> None:
     check(not unlabelled, "every area renders a readable label", str(unlabelled))
 
     statuses = sum(total[k] for k in ("open", "in_progress", "blocked", "closed"))
-    check(statuses == total["tasks"], "statuses partition the work",
-          f"{statuses} != {total['tasks']}")
+    check(
+        statuses == total["tasks"],
+        "statuses partition the work",
+        f"{statuses} != {total['tasks']}",
+    )
 
     # A window that ends in the future is always wrong: no data can exist there.
     check(to <= date(2026, 8, 10), "window does not run into the future", str(to))
@@ -89,18 +108,27 @@ async def audit_people(db) -> None:
     members = {m["member"]: m for m in await an.by_member(db, s)}
 
     async with Session() as _:
-        rows = (await db.execute(
-            select(Member.id, Member.display_name, Member.is_active,
-                   func.count(EntryItem.id), func.coalesce(func.sum(EntryItem.effort_minutes), 0))
-            .join(DailyEntry, DailyEntry.member_id == Member.id)
-            .join(EntryItem, EntryItem.entry_id == DailyEntry.id)
-            .where(DailyEntry.entry_date.between(frm, to))
-            .group_by(Member.id, Member.display_name, Member.is_active)
-            .order_by(func.count(EntryItem.id).desc())
-        )).all()
+        rows = (
+            await db.execute(
+                select(
+                    Member.id,
+                    Member.display_name,
+                    Member.is_active,
+                    func.count(EntryItem.id),
+                    func.coalesce(func.sum(EntryItem.effort_minutes), 0),
+                )
+                .join(DailyEntry, DailyEntry.member_id == Member.id)
+                .join(EntryItem, EntryItem.entry_id == DailyEntry.id)
+                .where(DailyEntry.entry_date.between(frm, to))
+                .group_by(Member.id, Member.display_name, Member.is_active)
+                .order_by(func.count(EntryItem.id).desc())
+            )
+        ).all()
 
     print(f"\nper-person, {frm}..{to}")
-    print(f"  {'member':<18}{'db items':>9}{'view':>7}{'db min':>9}{'view min':>9}  active")
+    print(
+        f"  {'member':<18}{'db items':>9}{'view':>7}{'db min':>9}{'view min':>9}  active"
+    )
     for mid, name, active, n, mins in rows:
         row = members.get(name)
         seen = row["tasks"] if row else None
@@ -108,8 +136,10 @@ async def audit_people(db) -> None:
         # The view excludes update-mirror rows, so items >= tasks by design;
         # effort must match exactly, since it accrues on the plan row.
         bad = row is None or seen_min != int(mins)
-        print(f"  {name:<18}{n:>9}{str(seen):>7}{int(mins):>9}{str(seen_min):>9}"
-              f"  {'y' if active else 'n'}{'   <-- MISMATCH' if bad else ''}")
+        print(
+            f"  {name:<18}{n:>9}{str(seen):>7}{int(mins):>9}{str(seen_min):>9}"
+            f"  {'y' if active else 'n'}{'   <-- MISMATCH' if bad else ''}"
+        )
         if bad:
             fails.append(f"{name}: db={n}/{int(mins)}min view={seen}/{seen_min}min")
 
@@ -117,12 +147,20 @@ async def audit_people(db) -> None:
         if row is not None:
             mine = an.Scope(frm=frm, to=to, member_id=mid)
             own = await an.summary(db, mine)
-            if own["tasks"] != row["tasks"] or own["effort_minutes"] != row["effort_minutes"]:
-                fails.append(f"{name}: profile {own['tasks']}/{own['effort_minutes']} "
-                             f"!= team row {row['tasks']}/{row['effort_minutes']}")
+            if (
+                own["tasks"] != row["tasks"]
+                or own["effort_minutes"] != row["effort_minutes"]
+            ):
+                fails.append(
+                    f"{name}: profile {own['tasks']}/{own['effort_minutes']} "
+                    f"!= team row {row['tasks']}/{row['effort_minutes']}"
+                )
 
-    print("\n  profile totals match the team table for every member"
-          if not any("profile" in f for f in fails) else "\n  PROFILE MISMATCH")
+    print(
+        "\n  profile totals match the team table for every member"
+        if not any("profile" in f for f in fails)
+        else "\n  PROFILE MISMATCH"
+    )
 
 
 async def audit_scoping(db) -> None:
@@ -131,10 +169,18 @@ async def audit_scoping(db) -> None:
     frm, to = FULL
     print(f"\nscoping, {frm}..{to}")
     for row in (await an.by_member(db, an.Scope(frm=frm, to=to)))[:5]:
-        scoped = await an.summary(db, an.Scope(frm=frm, to=to, member_id=row["member_id"]))
-        ok = scoped["tasks"] == row["tasks"] and scoped["effort_minutes"] == row["effort_minutes"]
-        check(ok, f"{row['member']} sees their own {row['tasks']} tasks",
-              f"scoped={scoped['tasks']}/{scoped['effort_minutes']}")
+        scoped = await an.summary(
+            db, an.Scope(frm=frm, to=to, member_id=row["member_id"])
+        )
+        ok = (
+            scoped["tasks"] == row["tasks"]
+            and scoped["effort_minutes"] == row["effort_minutes"]
+        )
+        check(
+            ok,
+            f"{row['member']} sees their own {row['tasks']} tasks",
+            f"scoped={scoped['tasks']}/{scoped['effort_minutes']}",
+        )
 
 
 async def main() -> int:

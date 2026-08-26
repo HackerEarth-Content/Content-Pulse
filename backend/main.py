@@ -18,6 +18,7 @@ from core.database import engine
 from core.scheduler import start as start_scheduler
 from core.users import OAuthNotAllowedError
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler = start_scheduler()
@@ -54,7 +55,9 @@ app.add_middleware(
 async def oauth_not_allowed(request: Request, exc: OAuthNotAllowedError):
     """This fires mid-redirect, in the address bar — send them back to the SPA
     with a flag rather than a bare JSON error."""
-    return RedirectResponse(f"{settings.FRONTEND_URL}?authError=not_allowed", status_code=302)
+    return RedirectResponse(
+        f"{settings.FRONTEND_URL}?authError=not_allowed", status_code=302
+    )
 
 
 @app.get("/api/health")

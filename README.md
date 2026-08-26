@@ -28,7 +28,7 @@ make up
 Backend without Docker:
 
 ```bash
-cd backend && uv sync && uv run uvicorn main:app --reload
+cd backend && uv sync && uv run pre-commit install && uv run uvicorn main:app --reload
 ```
 
 Frontend without Docker:

@@ -53,7 +53,9 @@ class Settings(BaseSettings):
 
     @property
     def superadmins(self) -> set[str]:
-        return {e.strip().lower() for e in self.SUPERADMIN_EMAILS.split(",") if e.strip()}
+        return {
+            e.strip().lower() for e in self.SUPERADMIN_EMAILS.split(",") if e.strip()
+        }
 
     @property
     def sqlalchemy_url(self) -> str:

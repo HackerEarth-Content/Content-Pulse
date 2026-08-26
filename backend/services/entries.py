@@ -14,7 +14,14 @@ from sqlalchemy.orm import selectinload
 
 from core.config import settings
 from core.dates import day_bounds_utc
-from core.orm import DailyEntry, EntryItem, EntryItemStatusEvent, Member, QuestionType, TaskType
+from core.orm import (
+    DailyEntry,
+    EntryItem,
+    EntryItemStatusEvent,
+    Member,
+    QuestionType,
+    TaskType,
+)
 from schemas.entries import ItemIn, PlanIn, UpdateIn
 
 
@@ -37,51 +44,81 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 }
 
 
-def check_transition(current: str, requested: str, *, effort_minutes: int | None) -> None:
+def check_transition(
+    current: str, requested: str, *, effort_minutes: int | None
+) -> None:
     if requested == current:
         return
     if requested not in ALLOWED_TRANSITIONS.get(current, set()):
-        raise err(422, "bad_transition",
-                  f"Can't move a {current} ticket straight to {requested}.",
-                  current=current, requested=requested)
+        raise err(
+            422,
+            "bad_transition",
+            f"Can't move a {current} ticket straight to {requested}.",
+            current=current,
+            requested=requested,
+        )
     # Leaving in-progress is the point at which time was actually spent — this
     # is where effort has to be on the record, not some vaguer "on any save".
     if current == "in_progress" and effort_minutes is None:
-        raise err(422, "effort_required",
-                  "Log the effort spent before moving this off In progress.")
-
+        raise err(
+            422,
+            "effort_required",
+            "Log the effort spent before moving this off In progress.",
+        )
 
 
 async def record_status(
-    db: AsyncSession, item: EntryItem, to_status: str, *,
-    source: str = "web", note: str | None = None, user_id: str | None = None,
+    db: AsyncSession,
+    item: EntryItem,
+    to_status: str,
+    *,
+    source: str = "web",
+    note: str | None = None,
+    user_id: str | None = None,
 ) -> None:
     """Append a transition row and move the item. No-ops when nothing changed,
     so re-saving an update doesn't inflate the throughput numbers."""
     if item.status == to_status:
         return
-    db.add(EntryItemStatusEvent(
-        entry_item_id=item.id, from_status=item.status,
-        to_status=to_status, source=source, note=note, changed_by_user_id=user_id,
-    ))
+    db.add(
+        EntryItemStatusEvent(
+            entry_item_id=item.id,
+            from_status=item.status,
+            to_status=to_status,
+            source=source,
+            note=note,
+            changed_by_user_id=user_id,
+        )
+    )
     item.status = to_status
 
 
 async def _new_item(
-    db: AsyncSession, entry: DailyEntry, data: ItemIn, sort_order: int,
-    *, status_: str, user_id: str | None, plan_item: EntryItem | None = None,
+    db: AsyncSession,
+    entry: DailyEntry,
+    data: ItemIn,
+    sort_order: int,
+    *,
+    status_: str,
+    user_id: str | None,
+    plan_item: EntryItem | None = None,
 ) -> EntryItem:
     if not await db.get(TaskType, data.task_type_id):
-        raise err(422, "unknown_task_type",
-                  f"No task type with id {data.task_type_id}.")
+        raise err(
+            422, "unknown_task_type", f"No task type with id {data.task_type_id}."
+        )
 
     question_types = []
     if data.question_type_ids:
-        question_types = list(await db.scalars(
-            select(QuestionType).where(QuestionType.id.in_(data.question_type_ids))
-        ))
+        question_types = list(
+            await db.scalars(
+                select(QuestionType).where(QuestionType.id.in_(data.question_type_ids))
+            )
+        )
         if len(question_types) != len(set(data.question_type_ids)):
-            raise err(422, "unknown_question_type", "One or more question types don't exist.")
+            raise err(
+                422, "unknown_question_type", "One or more question types don't exist."
+            )
 
     parent_issue_url = None
     if data.parent_issue_key:
@@ -90,18 +127,30 @@ async def _new_item(
         try:
             found = await jira.issue_exists(db, data.parent_issue_key)
         except jira.JiraDisabled as e:
-            raise err(422, "jira_unavailable",
-                      f"Can't verify the parent ticket right now: {e}")
+            raise err(
+                422,
+                "jira_unavailable",
+                f"Can't verify the parent ticket right now: {e}",
+            )
         except Exception as e:
-            raise err(422, "jira_unavailable", f"Couldn't reach Jira to verify the parent ticket: {e}")
+            raise err(
+                422,
+                "jira_unavailable",
+                f"Couldn't reach Jira to verify the parent ticket: {e}",
+            )
         if not found:
-            raise err(422, "unknown_parent_issue",
-                      f"{data.parent_issue_key} isn't a valid parent — it doesn't exist in "
-                      "Jira, or it's a Content Task/subtask that can't have its own children.")
+            raise err(
+                422,
+                "unknown_parent_issue",
+                f"{data.parent_issue_key} isn't a valid parent — it doesn't exist in "
+                "Jira, or it's a Content Task/subtask that can't have its own children.",
+            )
         parent_issue_url = f"{settings.JIRA_BASE_URL}/browse/{data.parent_issue_key}"
 
     item = EntryItem(
-        entry_id=entry.id, sort_order=sort_order, status=status_,
+        entry_id=entry.id,
+        sort_order=sort_order,
+        status=status_,
         plan_item_id=plan_item.id if plan_item else None,
         parent_issue_url=parent_issue_url,
         # `create_jira` is the request's word for it; `jira_wanted` is the
@@ -112,31 +161,43 @@ async def _new_item(
     item.question_types = question_types
     db.add(item)
     await db.flush()
-    db.add(EntryItemStatusEvent(
-        entry_item_id=item.id, to_status=status_, source=entry.source,
-        note=data.notes, changed_by_user_id=user_id,
-    ))
+    db.add(
+        EntryItemStatusEvent(
+            entry_item_id=item.id,
+            to_status=status_,
+            source=entry.source,
+            note=data.notes,
+            changed_by_user_id=user_id,
+        )
+    )
     return item
 
 
 async def get_plan(db: AsyncSession, member_id: int, on: date) -> DailyEntry | None:
-    return await db.scalar(_loaded(
-        select(DailyEntry).where(
-            DailyEntry.member_id == member_id,
-            DailyEntry.entry_date == on,
-            DailyEntry.kind == "plan",
+    return await db.scalar(
+        _loaded(
+            select(DailyEntry).where(
+                DailyEntry.member_id == member_id,
+                DailyEntry.entry_date == on,
+                DailyEntry.kind == "plan",
+            )
         )
-    ))
+    )
 
 
-async def create_plan(db: AsyncSession, data: PlanIn, user_id: str | None) -> DailyEntry:
+async def create_plan(
+    db: AsyncSession, data: PlanIn, user_id: str | None
+) -> DailyEntry:
     if not await db.get(Member, data.member_id):
-        raise err(422, "unknown_member",
-                  f"No member with id {data.member_id}.")
+        raise err(422, "unknown_member", f"No member with id {data.member_id}.")
     existing = await get_plan(db, data.member_id, data.entry_date)
     if existing and existing.source != "jira":
-        raise err(409, "plan_exists",
-                  "This member already has a plan for that date.", entry_id=existing.id)
+        raise err(
+            409,
+            "plan_exists",
+            "This member already has a plan for that date.",
+            entry_id=existing.id,
+        )
 
     if existing:
         # A Jira sync mirror already parked today's externally-assigned
@@ -149,8 +210,12 @@ async def create_plan(db: AsyncSession, data: PlanIn, user_id: str | None) -> Da
         start = len(entry.items)
     else:
         entry = DailyEntry(
-            member_id=data.member_id, entry_date=data.entry_date, kind="plan",
-            raw_text=data.raw_text, source="web", created_by_user_id=user_id,
+            member_id=data.member_id,
+            entry_date=data.entry_date,
+            kind="plan",
+            raw_text=data.raw_text,
+            source="web",
+            created_by_user_id=user_id,
             post_at=data.post_at,
         )
         db.add(entry)
@@ -169,27 +234,40 @@ async def create_plan(db: AsyncSession, data: PlanIn, user_id: str | None) -> Da
     return await db.scalar(_loaded(select(DailyEntry).where(DailyEntry.id == entry.id)))
 
 
-async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -> DailyEntry:
+async def create_update(
+    db: AsyncSession, data: UpdateIn, user_id: str | None
+) -> DailyEntry:
     if not await db.get(Member, data.member_id):
-        raise err(422, "unknown_member",
-                  f"No member with id {data.member_id}.")
+        raise err(422, "unknown_member", f"No member with id {data.member_id}.")
 
     plan = await get_plan(db, data.member_id, data.entry_date)
     if data.plan_lines and plan is None:
-        raise err(404, "no_plan",
-                  "No plan exists for this member and date — log it as extra work instead.")
+        raise err(
+            404,
+            "no_plan",
+            "No plan exists for this member and date — log it as extra work instead.",
+        )
 
     # Every referenced plan row must still belong to *this* plan. Catches a form
     # submitted after the plan was edited, and a client sending someone else's ids.
     by_id = {i.id: i for i in (plan.items if plan else [])}
-    if unknown := [ln.plan_item_id for ln in data.plan_lines if ln.plan_item_id not in by_id]:
-        raise err(422, "plan_item_mismatch",
-                  "The plan changed since this form was opened. Reload it.",
-                  unknown_plan_item_ids=unknown)
+    if unknown := [
+        ln.plan_item_id for ln in data.plan_lines if ln.plan_item_id not in by_id
+    ]:
+        raise err(
+            422,
+            "plan_item_mismatch",
+            "The plan changed since this form was opened. Reload it.",
+            unknown_plan_item_ids=unknown,
+        )
 
     entry = DailyEntry(
-        member_id=data.member_id, entry_date=data.entry_date, kind="update",
-        raw_text=data.raw_text, source="web", created_by_user_id=user_id,
+        member_id=data.member_id,
+        entry_date=data.entry_date,
+        kind="update",
+        raw_text=data.raw_text,
+        source="web",
+        created_by_user_id=user_id,
         post_at=data.post_at,
     )
     db.add(entry)
@@ -204,18 +282,29 @@ async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -
         # Effort accrues on the plan row, because analytics counts plan rows and
         # skips the mirrors. 2h Monday + 3h Tuesday on one task is 5h, not 3h.
         if line.effort_minutes is not None:
-            plan_item.effort_minutes = (plan_item.effort_minutes or 0) + line.effort_minutes
+            plan_item.effort_minutes = (
+                plan_item.effort_minutes or 0
+            ) + line.effort_minutes
         # Checked against the effort *after* accrual above, so effort reported
         # in this same line already counts toward the "leaving in-progress"
         # requirement rather than needing a separate prior save.
-        check_transition(plan_item.status, line.status, effort_minutes=plan_item.effort_minutes)
-        await record_status(db, plan_item, line.status, note=line.notes, user_id=user_id)
+        check_transition(
+            plan_item.status, line.status, effort_minutes=plan_item.effort_minutes
+        )
+        await record_status(
+            db, plan_item, line.status, note=line.notes, user_id=user_id
+        )
 
         mirror = EntryItem(
-            entry_id=entry.id, plan_item_id=plan_item.id, sort_order=order,
+            entry_id=entry.id,
+            plan_item_id=plan_item.id,
+            sort_order=order,
             task_type_id=plan_item.task_type_id,
-            customer=plan_item.customer, count=line.count, notes=line.notes,
-            due_at=line.due_at, status=line.status,
+            customer=plan_item.customer,
+            count=line.count,
+            notes=line.notes,
+            due_at=line.due_at,
+            status=line.status,
             effort_minutes=line.effort_minutes,
             jira_issue_key=plan_item.jira_issue_key,
             jira_issue_url=plan_item.jira_issue_url,
@@ -223,10 +312,15 @@ async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -
         mirror.question_types = list(plan_item.question_types)
         db.add(mirror)
         await db.flush()
-        db.add(EntryItemStatusEvent(
-            entry_item_id=mirror.id, to_status=line.status, source="web",
-            note=line.notes, changed_by_user_id=user_id,
-        ))
+        db.add(
+            EntryItemStatusEvent(
+                entry_item_id=mirror.id,
+                to_status=line.status,
+                source="web",
+                note=line.notes,
+                changed_by_user_id=user_id,
+            )
+        )
         order += 1
 
     for extra in data.extra_items:
@@ -242,9 +336,17 @@ async def create_update(db: AsyncSession, data: UpdateIn, user_id: str | None) -
 
 
 async def patch_item(
-    db: AsyncSession, item_id: int, *, status_: str | None, count: int | None,
-    notes: str | None, comment: str | None, due_at: date | None, user_id: str | None,
-    effort_minutes: int | None = None, task_type_id: int | None = None,
+    db: AsyncSession,
+    item_id: int,
+    *,
+    status_: str | None,
+    count: int | None,
+    notes: str | None,
+    comment: str | None,
+    due_at: date | None,
+    user_id: str | None,
+    effort_minutes: int | None = None,
+    task_type_id: int | None = None,
 ) -> EntryItem:
     item = await db.get(EntryItem, item_id)
     if item is None:
@@ -278,9 +380,11 @@ async def patch_item(
         # A system-driven mirror sync, not a user transition, so it doesn't
         # go through check_transition.
         root = item.plan_item_id or item.id
-        siblings = await db.scalars(select(EntryItem).where(
-            or_(EntryItem.id == root, EntryItem.plan_item_id == root)
-        ))
+        siblings = await db.scalars(
+            select(EntryItem).where(
+                or_(EntryItem.id == root, EntryItem.plan_item_id == root)
+            )
+        )
         for sib in siblings:
             if sib.id != item.id:
                 await record_status(db, sib, status_, source="system", user_id=user_id)
@@ -297,32 +401,39 @@ async def updated_member_ids(db: AsyncSession, on: date) -> set[int]:
     "nothing reported yet" in the roll call even after they'd closed tickets.
     """
     from_updates = {
-        mid for (mid,) in await db.execute(
-            select(DailyEntry.member_id)
-            .where(DailyEntry.entry_date == on, DailyEntry.kind == "update")
+        mid
+        for (mid,) in await db.execute(
+            select(DailyEntry.member_id).where(
+                DailyEntry.entry_date == on, DailyEntry.kind == "update"
+            )
         )
     }
     start, end = day_bounds_utc(on)
     from_status_changes = {
-        mid for (mid,) in await db.execute(
+        mid
+        for (mid,) in await db.execute(
             select(DailyEntry.member_id)
             .select_from(EntryItemStatusEvent)
             .join(EntryItem, EntryItem.id == EntryItemStatusEvent.entry_item_id)
             .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
-            .where(EntryItemStatusEvent.source == "web",
-                   # Excludes an item's creation event (from_status IS NULL,
-                   # written by `_new_item` when a plan is filed) — that's
-                   # planning, not a transition, and would otherwise make
-                   # filing a plan look like an update on its own.
-                   EntryItemStatusEvent.from_status.is_not(None),
-                   EntryItemStatusEvent.changed_at >= start,
-                   EntryItemStatusEvent.changed_at < end)
+            .where(
+                EntryItemStatusEvent.source == "web",
+                # Excludes an item's creation event (from_status IS NULL,
+                # written by `_new_item` when a plan is filed) — that's
+                # planning, not a transition, and would otherwise make
+                # filing a plan look like an update on its own.
+                EntryItemStatusEvent.from_status.is_not(None),
+                EntryItemStatusEvent.changed_at >= start,
+                EntryItemStatusEvent.changed_at < end,
+            )
         )
     }
     return from_updates | from_status_changes
 
 
-async def today_status(db: AsyncSession, on: date, viewer_member_id: int | None = None) -> dict:
+async def today_status(
+    db: AsyncSession, on: date, viewer_member_id: int | None = None
+) -> dict:
     """Who has filed a plan today, and who has followed it with an update.
 
     Reports the people, not just counts — a number nobody can act on is worse
@@ -331,22 +442,32 @@ async def today_status(db: AsyncSession, on: date, viewer_member_id: int | None 
     set, so "not listed as missing" silently read as "already planned".
     """
     planned = {
-        m: (mid, e) for mid, m, e in await db.execute(
+        m: (mid, e)
+        for mid, m, e in await db.execute(
             select(DailyEntry.member_id, Member.display_name, DailyEntry.id)
             .join(Member, Member.id == DailyEntry.member_id)
-            .where(DailyEntry.entry_date == on, DailyEntry.kind == "plan",
-                   DailyEntry.source != "jira")
+            .where(
+                DailyEntry.entry_date == on,
+                DailyEntry.kind == "plan",
+                DailyEntry.source != "jira",
+            )
         )
     }
     updated_ids = await updated_member_ids(db, on)
-    updated = {
-        m for (m,) in await db.execute(
-            select(Member.display_name).where(Member.id.in_(updated_ids))
-        )
-    } if updated_ids else set()
+    updated = (
+        {
+            m
+            for (m,) in await db.execute(
+                select(Member.display_name).where(Member.id.in_(updated_ids))
+            )
+        }
+        if updated_ids
+        else set()
+    )
     # Everyone active plans their day, admins included.
     active = {
-        m: mid for mid, m in await db.execute(
+        m: mid
+        for mid, m in await db.execute(
             select(Member.id, Member.display_name).where(Member.is_active.is_(True))
         )
     }
@@ -377,22 +498,37 @@ async def today_status(db: AsyncSession, on: date, viewer_member_id: int | None 
 async def members_without_a_plan(db: AsyncSession, on: date) -> list[Member]:
     """Active members with an email who haven't filed a plan today."""
     planned = select(DailyEntry.member_id).where(
-        DailyEntry.entry_date == on, DailyEntry.kind == "plan", DailyEntry.source != "jira"
+        DailyEntry.entry_date == on,
+        DailyEntry.kind == "plan",
+        DailyEntry.source != "jira",
     )
-    return list(await db.scalars(
-        select(Member).where(
-            Member.is_active.is_(True),
-            Member.email.isnot(None),
-            Member.id.notin_(planned),
-        ).order_by(Member.display_name)
-    ))
+    return list(
+        await db.scalars(
+            select(Member)
+            .where(
+                Member.is_active.is_(True),
+                Member.email.isnot(None),
+                Member.id.notin_(planned),
+            )
+            .order_by(Member.display_name)
+        )
+    )
 
 
 async def list_items(
-    db: AsyncSession, *, frm: date, to: date, member_id: int | None = None,
-    kind: str | None = None, status_: str | None = None, task_type_id: int | None = None,
-    customer: str | None = None, pipeline: str | None = None, q: str | None = None,
-    page: int = 1, page_size: int = 50,
+    db: AsyncSession,
+    *,
+    frm: date,
+    to: date,
+    member_id: int | None = None,
+    kind: str | None = None,
+    status_: str | None = None,
+    task_type_id: int | None = None,
+    customer: str | None = None,
+    pipeline: str | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
 ) -> tuple[list, int]:
     """The work log, one row per ticket.
 
@@ -419,13 +555,15 @@ async def list_items(
         where.append(EntryItem.customer.ilike(f"%{customer}%"))
     if q:
         like = f"%{q}%"
-        where.append(or_(
-            EntryItem.notes.ilike(like),
-            EntryItem.customer.ilike(like),
-            EntryItem.jira_issue_key.ilike(like),
-            TaskType.name.ilike(like),
-            DailyEntry.raw_text.ilike(like),
-        ))
+        where.append(
+            or_(
+                EntryItem.notes.ilike(like),
+                EntryItem.customer.ilike(like),
+                EntryItem.jira_issue_key.ilike(like),
+                TaskType.name.ilike(like),
+                DailyEntry.raw_text.ilike(like),
+            )
+        )
 
     base = (
         select(EntryItem, DailyEntry)
@@ -442,15 +580,25 @@ async def list_items(
     )
     rows = await db.execute(
         base.order_by(DailyEntry.entry_date.desc(), EntryItem.id.desc())
-        .limit(page_size).offset((page - 1) * page_size)
+        .limit(page_size)
+        .offset((page - 1) * page_size)
     )
     return list(rows), total or 0
 
 
 async def list_entries(
-    db: AsyncSession, *, frm: date, to: date, member_id: int | None = None,
-    kind: str | None = None, status_: str | None = None, task_type_id: int | None = None,
-    customer: str | None = None, q: str | None = None, page: int = 1, page_size: int = 50,
+    db: AsyncSession,
+    *,
+    frm: date,
+    to: date,
+    member_id: int | None = None,
+    kind: str | None = None,
+    status_: str | None = None,
+    task_type_id: int | None = None,
+    customer: str | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
 ) -> tuple[list[DailyEntry], int]:
     if frm > to:
         raise err(422, "bad_range", "`from` is after `to`.")
@@ -461,36 +609,49 @@ async def list_entries(
     if kind:
         where.append(DailyEntry.kind == kind)
     if status_:
-        where.append(DailyEntry.id.in_(
-            select(EntryItem.entry_id).where(EntryItem.status == status_)
-        ))
+        where.append(
+            DailyEntry.id.in_(
+                select(EntryItem.entry_id).where(EntryItem.status == status_)
+            )
+        )
     if task_type_id:
-        where.append(DailyEntry.id.in_(
-            select(EntryItem.entry_id).where(EntryItem.task_type_id == task_type_id)
-        ))
+        where.append(
+            DailyEntry.id.in_(
+                select(EntryItem.entry_id).where(EntryItem.task_type_id == task_type_id)
+            )
+        )
     if customer:
-        where.append(DailyEntry.id.in_(
-            select(EntryItem.entry_id).where(EntryItem.customer.ilike(f"%{customer}%"))
-        ))
+        where.append(
+            DailyEntry.id.in_(
+                select(EntryItem.entry_id).where(
+                    EntryItem.customer.ilike(f"%{customer}%")
+                )
+            )
+        )
     if q:
         like = f"%{q}%"
-        where.append(or_(
-            DailyEntry.raw_text.ilike(like),
-            DailyEntry.id.in_(
-                select(EntryItem.entry_id)
-                .join(TaskType, TaskType.id == EntryItem.task_type_id)
-                .where(or_(
-                    EntryItem.notes.ilike(like),
-                    EntryItem.customer.ilike(like),
-                    TaskType.name.ilike(like),
-                ))
-            ),
-        ))
+        where.append(
+            or_(
+                DailyEntry.raw_text.ilike(like),
+                DailyEntry.id.in_(
+                    select(EntryItem.entry_id)
+                    .join(TaskType, TaskType.id == EntryItem.task_type_id)
+                    .where(
+                        or_(
+                            EntryItem.notes.ilike(like),
+                            EntryItem.customer.ilike(like),
+                            TaskType.name.ilike(like),
+                        )
+                    )
+                ),
+            )
+        )
 
     total = await db.scalar(select(func.count()).select_from(DailyEntry).where(*where))
     rows = await db.scalars(
         _loaded(select(DailyEntry).where(*where))
         .order_by(DailyEntry.entry_date.desc(), DailyEntry.id.desc())
-        .limit(page_size).offset((page - 1) * page_size)
+        .limit(page_size)
+        .offset((page - 1) * page_size)
     )
     return list(rows), total or 0

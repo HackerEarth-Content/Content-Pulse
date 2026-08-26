@@ -1,8 +1,7 @@
 """The daily plan reminder. Delivery is mocked — this asserts who gets one."""
 
-import pytest
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from core.config import settings
 from core.database import Session
@@ -33,23 +32,39 @@ async def test_only_people_without_a_plan_are_nudged(target, client, task_type):
     async with Session() as db:
         assert any(m.id == target for m in await members_without_a_plan(db, today()))
 
-    await client.post("/api/entries/plans", json={
-        "member_id": target, "entry_date": today().isoformat(),
-        "items": [{"task_type_id": task_type, "notes": "n", "due_at": today().isoformat()}],
-    })
+    await client.post(
+        "/api/entries/plans",
+        json={
+            "member_id": target,
+            "entry_date": today().isoformat(),
+            "items": [
+                {"task_type_id": task_type, "notes": "n", "due_at": today().isoformat()}
+            ],
+        },
+    )
 
     async with Session() as db:
-        assert not any(m.id == target for m in await members_without_a_plan(db, today()))
+        assert not any(
+            m.id == target for m in await members_without_a_plan(db, today())
+        )
 
 
 async def test_a_backfilled_jira_day_does_not_count_as_planning(target):
     """Imported Jira days are synthetic — they must not silence the reminder."""
     async with Session() as db:
-        db.add(DailyEntry(member_id=target, entry_date=today(), kind="plan", source="jira",
-                          idempotency_key=f"jira:{target}:{today().isoformat()}"))
+        db.add(
+            DailyEntry(
+                member_id=target,
+                entry_date=today(),
+                kind="plan",
+                source="jira",
+                idempotency_key=f"jira:{target}:{today().isoformat()}",
+            )
+        )
         await db.commit()
-        assert any(m.id == target for m in await members_without_a_plan(db, today())), \
+        assert any(m.id == target for m in await members_without_a_plan(db, today())), (
             "a Jira import is not a plan someone filed"
+        )
 
 
 async def test_members_with_no_email_are_skipped(target):
@@ -57,7 +72,9 @@ async def test_members_with_no_email_are_skipped(target):
         member = await db.get(Member, target)
         member.email = None
         await db.commit()
-        assert not any(m.id == target for m in await members_without_a_plan(db, today()))
+        assert not any(
+            m.id == target for m in await members_without_a_plan(db, today())
+        )
 
 
 async def test_sending_is_off_by_default(monkeypatch):
