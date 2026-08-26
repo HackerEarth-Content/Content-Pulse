@@ -7,6 +7,7 @@ import { StatusDialog } from "../components/StatusDialog";
 import { Async, Banner, SectionHeading, StatTile } from "../components/ui";
 import { dmy, mins, statusLabel, today } from "../format";
 import { useApi } from "../hooks/useApi";
+import { bumpDataVersion } from "../hooks/useDataVersion";
 import type { CurrentUser, Entry, Item, Lookup } from "../types";
 
 const PARENT_KEY_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
@@ -106,7 +107,7 @@ export function MyDay({ me }: { me: CurrentUser["member"] }) {
               // can be set even if every one of today's tickets came from
               // Jira and nothing new needs typing.
               jiraItems={existing?.items ?? []}
-              onCreated={(items) => { setJustCreated(items); plan.reload(); }}
+              onCreated={(items) => { setJustCreated(items); plan.reload(); bumpDataVersion(); }}
             />
           )
         }
@@ -419,6 +420,7 @@ function DayInProgress({
     setMoving(null);
     onChange();
     updates.reload();
+    bumpDataVersion();
   }
 
   return (
@@ -506,7 +508,7 @@ function DayInProgress({
           date={date}
           taskTypes={taskTypes.data ?? []}
           onClose={() => setTicketing(false)}
-          onCreated={(items) => { setJustCreated(items); onChange(); updates.reload(); }}
+          onCreated={(items) => { setJustCreated(items); onChange(); updates.reload(); bumpDataVersion(); }}
         />
       ) : null}
     </>
@@ -533,7 +535,7 @@ function TicketRow({ item, onMove }: { item: Item; onMove: () => void }) {
         ) : item.jira_state === "pending" ? (
           <span className="pill pill-muted">syncing…</span>
         ) : item.jira_state === "failed" ? (
-          <span className="pill pill-blocked" title="Jira ticket creation failed">failed</span>
+          <span className="pill pill-blocked" title={item.jira_error ?? "Jira ticket creation failed"}>failed</span>
         ) : null}
         {item.parent_issue_key ? (
           <a className="tag" href={item.parent_issue_url ?? "#"} target="_blank" rel="noreferrer"

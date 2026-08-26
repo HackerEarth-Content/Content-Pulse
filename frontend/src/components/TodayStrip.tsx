@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useApi } from "../hooks/useApi";
 import type { CurrentUser } from "../types";
@@ -14,6 +14,8 @@ import type { CurrentUser } from "../types";
 export function TodayStrip({ me }: { me: CurrentUser["member"] }) {
   const today = useApi(() => api.today(), []);
   const isLead = me?.role === "admin" || me?.role === "manager";
+  // Already on the page the CTA would send you to — the link is redundant there.
+  const onMyDay = useLocation().pathname === "/my-day";
 
   if (today.loading || !today.data) return null;
   const t = today.data;
@@ -56,12 +58,6 @@ export function TodayStrip({ me }: { me: CurrentUser["member"] }) {
       </span>
 
       <span className="today-team">
-        <span className="today-stat">
-          <b className="mono">{t.updated}</b>
-          <span> of </span>
-          <b className="mono">{t.planned}</b>
-          <span> plans updated</span>
-        </span>
         {t.awaiting_update.length ? (
           <span className="today-stat today-stat--warn" title={
             t.awaiting_update.map((m) => m.member).join(", ")
@@ -78,7 +74,7 @@ export function TodayStrip({ me }: { me: CurrentUser["member"] }) {
         ) : null}
       </span>
 
-      {call ? (
+      {call && !onMyDay ? (
         <Link className={`btn btn-${call.tone} btn-sm today-cta`} to={call.to}>
           {call.label}
         </Link>

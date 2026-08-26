@@ -566,6 +566,64 @@ async def test_created_issue_carries_every_field(
     assert sent["issuetype"]["name"] == "Content Tasks"
 
 
+async def test_created_issue_carries_every_question_type_selected(
+    client, member, task_type, monkeypatch
+):
+    """`question_type_ids` is a multi-select — a ticket with two selected must
+    reach Jira with both, not just the first."""
+    from core.database import Session as S
+    from core.orm import QuestionType
+
+    async with S() as db:
+        qts = list(
+            await db.scalars(
+                select(QuestionType).where(QuestionType.name.in_(["SQL", "Programming"]))
+            )
+        )
+        # Deterministic regardless of any cache another test may have left behind.
+        await db.merge(
+            IntegrationSetting(
+                key="jira_options:Content Tasks",
+                value={
+                    "task_type": {"Internal meeting": "10235", "Documentation": "10240"},
+                    "question_type": {"SQL": "10247", "Programming": "10250"},
+                },
+            )
+        )
+        await db.commit()
+
+    plan = (
+        await client.post(
+            "/api/entries/plans",
+            json={
+                "member_id": member,
+                "entry_date": DAY,
+                "items": [
+                    {
+                        "task_type_id": task_type,
+                        "question_type_ids": [qt.id for qt in qts],
+                        "due_at": DAY,
+                        "notes": "n",
+                    }
+                ],
+            },
+        )
+    ).json()
+
+    sent = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            sent.update(httpx.Response(200, content=request.content).json()["fields"])
+            return httpx.Response(201, json={"key": "TCE-43"})
+        return httpx.Response(200, json={"fields": {}})
+
+    monkeypatch.setattr(jira, "_client", transport(handler))
+    await jira.push_item(plan["items"][0]["id"])
+
+    assert sorted(o["id"] for o in sent["customfield_10235"]) == ["10247", "10250"]
+
+
 async def test_assignee_resolved_from_email_and_cached(
     client, member, task_type, monkeypatch
 ):

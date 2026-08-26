@@ -430,12 +430,15 @@ async def run(
                 continue
 
             entry_id = await _entry_for(db, entries, member_id, on, stats)
+            raw_task_type = _val(f.get("customfield_10230"))
+            task_type_id = await _lookup(db, TaskType, raw_task_type, task_cache)
+            if task_type_id is None and raw_task_type:
+                # Jira's picklist drifted from our seeded TaskType names — falling
+                # back to "Others" silently hides that drift, so print it instead.
+                print(f"  no TaskType matches Jira task type {raw_task_type!r} on {key}, using Others")
             item = EntryItem(
                 entry_id=entry_id,
-                task_type_id=await _lookup(
-                    db, TaskType, _val(f.get("customfield_10230")), task_cache
-                )
-                or other_id,
+                task_type_id=task_type_id or other_id,
                 count=f.get("customfield_10233")
                 and int(f["customfield_10233"])
                 or None,

@@ -152,6 +152,7 @@ class ItemOut(ORMModel):
     jira_issue_key: str | None
     jira_issue_url: str | None
     jira_state: str
+    jira_error: str | None
     jira_missing: bool
     parent_issue_key: str | None
     parent_issue_url: str | None
@@ -176,6 +177,7 @@ class ItemOut(ORMModel):
                     "jira_issue_key",
                     "jira_issue_url",
                     "jira_state",
+                    "jira_error",
                     "jira_missing",
                     "parent_issue_key",
                     "parent_issue_url",
@@ -245,11 +247,13 @@ class WorkLogRow(ORMModel):
     due_at: date | None
     status: str
     pipeline: str
+    work_type: str
     external_issue_type: str | None
     request_type: str | None
     jira_issue_key: str | None
     jira_issue_url: str | None
     jira_state: str
+    jira_error: str | None
     jira_missing: bool
     parent_issue_key: str | None
     parent_issue_url: str | None
@@ -276,6 +280,7 @@ class WorkLogRow(ORMModel):
                     "jira_issue_key",
                     "jira_issue_url",
                     "jira_state",
+                    "jira_error",
                     "jira_missing",
                     "parent_issue_key",
                     "parent_issue_url",
@@ -288,6 +293,7 @@ class WorkLogRow(ORMModel):
             member=entry.member.display_name,
             task_type=item.task_type.name,
             title=_title(item),
+            work_type=PIPELINE_LABELS.get(item.pipeline, item.pipeline),
             question_types=[q.name for q in item.question_types],
         )
 
