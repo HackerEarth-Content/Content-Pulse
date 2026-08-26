@@ -27,7 +27,7 @@ const asItem = (r: WorkLogRow): Item => ({
   task_type: r.task_type,
   title: r.title,
   pipeline: r.pipeline,
-  work_type: r.pipeline,
+  work_type: r.work_type,
   question_types: r.question_types,
   customer: r.customer,
   count: r.count,
@@ -38,6 +38,7 @@ const asItem = (r: WorkLogRow): Item => ({
   jira_issue_key: r.jira_issue_key,
   jira_issue_url: r.jira_issue_url,
   jira_state: r.jira_state,
+  jira_error: r.jira_error,
   jira_missing: r.jira_missing,
   parent_issue_key: r.parent_issue_key,
   parent_issue_url: r.parent_issue_url,
@@ -197,7 +198,7 @@ export function WorkLog({ range, me }: { range: Range; me: CurrentUser["member"]
                             {r.external_issue_type ?? (r.kind === "plan" ? "Plan" : "Update")}
                           </span>
                         </td>
-                        <td>{r.task_type}</td>
+                        <td>{r.work_type}</td>
                         <td className="muted">{r.customer ?? "—"}</td>
                         <td className="num">{num(r.count)}</td>
                         <td className="num">{mins(r.effort_minutes)}</td>
@@ -219,7 +220,7 @@ export function WorkLog({ range, me }: { range: Range; me: CurrentUser["member"]
                           ) : r.jira_state === "pending" ? (
                             <span className="pill pill-muted">syncing…</span>
                           ) : r.jira_state === "failed" ? (
-                            <span className="pill pill-blocked">failed</span>
+                            <span className="pill pill-blocked" title={r.jira_error ?? undefined}>failed</span>
                           ) : (
                             <span className="muted">—</span>
                           )}

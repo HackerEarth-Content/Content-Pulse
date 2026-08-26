@@ -42,6 +42,7 @@ export interface Item {
   jira_issue_key: string | null;
   jira_issue_url: string | null;
   jira_state: "none" | "pending" | "ok" | "failed";
+  jira_error: string | null;
   jira_missing: boolean;
   parent_issue_key: string | null;
   parent_issue_url: string | null;
@@ -94,11 +95,13 @@ export interface WorkLogRow {
   due_at: string | null;
   status: Status;
   pipeline: string;
+  work_type: string;
   external_issue_type: string | null;
   request_type: string | null;
   jira_issue_key: string | null;
   jira_issue_url: string | null;
   jira_state: "none" | "pending" | "ok" | "failed";
+  jira_error: string | null;
   jira_missing: boolean;
   parent_issue_key: string | null;
   parent_issue_url: string | null;
