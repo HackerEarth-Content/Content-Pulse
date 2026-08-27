@@ -64,7 +64,13 @@ def _mix(hex_a: str, hex_b: str, t: float) -> str:
     return "".join(f"{round(x + (y - x) * t):02X}" for x, y in zip(a, b))
 
 
-def _header(ws, headers: list[str], widths: list[int], freeze: str = "A2", accent: str | None = None) -> None:
+def _header(
+    ws,
+    headers: list[str],
+    widths: list[int],
+    freeze: str = "A2",
+    accent: str | None = None,
+) -> None:
     font = Font(name="Calibri", bold=True, color=accent or "4FFFB0", size=10)
     border = Border(bottom=Side(style="thin", color=accent or "1A2535"))
     for col, (label, width) in enumerate(zip(headers, widths), 1):
@@ -76,8 +82,12 @@ def _header(ws, headers: list[str], widths: list[int], freeze: str = "A2", accen
     ws.freeze_panes = freeze
 
 
-def _body(ws, rows: list[list], wrap_col: int | None = None, accent: str | None = None) -> None:
-    stripe = PatternFill("solid", fgColor=_mix(accent, "0C1117", 0.8)) if accent else STRIPE
+def _body(
+    ws, rows: list[list], wrap_col: int | None = None, accent: str | None = None
+) -> None:
+    stripe = (
+        PatternFill("solid", fgColor=_mix(accent, "0C1117", 0.8)) if accent else STRIPE
+    )
     for r, values in enumerate(rows, 2):
         for c, value in enumerate(values, 1):
             cell = ws.cell(row=r, column=c, value=safe(value))
@@ -100,7 +110,9 @@ def _totals(ws, rows: list[list], numeric_cols: set[int], label: str = "Total") 
         if c == 1:
             value = label
         elif c in numeric_cols:
-            value = sum(row[c - 1] for row in rows if isinstance(row[c - 1], (int, float)))
+            value = sum(
+                row[c - 1] for row in rows if isinstance(row[c - 1], (int, float))
+            )
         else:
             value = ""
         cell = ws.cell(row=row_no, column=c, value=value)
@@ -400,7 +412,13 @@ def _sheet_builder(wb: Workbook):
     whichever columns are honest to add up."""
     palette = iter(ACCENTS * 3)
 
-    async def sheet(title: str, headers: list[str], rows: list[list], widths=None, totals: set[int] | None = None):
+    async def sheet(
+        title: str,
+        headers: list[str],
+        rows: list[list],
+        widths=None,
+        totals: set[int] | None = None,
+    ):
         accent = next(palette)
         ws = wb.create_sheet(title[:31])
         ws.sheet_properties.tabColor = accent
@@ -425,13 +443,26 @@ async def team_overview_xlsx(db: AsyncSession, scope) -> bytes:
     wb.remove(wb.active)
     sheet = _sheet_builder(wb)
 
-    await sheet("Summary", ["Metric", "Value"], _metric_rows(await an.summary(db, scope)), [28, 16])
+    await sheet(
+        "Summary",
+        ["Metric", "Value"],
+        _metric_rows(await an.summary(db, scope)),
+        [28, 16],
+    )
 
     await sheet(
         "Trend",
         ["Date", "Tasks", "Items", "Effort (hrs)", "Closed", "Plans", "Updates"],
         [
-            [r["date"], r["tasks"], r["volume"], _hours(r["effort_minutes"]), r["closed"], r["plans"], r["updates"]]
+            [
+                r["date"],
+                r["tasks"],
+                r["volume"],
+                _hours(r["effort_minutes"]),
+                r["closed"],
+                r["plans"],
+                r["updates"],
+            ]
             for r in await an.trend(db, scope)
         ],
         [14, 10, 10, 14, 10, 10, 10],
@@ -443,7 +474,14 @@ async def team_overview_xlsx(db: AsyncSession, scope) -> bytes:
         "By member",
         ["Member", "Tasks", "Items", "Effort (hrs)", *status_headers, "Completion"],
         [
-            [r["member"], r["tasks"], r["volume"], _hours(r["effort_minutes"]), *[r[x] for x in STATUSES], _pct(r["completion_rate"])]
+            [
+                r["member"],
+                r["tasks"],
+                r["volume"],
+                _hours(r["effort_minutes"]),
+                *[r[x] for x in STATUSES],
+                _pct(r["completion_rate"]),
+            ]
             for r in await an.by_member(db, scope)
         ],
         totals={2, 3, 4, 5, 6, 7, 8},
@@ -451,9 +489,25 @@ async def team_overview_xlsx(db: AsyncSession, scope) -> bytes:
 
     await sheet(
         "By area",
-        ["Area", "Tasks", "Items", "Effort (hrs)", "Members", "Customers", *status_headers],
         [
-            [r["label"], r["tasks"], r["volume"], _hours(r["effort_minutes"]), r["members"], r["customers"], *[r[x] for x in STATUSES]]
+            "Area",
+            "Tasks",
+            "Items",
+            "Effort (hrs)",
+            "Members",
+            "Customers",
+            *status_headers,
+        ],
+        [
+            [
+                r["label"],
+                r["tasks"],
+                r["volume"],
+                _hours(r["effort_minutes"]),
+                r["members"],
+                r["customers"],
+                *[r[x] for x in STATUSES],
+            ]
             for r in await an.by_area(db, scope)
         ],
         [26, 10, 10, 14, 10, 12, 10, 12, 10, 10],
@@ -464,7 +518,13 @@ async def team_overview_xlsx(db: AsyncSession, scope) -> bytes:
         "By task type",
         ["Task type", "Tasks", "Items", "Effort (hrs)", *status_headers],
         [
-            [r["task_type"], r["tasks"], r["volume"], _hours(r["effort_minutes"]), *[r[x] for x in STATUSES]]
+            [
+                r["task_type"],
+                r["tasks"],
+                r["volume"],
+                _hours(r["effort_minutes"]),
+                *[r[x] for x in STATUSES],
+            ]
             for r in await an.by_task_type(db, scope)
         ],
         [32, 10, 10, 14, 10, 12, 10, 10],
@@ -474,7 +534,12 @@ async def team_overview_xlsx(db: AsyncSession, scope) -> bytes:
     due = await an.due_risk(db, scope, today())
     await sheet("Due risk", ["Bucket", "Count"], _metric_rows(due), [24, 12])
 
-    await sheet("Cycle time", ["Metric", "Value"], _metric_rows(await an.cycle_time(db, scope)), [24, 14])
+    await sheet(
+        "Cycle time",
+        ["Metric", "Value"],
+        _metric_rows(await an.cycle_time(db, scope)),
+        [24, 14],
+    )
 
     return _save(wb)
 
@@ -507,7 +572,13 @@ async def member_overview_xlsx(db: AsyncSession, member, scope) -> bytes:
         "By stream",
         ["Stream", "Tasks", "Items", "Effort (hrs)", *status_headers],
         [
-            [r["label"], r["tasks"], r["volume"], _hours(r["effort_minutes"]), *[r[x] for x in STATUSES]]
+            [
+                r["label"],
+                r["tasks"],
+                r["volume"],
+                _hours(r["effort_minutes"]),
+                *[r[x] for x in STATUSES],
+            ]
             for r in await an.by_pipeline(db, scope)
         ],
         [28, 10, 10, 14, 10, 12, 10, 10],
@@ -518,7 +589,13 @@ async def member_overview_xlsx(db: AsyncSession, member, scope) -> bytes:
         "Work areas",
         ["Task type", "Tasks", "Items", "Effort (hrs)", *status_headers],
         [
-            [r["task_type"], r["tasks"], r["volume"], _hours(r["effort_minutes"]), *[r[x] for x in STATUSES]]
+            [
+                r["task_type"],
+                r["tasks"],
+                r["volume"],
+                _hours(r["effort_minutes"]),
+                *[r[x] for x in STATUSES],
+            ]
             for r in await an.by_task_type(db, scope)
         ],
         [32, 10, 10, 14, 10, 12, 10, 10],
@@ -529,7 +606,13 @@ async def member_overview_xlsx(db: AsyncSession, member, scope) -> bytes:
         "Customers",
         ["Customer", "Tasks", "Items", "Effort (hrs)", "Outstanding"],
         [
-            [r["customer"], r["tasks"], r["volume"], _hours(r["effort_minutes"]), r["outstanding"]]
+            [
+                r["customer"],
+                r["tasks"],
+                r["volume"],
+                _hours(r["effort_minutes"]),
+                r["outstanding"],
+            ]
             for r in await an.by_customer(db, scope, limit=100)
         ],
         [32, 10, 10, 14, 14],
@@ -539,7 +622,10 @@ async def member_overview_xlsx(db: AsyncSession, member, scope) -> bytes:
     await sheet(
         "Question types",
         ["Question type", "Tasks", "Items"],
-        [[r["question_type"], r["tasks"], r["volume"]] for r in await an.by_question_type(db, scope)],
+        [
+            [r["question_type"], r["tasks"], r["volume"]]
+            for r in await an.by_question_type(db, scope)
+        ],
         [32, 10, 10],
         totals={2, 3},
     )
@@ -548,7 +634,14 @@ async def member_overview_xlsx(db: AsyncSession, member, scope) -> bytes:
         "Plan adherence",
         ["Planned", "Reported", "Closed", "No update", "Report rate", "Close rate"],
         [
-            [r["planned"], r["reported"], r["closed"], r["no_update"], _pct(r["report_rate"]), _pct(r["close_rate"])]
+            [
+                r["planned"],
+                r["reported"],
+                r["closed"],
+                r["no_update"],
+                _pct(r["report_rate"]),
+                _pct(r["close_rate"]),
+            ]
             for r in await an.plan_adherence(db, scope)
         ],
         [12, 12, 12, 12, 14, 12],
@@ -558,13 +651,26 @@ async def member_overview_xlsx(db: AsyncSession, member, scope) -> bytes:
         "Output over time",
         ["Date", "Tasks", "Items", "Effort (hrs)", "Closed", "Plans", "Updates"],
         [
-            [r["date"], r["tasks"], r["volume"], _hours(r["effort_minutes"]), r["closed"], r["plans"], r["updates"]]
+            [
+                r["date"],
+                r["tasks"],
+                r["volume"],
+                _hours(r["effort_minutes"]),
+                r["closed"],
+                r["plans"],
+                r["updates"],
+            ]
             for r in await an.trend(db, scope)
         ],
         [14, 10, 10, 14, 10, 10, 10],
         totals={2, 3, 4, 5, 6, 7},
     )
 
-    await sheet("Cycle time", ["Metric", "Value"], _metric_rows(await an.cycle_time(db, scope)), [24, 14])
+    await sheet(
+        "Cycle time",
+        ["Metric", "Value"],
+        _metric_rows(await an.cycle_time(db, scope)),
+        [24, 14],
+    )
 
     return _save(wb)

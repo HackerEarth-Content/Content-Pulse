@@ -8,13 +8,22 @@ from core.orm import QuickLink
 from core.users import current_user
 from schemas.quick_links import QuickLinkIn, QuickLinkOut, QuickLinkPatch
 
-router = APIRouter(prefix="/api/quick-links", tags=["quick-links"],
-                    dependencies=[Depends(current_user)])
+router = APIRouter(
+    prefix="/api/quick-links",
+    tags=["quick-links"],
+    dependencies=[Depends(current_user)],
+)
 
 
 def _member_required(viewer: Viewer) -> int:
     if viewer.member is None:
-        raise HTTPException(403, {"code": "no_member", "detail": "Your account isn't linked to a team member."})
+        raise HTTPException(
+            403,
+            {
+                "code": "no_member",
+                "detail": "Your account isn't linked to a team member.",
+            },
+        )
     return viewer.member.id
 
 
@@ -26,7 +35,9 @@ async def list_quick_links(
 ):
     # Leads may look up anyone; everyone else only ever sees their own —
     # `viewer.scope` already pins a non-lead's request to themselves.
-    target = viewer.scope(member_id) if member_id is not None else _member_required(viewer)
+    target = (
+        viewer.scope(member_id) if member_id is not None else _member_required(viewer)
+    )
     rows = await db.scalars(
         select(QuickLink)
         .where(QuickLink.member_id == target)
