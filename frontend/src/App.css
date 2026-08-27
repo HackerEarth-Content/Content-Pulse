@@ -1197,6 +1197,45 @@ textarea.field {
   color: var(--ink);
 }
 
+/* ── skill distribution heatmap (one mini bar per rating level, per row) ──── */
+
+.heatmap-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 24px;
+  width: 100%;
+}
+.heatmap-bar {
+  flex: 1;
+  min-width: 3px;
+  border-radius: 2px 2px 0 0;
+  opacity: 0.85;
+  transition: opacity 0.15s ease;
+}
+tr:hover .heatmap-bar {
+  opacity: 1;
+}
+.heatmap-score {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Bigger bars for the Skills-tab level distribution specifically. */
+.skill-distribution .bar-row {
+  gap: 14px;
+}
+.skill-distribution .bar-track {
+  height: 14px;
+}
+.skill-distribution .bar-label {
+  font-size: 13.5px;
+}
+.skill-distribution .bar-value {
+  font-size: 13.5px;
+}
+
 /* ── loading, empty, error ───────────────────────────────────────────────── */
 
 .skeleton {

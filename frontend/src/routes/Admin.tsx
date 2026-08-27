@@ -343,7 +343,7 @@ const SKILL_CATEGORY_LABEL = Object.fromEntries(SKILL_CATEGORIES.map((c) => [c.k
 function SkillEditor() {
   const list = useApi(() => api.skills(), []);
   const [error, setError] = useState<ApiError | null>(null);
-  const [adding, setAdding] = useState({ name: "", category: "tech", sub_domain: "" });
+  const [adding, setAdding] = useState({ name: "", category: "tech" });
   const [busy, setBusy] = useState(false);
 
   async function add() {
@@ -358,9 +358,9 @@ function SkillEditor() {
       await api.createSkill({
         name: adding.name.trim(),
         category: adding.category,
-        sub_domain: adding.sub_domain.trim() || null,
+        sub_domain: null,
       });
-      setAdding({ name: "", category: "tech", sub_domain: "" });
+      setAdding({ name: "", category: "tech" });
       list.reload();
     } catch (e) {
       setError(e as ApiError);
@@ -394,13 +394,6 @@ function SkillEditor() {
             <option key={c.key} value={c.key}>{c.label}</option>
           ))}
         </select>
-        <input
-          className="field"
-          placeholder="Sub-domain (optional)"
-          value={adding.sub_domain}
-          onChange={(e) => setAdding((a) => ({ ...a, sub_domain: e.target.value }))}
-          onKeyDown={(e) => e.key === "Enter" && adding.name.trim() && add()}
-        />
         <button className="btn btn-primary" disabled={busy || !adding.name.trim()} onClick={add}>
           {busy ? "Adding…" : "Add skill"}
         </button>
