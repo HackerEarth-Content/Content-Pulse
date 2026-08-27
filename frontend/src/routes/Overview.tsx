@@ -38,7 +38,14 @@ export function Overview({ range }: { range: Range }) {
 
   return (
     <>
-      <SectionHeading title="This period" />
+      <SectionHeading
+        title="This period"
+        action={
+          <button className="section-action" onClick={() => api.exportOverview(p)}>
+            Download workbook
+          </button>
+        }
+      />
       <Async loading={summary.loading} error={summary.error} data={summary.data}>
         {(s) => (
           <>

@@ -63,7 +63,19 @@ export function MemberDetail({ range, me }: { range: Range; me: CurrentUser["mem
 
   return (
     <>
-      <SectionHeading title={member?.display_name ?? `Member ${memberId}`} />
+      <SectionHeading
+        title={member?.display_name ?? `Member ${memberId}`}
+        action={
+          member ? (
+            <button
+              className="section-action"
+              onClick={() => api.exportMemberOverview(memberId, member.display_name, p)}
+            >
+              Download workbook
+            </button>
+          ) : null
+        }
+      />
 
       <Async loading={profile.loading} error={profile.error} data={profile.data}>
         {(pr) => (

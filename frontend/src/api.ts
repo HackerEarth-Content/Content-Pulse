@@ -223,6 +223,14 @@ export const api = {
   exportAnalytics: (p: Params) =>
     download("/exports/analytics.xlsx", p, `analytics-${p.from}_${p.to}.xlsx`),  exportContentRequests: (p: Params) =>
     download("/exports/content-requests.xlsx", p, "content-requests.xlsx"),
+  exportOverview: (p: Params) =>
+    download("/exports/overview.xlsx", p, `team-overview-${p.from}_${p.to}.xlsx`),
+  exportMemberOverview: (memberId: number, memberName: string, p: Params) =>
+    download(
+      "/exports/member.xlsx",
+      { ...p, member_id: memberId },
+      `${memberName}-${p.from}_${p.to}.xlsx`
+    ),
 
   weeklyPlan: (week: string, memberId?: number) =>
     get<WeeklyPlanItem[]>("/weekly-plan", { week, member_id: memberId }),
