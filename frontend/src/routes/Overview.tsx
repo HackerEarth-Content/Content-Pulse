@@ -23,6 +23,11 @@ import { rangeQuery, type Range } from "../hooks/usePeriod";
 
 const AXIS = CHART_AXIS;
 
+// Content Tasks, Creation and Review, and TCE Subtask are internal work
+// buckets, not the requester-facing work types this breakdown is for.
+const EXCLUDED_PIPELINES = ["content_task", "creation_and_review", "tce_subtask"];
+const STAGE_COLORS = { open: "var(--accent-blue)", in_progress: "var(--accent-yellow)", blocked: "var(--accent-red)" } as const;
+
 export function Overview({ range }: { range: Range }) {
   const p = { from: range.from, to: range.to };
   const summary = useApi(() => api.summary(p), [range.from, range.to]);
@@ -31,6 +36,7 @@ export function Overview({ range }: { range: Range }) {
   const due = useApi(() => api.dueRisk(p), [range.from, range.to]);
   const cycle = useApi(() => api.cycleTime(p), [range.from, range.to]);
   const areas = useApi(() => api.byArea(p), [range.from, range.to]);
+  const pipelines = useApi(() => api.byPipeline(p), [range.from, range.to]);
 
   // A quarter is ~92 daily points — roll up so the axis stays readable.
   const bucket = bucketFor(range.from, range.to);
@@ -237,6 +243,63 @@ export function Overview({ range }: { range: Range }) {
           </Async>
         </Card>
       </div>
+
+      <SectionHeading title="Active work by type" color="var(--accent-orange)" />
+      <Card sub="open, in progress, and blocked tickets — closed excluded">
+        <Async
+          loading={pipelines.loading}
+          error={pipelines.error}
+          data={pipelines.data}
+          empty={{ title: "No work types yet" }}
+        >
+          {(rows) => {
+            const visible = rows.filter((r) => !EXCLUDED_PIPELINES.includes(r.pipeline));
+            return (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ width: "30%" }}>Work type</th>
+                      <th style={{ width: "15%" }}>Open</th>
+                      <th style={{ width: "15%" }}>In progress</th>
+                      <th style={{ width: "15%" }}>Blocked</th>
+                      <th style={{ width: "25%" }}>Active breakdown</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible.map((r) => {
+                      const active = r.open + r.in_progress + r.blocked;
+                      const peak = Math.max(1, r.open, r.in_progress, r.blocked);
+                      return (
+                        <tr key={r.pipeline}>
+                          <td className="strong">{r.label}</td>
+                          <td>{num(r.open)}</td>
+                          <td>{num(r.in_progress)}</td>
+                          <td>{num(r.blocked)}</td>
+                          <td>
+                            {active ? (
+                              <div className="heatmap-row">
+                                <div className="heatmap-bar" title={`Open: ${r.open}`}
+                                     style={{ height: `${(r.open / peak) * 100}%`, background: STAGE_COLORS.open }} />
+                                <div className="heatmap-bar" title={`In progress: ${r.in_progress}`}
+                                     style={{ height: `${(r.in_progress / peak) * 100}%`, background: STAGE_COLORS.in_progress }} />
+                                <div className="heatmap-bar" title={`Blocked: ${r.blocked}`}
+                                     style={{ height: `${(r.blocked / peak) * 100}%`, background: STAGE_COLORS.blocked }} />
+                              </div>
+                            ) : (
+                              <span className="hint">Nothing active</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          }}
+        </Async>
+      </Card>
 
       <SectionHeading title="Open work" color="var(--accent-orange)" />
       <Async loading={summary.loading} error={summary.error} data={summary.data}>
