@@ -562,7 +562,7 @@ async def test_created_issue_carries_every_field(
     assert sent["customfield_10526"] == 90, "effort minutes"
     assert sent["customfield_10521"] == DAY, "due at"
     assert sent["assignee"] == {"id": "acct-123"}, "must not land unassigned"
-    assert sent["customfield_10235"] == [{"id": "10248"}], "question type by option id"
+    assert sent["customfield_10235"] == [{"id": "10247"}], "question type by option id"
     assert sent["issuetype"]["name"] == "Content Tasks"
 
 
