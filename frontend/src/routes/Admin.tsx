@@ -333,7 +333,12 @@ function MemberEditor() {
   );
 }
 
-const SKILL_CATEGORIES = ["tech", "ai", "nontech"];
+const SKILL_CATEGORIES: { key: string; label: string }[] = [
+  { key: "tech", label: "Tech" },
+  { key: "ai", label: "AI" },
+  { key: "nontech", label: "Non-tech" },
+];
+const SKILL_CATEGORY_LABEL = Object.fromEntries(SKILL_CATEGORIES.map((c) => [c.key, c.label]));
 
 function SkillEditor() {
   const list = useApi(() => api.skills(), []);
@@ -343,6 +348,11 @@ function SkillEditor() {
 
   async function add() {
     setError(null);
+    const name = adding.name.trim();
+    if (list.data?.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
+      setError({ message: `"${name}" already exists.` } as ApiError);
+      return;
+    }
     setBusy(true);
     try {
       await api.createSkill({
@@ -381,7 +391,7 @@ function SkillEditor() {
           aria-label="Category"
         >
           {SKILL_CATEGORIES.map((c) => (
-            <option key={c} value={c}>{c}</option>
+            <option key={c.key} value={c.key}>{c.label}</option>
           ))}
         </select>
         <input
@@ -403,7 +413,7 @@ function SkillEditor() {
             {rows.map((row) => (
               <div className="admin-row" key={row.id}>
                 <span>{row.name}</span>
-                <span className="muted">{row.category}{row.sub_domain ? ` · ${row.sub_domain}` : ""}</span>
+                <span className="muted">{SKILL_CATEGORY_LABEL[row.category] ?? row.category}{row.sub_domain ? ` · ${row.sub_domain}` : ""}</span>
                 <button className="section-action" onClick={() => retire(row)}
                         title="Take this off the list — existing ratings on it are kept">
                   Retire
