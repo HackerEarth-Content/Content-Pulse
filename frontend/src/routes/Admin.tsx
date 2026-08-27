@@ -474,9 +474,10 @@ function SkillWindow() {
               {WEEKDAYS.map((label, day) => (
                 <button
                   key={day}
-                  className={`pill pill-button ${w.open_weekdays.includes(day) ? "" : "pill-muted"}`}
+                  className={`pill pill-button ${w.open_weekdays.includes(day) ? "pill-active" : "pill-inactive"}`}
                   disabled={busy}
                   onClick={() => toggleDay(day)}
+                  title={w.open_weekdays.includes(day) ? "Open — click to close" : "Closed — click to open"}
                 >
                   {label}
                 </button>
@@ -493,7 +494,7 @@ function SkillWindow() {
                   {members.map((m) => (
                     <button
                       key={m.id}
-                      className={`pill pill-button ${w.excluded_member_ids.includes(m.id) ? "pill-muted" : ""}`}
+                      className={`pill pill-button ${w.excluded_member_ids.includes(m.id) ? "pill-inactive" : "pill-active"}`}
                       disabled={busy}
                       onClick={() => toggleExcluded(m.id)}
                       title={w.excluded_member_ids.includes(m.id) ? "Excluded — click to include" : "Included — click to exclude"}

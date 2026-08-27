@@ -718,6 +718,25 @@ td.strong {
 .pill-muted::before {
   display: none;
 }
+/* On/off toggle pills (Skill Graph entry window: open days, included
+   members) — active reads as a plain light border, inactive reads as red so
+   it's unmistakable at a glance which days/people are switched off. */
+.pill-active {
+  color: var(--ink);
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+.pill-active::before {
+  display: none;
+}
+.pill-inactive {
+  color: var(--status-critical-ink);
+  background: color-mix(in srgb, var(--status-critical) 10%, transparent);
+  border-color: color-mix(in srgb, var(--status-critical) 45%, transparent);
+}
+.pill-inactive::before {
+  display: none;
+}
 
 .tag {
   display: inline-block;

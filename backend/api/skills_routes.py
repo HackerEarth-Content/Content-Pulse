@@ -38,13 +38,6 @@ async def create_skill(body: SkillIn, db: AsyncSession = Depends(get_session)):
     )
 
 
-@router.patch("/{skill_id}", response_model=SkillOut, dependencies=[admin_only])
-async def patch_skill(
-    skill_id: int, body: SkillPatch, db: AsyncSession = Depends(get_session)
-):
-    return await svc.patch_skill(db, skill_id, body.model_dump(exclude_unset=True))
-
-
 @router.get("/window", response_model=WindowOut)
 async def get_window(db: AsyncSession = Depends(get_session)):
     return await svc.window_state(db)
@@ -87,3 +80,13 @@ async def save_my_ratings(
 async def skill_graph(db: AsyncSession = Depends(get_session)):
     skills, members = await svc.team_matrix(db)
     return {"skills": skills, "members": members}
+
+
+# Must stay last: "/{skill_id}" would otherwise swallow the literal paths
+# above (e.g. PATCH /skills/window matching skill_id="window" and 422ing on
+# the int parse) since FastAPI matches routes in registration order.
+@router.patch("/{skill_id}", response_model=SkillOut, dependencies=[admin_only])
+async def patch_skill(
+    skill_id: int, body: SkillPatch, db: AsyncSession = Depends(get_session)
+):
+    return await svc.patch_skill(db, skill_id, body.model_dump(exclude_unset=True))
