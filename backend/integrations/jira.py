@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -166,14 +166,27 @@ def _adf(text: str) -> dict:
 
 
 async def option_ids(
-    db, c: httpx.AsyncClient, cfg: dict, issue_type: str
+    db, c: httpx.AsyncClient, cfg: dict, issue_type: str, force_refresh: bool = False
 ) -> dict[str, dict]:
     """Jira wants option *ids*, not the labels we store. Fetch the map once from
     createmeta and cache it — 45 Task Types and 11 Question types that change
-    about never. Refreshed by deleting the `jira_options` settings row."""
+    about never. Refreshed by deleting the `jira_options` settings row, or by
+    passing `force_refresh` when a caller's own lookup just missed and a new
+    Jira-side option is the likely reason."""
     key = f"jira_options:{issue_type}"
-    if (row := await db.get(IntegrationSetting, key)) is not None:
-        return row.value
+    row = await db.get(IntegrationSetting, key)
+    if row is not None:
+        # Even "changes about never" picklists get edited eventually — an
+        # option renamed or re-ordered in Jira leaves the id we cached
+        # pointing at a different label forever, with nothing to notice the
+        # drift, since a stale id still "matches" (see `create_issue`, which
+        # only refreshes when a name finds *no* id at all). A week-old cache
+        # is refreshed unconditionally so that drift can't stand indefinitely.
+        stale = datetime.now(UTC).replace(tzinfo=None) - row.updated_at > timedelta(days=7)
+        if not force_refresh and not stale:
+            return row.value
+        await db.delete(row)
+        await db.flush()
 
     r = await c.get("/rest/api/3/issue/createmeta/TCE/issuetypes")
     # Jira's own issue type names carry stray whitespace ("HC Request " with a
@@ -329,8 +342,26 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
             for q in item.question_types
             if (qt := _find_option(options["question_type"], q.name))
         ]
+        if len(matched_qts) != len(item.question_types):
+            # The cached picklist (see `option_ids`) can go stale — a name
+            # added since caching finds no id at all, and a name whose id was
+            # reassigned to a different option "matches" but is simply wrong.
+            # Either way, refetch once before accepting a partial/no match.
+            options = await option_ids(db, c, cfg, issue_type, force_refresh=True)
+            matched_qts = [
+                qt
+                for q in item.question_types
+                if (qt := _find_option(options["question_type"], q.name))
+            ]
         if matched_qts:
             fields[f["question_type"]] = [{"id": qt} for qt in matched_qts]
+        elif item.question_types:
+            log.warning(
+                "no Jira question-type option matches %r for issue type %r even after "
+                "a cache refresh — field left unset",
+                [q.name for q in item.question_types],
+                issue_type,
+            )
 
         r = await _send(c, "POST", "/rest/api/3/issue", json={"fields": fields})
         if r.status_code >= 400:
@@ -609,9 +640,12 @@ async def push_status(item_id: int, status: str, note: str | None = None) -> Non
 
 
 async def push_fields(item_id: int) -> None:
-    """Re-syncs summary and task type onto an existing issue after an edit.
-    Without this, editing notes or task type only ever updated our own
-    dashboard — the Jira issue silently drifted out of date."""
+    """Re-syncs summary, task type and question type onto an existing issue
+    after an edit. Without this, editing notes or task type only ever updated
+    our own dashboard — the Jira issue silently drifted out of date. It's
+    also the only way to correct a ticket whose question type field was set
+    from a since-stale option id (see `option_ids`) — there's no field-only
+    resync, so re-saving the whole item is what re-fetches fresh options."""
     async with Session() as db:
         item = await db.get(EntryItem, item_id)
         if item is None or not item.jira_issue_key:
@@ -627,6 +661,21 @@ async def push_fields(item_id: int) -> None:
                 options = await option_ids(db, c, cfg, issue_type)
                 if tt := _find_option(options["task_type"], item.task_type.name):
                     fields[f["task_type"]] = {"id": tt}
+                if item.question_types:
+                    matched_qts = [
+                        qt
+                        for q in item.question_types
+                        if (qt := _find_option(options["question_type"], q.name))
+                    ]
+                    if len(matched_qts) != len(item.question_types):
+                        options = await option_ids(db, c, cfg, issue_type, force_refresh=True)
+                        matched_qts = [
+                            qt
+                            for q in item.question_types
+                            if (qt := _find_option(options["question_type"], q.name))
+                        ]
+                    if matched_qts:
+                        fields[f["question_type"]] = [{"id": qt} for qt in matched_qts]
                 r = await _send(
                     c,
                     "PUT",
