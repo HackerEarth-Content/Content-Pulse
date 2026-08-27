@@ -1638,7 +1638,7 @@ td.heat {
 .today-team {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 22px;
   flex-wrap: wrap;
   margin-left: auto;
   color: var(--ink-3);
