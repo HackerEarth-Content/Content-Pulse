@@ -477,12 +477,47 @@ async def today_status(
     no_plan = sorted(n for n in active if n not in planned)
 
     mine = next((n for n, mid in active.items() if mid == viewer_member_id), None)
+    plan_entry_id = planned[mine][1] if mine in planned else None
+
+    planned_count = 0
+    if plan_entry_id is not None:
+        planned_count = await db.scalar(
+            select(func.count(EntryItem.id)).where(EntryItem.entry_id == plan_entry_id)
+        )
+
+    updated_count = 0
+    if viewer_member_id is not None:
+        start, end = day_bounds_utc(on)
+        updated_count = await db.scalar(
+            select(func.count(func.distinct(EntryItem.id)))
+            .select_from(EntryItem)
+            .join(DailyEntry, DailyEntry.id == EntryItem.entry_id)
+            .outerjoin(
+                EntryItemStatusEvent,
+                EntryItemStatusEvent.entry_item_id == EntryItem.id,
+            )
+            .where(
+                DailyEntry.member_id == viewer_member_id,
+                or_(
+                    # Reported through the full end-of-day update form.
+                    (DailyEntry.entry_date == on) & (DailyEntry.kind == "update"),
+                    # Or moved straight from My Day (`patch_item`), no form opened.
+                    (EntryItemStatusEvent.source == "web")
+                    & EntryItemStatusEvent.from_status.is_not(None)
+                    & (EntryItemStatusEvent.changed_at >= start)
+                    & (EntryItemStatusEvent.changed_at < end),
+                ),
+            )
+        )
+
     you = {
         "member_id": viewer_member_id,
         "member": mine,
         "planned": mine is not None and mine in planned,
         "updated": mine is not None and mine in updated,
-        "plan_entry_id": planned[mine][1] if mine in planned else None,
+        "plan_entry_id": plan_entry_id,
+        "planned_count": planned_count or 0,
+        "updated_count": updated_count or 0,
     }
     return {
         "date": on.isoformat(),

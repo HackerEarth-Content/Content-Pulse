@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.orm import SKILL_CATEGORIES
 
-Category = Field(pattern="^(" + "|".join(SKILL_CATEGORIES) + ")$")
+CATEGORY_PATTERN = "^(" + "|".join(SKILL_CATEGORIES) + ")$"
 
 
 class ORMModel(BaseModel):
@@ -18,6 +18,21 @@ class SkillOut(ORMModel):
     name: str
     category: str
     sub_domain: str | None
+
+
+class SkillIn(BaseModel):
+    name: str = Field(min_length=1)
+    category: str = Field(pattern=CATEGORY_PATTERN)
+    sub_domain: str | None = None
+    sort_order: int = 0
+
+
+class SkillPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    category: str | None = Field(default=None, pattern=CATEGORY_PATTERN)
+    sub_domain: str | None = None
+    sort_order: int | None = None
+    is_active: bool | None = None
 
 
 class RatingIn(BaseModel):

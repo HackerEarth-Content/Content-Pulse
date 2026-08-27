@@ -69,6 +69,8 @@ export interface TodayStatus {
     planned: boolean;
     updated: boolean;
     plan_entry_id: number | null;
+    planned_count: number;
+    updated_count: number;
   };
   planned: number;
   updated: number;

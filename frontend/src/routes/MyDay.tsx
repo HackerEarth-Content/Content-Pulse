@@ -535,7 +535,12 @@ function TicketRow({ item, onMove }: { item: Item; onMove: () => void }) {
         ) : item.jira_state === "pending" ? (
           <span className="pill pill-muted">syncing…</span>
         ) : item.jira_state === "failed" ? (
-          <span className="pill pill-blocked" title={item.jira_error ?? "Jira ticket creation failed"}>failed</span>
+          <>
+            <span className="pill pill-blocked">failed</span>
+            <div className="hint" style={{ color: "var(--status-critical)" }}>
+              {item.jira_error ?? "Jira ticket creation failed"}
+            </div>
+          </>
         ) : null}
         {item.parent_issue_key ? (
           <a className="tag" href={item.parent_issue_url ?? "#"} target="_blank" rel="noreferrer"

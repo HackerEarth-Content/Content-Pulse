@@ -258,15 +258,47 @@ async def resolve_people(db, names: set[str], create_missing: bool) -> dict[str,
 
 
 async def _lookup(db, model, name: str | None, cache: dict) -> int | None:
+    """Exact match first, then case/whitespace-insensitive, before creating a
+    new row — Jira's picklist label and our stored name have drifted before
+    (`Other` vs `Others`), and matching only the exact string turned every
+    such drift into a silent duplicate that got tagged onto the ticket
+    instead of the name everyone actually uses (see integrations.jira._find_option,
+    which already does this on the outbound side)."""
     if not (name := (name or "").strip()) or name.upper() == "NA":
         return None
     if name not in cache:
-        row = model(name=name, sort_order=900)
-        db.add(row)
-        await db.flush()
-        cache[name] = row.id
-        print(f"  + {model.__tablename__}: {name!r}")
+        folded = name.casefold()
+        matched = next((n for n in cache if n.strip().casefold() == folded), None)
+        if matched is not None:
+            cache[name] = cache[matched]
+        else:
+            row = model(name=name, sort_order=900)
+            db.add(row)
+            await db.flush()
+            cache[name] = row.id
+            print(f"  + {model.__tablename__}: {name!r}")
     return cache[name]
+
+
+async def _sync_question_types(db, item: EntryItem, f: dict, cache: dict) -> None:
+    """Replace the item's question types with whatever Jira currently has —
+    covers both first import and `--refresh`, so an edit made in Jira after
+    the initial sync isn't stuck forever."""
+    ids = [
+        qid
+        for name in _vals(f.get("customfield_10235"))
+        if (qid := await _lookup(db, QuestionType, name, cache)) is not None
+    ]
+    await db.execute(
+        entry_item_question_types.delete().where(
+            entry_item_question_types.c.entry_item_id == item.id
+        )
+    )
+    if ids:
+        await db.execute(
+            entry_item_question_types.insert(),
+            [{"entry_item_id": item.id, "question_type_id": qid} for qid in ids],
+        )
 
 
 def _apply(item, f: dict, status: str, jira_status: str, names: dict) -> None:
@@ -403,6 +435,7 @@ async def run(
                     )
                     if item is not None:
                         _apply(item, f, status, jira_status, status_names)
+                        await _sync_question_types(db, item, f, question_cache)
                         # Reassignment in Jira used to leave the item filed
                         # under the original assignee forever: refresh updated
                         # effort and status but never which member's entry the
@@ -449,18 +482,7 @@ async def run(
             _apply(item, f, status, jira_status, status_names)
             db.add(item)
             await db.flush()
-            question_type_ids = [
-                await _lookup(db, QuestionType, name, question_cache)
-                for name in _vals(f.get("customfield_10235"))
-            ]
-            if question_type_ids:
-                await db.execute(
-                    entry_item_question_types.insert(),
-                    [
-                        {"entry_item_id": item.id, "question_type_id": qid}
-                        for qid in question_type_ids
-                    ],
-                )
+            await _sync_question_types(db, item, f, question_cache)
             db.add(
                 EntryItemStatusEvent(
                     entry_item_id=item.id,

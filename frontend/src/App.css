@@ -1358,6 +1358,12 @@ textarea.field {
   border-color: currentColor;
 }
 
+/* Caps a plain row list (work types, question types, skills) so a long
+   catalogue scrolls in place instead of pushing the rest of Admin down. */
+.admin-list-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+}
 .admin-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -1638,7 +1644,7 @@ td.heat {
 .today-team {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 22px;
   flex-wrap: wrap;
   margin-left: auto;
   color: var(--ink-3);

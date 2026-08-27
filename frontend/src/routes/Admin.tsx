@@ -3,7 +3,7 @@ import { ApiError, api } from "../api";
 import { Async, Banner, Card, SectionHeading } from "../components/ui";
 import { relativeTime } from "../format";
 import { useApi } from "../hooks/useApi";
-import type { Lookup } from "../types";
+import type { Lookup, Skill } from "../types";
 
 type LookupKind = "task-types" | "question-types";
 
@@ -38,7 +38,7 @@ function LookupList({ kind, title, sub }: { kind: LookupKind; title: string; sub
       <Async loading={list.loading} error={list.error} data={list.data}
              empty={{ title: "None in use yet" }}>
         {(rows) => (
-          <div>
+          <div className="admin-list-scroll">
             {rows.map((row) => (
               <div className="admin-row" key={row.id}>
                 <span>{row.name}</span>
@@ -333,6 +333,100 @@ function MemberEditor() {
   );
 }
 
+const SKILL_CATEGORIES: { key: string; label: string }[] = [
+  { key: "tech", label: "Tech" },
+  { key: "ai", label: "AI" },
+  { key: "nontech", label: "Non-tech" },
+];
+const SKILL_CATEGORY_LABEL = Object.fromEntries(SKILL_CATEGORIES.map((c) => [c.key, c.label]));
+
+function SkillEditor() {
+  const list = useApi(() => api.skills(), []);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [adding, setAdding] = useState({ name: "", category: "tech", sub_domain: "" });
+  const [busy, setBusy] = useState(false);
+
+  async function add() {
+    setError(null);
+    const name = adding.name.trim();
+    if (list.data?.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
+      setError({ message: `"${name}" already exists.` } as ApiError);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.createSkill({
+        name: adding.name.trim(),
+        category: adding.category,
+        sub_domain: adding.sub_domain.trim() || null,
+      });
+      setAdding({ name: "", category: "tech", sub_domain: "" });
+      list.reload();
+    } catch (e) {
+      setError(e as ApiError);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const retire = (row: Skill) =>
+    api.patchSkill(row.id, { is_active: false }).then(() => list.reload());
+
+  return (
+    <Card title="Skills" sub="the catalogue people self-rate against on the Skill Graph">
+      {error ? <Banner tone="error">{error.message}</Banner> : null}
+
+      <div className="filter-bar">
+        <input
+          className="field"
+          placeholder="Skill name"
+          value={adding.name}
+          onChange={(e) => setAdding((a) => ({ ...a, name: e.target.value }))}
+          onKeyDown={(e) => e.key === "Enter" && adding.name.trim() && add()}
+        />
+        <select
+          className="field"
+          value={adding.category}
+          onChange={(e) => setAdding((a) => ({ ...a, category: e.target.value }))}
+          aria-label="Category"
+        >
+          {SKILL_CATEGORIES.map((c) => (
+            <option key={c.key} value={c.key}>{c.label}</option>
+          ))}
+        </select>
+        <input
+          className="field"
+          placeholder="Sub-domain (optional)"
+          value={adding.sub_domain}
+          onChange={(e) => setAdding((a) => ({ ...a, sub_domain: e.target.value }))}
+          onKeyDown={(e) => e.key === "Enter" && adding.name.trim() && add()}
+        />
+        <button className="btn btn-primary" disabled={busy || !adding.name.trim()} onClick={add}>
+          {busy ? "Adding…" : "Add skill"}
+        </button>
+      </div>
+
+      <Async loading={list.loading} error={list.error} data={list.data}
+             empty={{ title: "No skills yet" }}>
+        {(rows) => (
+          <div className="admin-list-scroll">
+            {rows.map((row) => (
+              <div className="admin-row" key={row.id}>
+                <span>{row.name}</span>
+                <span className="muted">{SKILL_CATEGORY_LABEL[row.category] ?? row.category}{row.sub_domain ? ` · ${row.sub_domain}` : ""}</span>
+                <button className="section-action" onClick={() => retire(row)}
+                        title="Take this off the list — existing ratings on it are kept">
+                  Retire
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Async>
+    </Card>
+  );
+}
+
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function SkillWindow() {
@@ -546,6 +640,9 @@ export function Admin() {
                     sub="synced from Jira · offered on the plan and update forms" />
         <LookupList kind="question-types" title="Question types"
                     sub="synced from Jira · optional tag on each ticket" />
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <SkillEditor />
       </div>
       <div style={{ marginTop: 12 }}>
         <SkillWindow />

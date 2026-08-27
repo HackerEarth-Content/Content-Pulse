@@ -6,14 +6,12 @@ import type { CurrentUser } from "../types";
 /** Today's plan/update state, on every page.
  *
  * The two "+ Plan / + Update" buttons used to sit in the header saying nothing.
- * This says whether *you* have filed yet — and, for a lead, who hasn't — with
- * the action attached to the sentence rather than floating beside it. Naming
- * the people matters: a count nobody can act on is worse than a list they can
- * chase.
+ * This says whether *you* have filed yet, and how many of your own tickets
+ * are planned/updated today — with the action attached to the sentence
+ * rather than floating beside it.
  */
 export function TodayStrip({ me }: { me: CurrentUser["member"] }) {
   const today = useApi(() => api.today(), []);
-  const isLead = me?.role === "admin" || me?.role === "manager";
   // Already on the page the CTA would send you to — the link is redundant there.
   const onMyDay = useLocation().pathname === "/my-day";
 
@@ -58,19 +56,17 @@ export function TodayStrip({ me }: { me: CurrentUser["member"] }) {
       </span>
 
       <span className="today-team">
-        {t.awaiting_update.length ? (
-          <span className="today-stat today-stat--warn" title={
-            t.awaiting_update.map((m) => m.member).join(", ")
-          }>
-            <b className="mono">{t.awaiting_update.length}</b>
-            <span> awaiting an update</span>
-          </span>
-        ) : null}
-        {isLead && t.no_plan_yet.length ? (
-          <span className="today-stat" title={t.no_plan_yet.map((m) => m.member).join(", ")}>
-            <b className="mono">{t.no_plan_yet.length}</b>
-            <span> yet to plan</span>
-          </span>
+        {me ? (
+          <>
+            <span className="today-stat" title="Your tickets today">
+              <b className="mono">{t.you.planned_count}</b>
+              <span> tickets planned</span>
+            </span>
+            <span className="today-stat" title="Your tickets updated today">
+              <b className="mono">{t.you.updated_count}</b>
+              <span> updated</span>
+            </span>
+          </>
         ) : null}
       </span>
 
