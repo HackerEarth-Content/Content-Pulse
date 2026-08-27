@@ -182,7 +182,9 @@ async def option_ids(
         # drift, since a stale id still "matches" (see `create_issue`, which
         # only refreshes when a name finds *no* id at all). A week-old cache
         # is refreshed unconditionally so that drift can't stand indefinitely.
-        stale = datetime.now(UTC).replace(tzinfo=None) - row.updated_at > timedelta(days=7)
+        stale = datetime.now(UTC).replace(tzinfo=None) - row.updated_at > timedelta(
+            days=7
+        )
         if not force_refresh and not stale:
             return row.value
         await db.delete(row)
@@ -668,7 +670,9 @@ async def push_fields(item_id: int) -> None:
                         if (qt := _find_option(options["question_type"], q.name))
                     ]
                     if len(matched_qts) != len(item.question_types):
-                        options = await option_ids(db, c, cfg, issue_type, force_refresh=True)
+                        options = await option_ids(
+                            db, c, cfg, issue_type, force_refresh=True
+                        )
                         matched_qts = [
                             qt
                             for q in item.question_types

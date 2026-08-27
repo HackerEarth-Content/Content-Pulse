@@ -81,12 +81,19 @@ async def list_skills(db: AsyncSession) -> list[Skill]:
 
 
 async def create_skill(
-    db: AsyncSession, *, name: str, category: str, sub_domain: str | None, sort_order: int
+    db: AsyncSession,
+    *,
+    name: str,
+    category: str,
+    sub_domain: str | None,
+    sort_order: int,
 ) -> Skill:
     name = name.strip()
     if await db.scalar(select(Skill).where(func.lower(Skill.name) == name.lower())):
         raise err(409, "skill_exists", f"{name!r} already exists.")
-    row = Skill(name=name, category=category, sub_domain=sub_domain, sort_order=sort_order)
+    row = Skill(
+        name=name, category=category, sub_domain=sub_domain, sort_order=sort_order
+    )
     db.add(row)
     await db.commit()
     return row

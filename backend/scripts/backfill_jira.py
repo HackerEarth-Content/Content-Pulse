@@ -468,7 +468,9 @@ async def run(
             if task_type_id is None and raw_task_type:
                 # Jira's picklist drifted from our seeded TaskType names — falling
                 # back to "Others" silently hides that drift, so print it instead.
-                print(f"  no TaskType matches Jira task type {raw_task_type!r} on {key}, using Others")
+                print(
+                    f"  no TaskType matches Jira task type {raw_task_type!r} on {key}, using Others"
+                )
             item = EntryItem(
                 entry_id=entry_id,
                 task_type_id=task_type_id or other_id,

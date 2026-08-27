@@ -577,7 +577,9 @@ async def test_created_issue_carries_every_question_type_selected(
     async with S() as db:
         qts = list(
             await db.scalars(
-                select(QuestionType).where(QuestionType.name.in_(["SQL", "Programming"]))
+                select(QuestionType).where(
+                    QuestionType.name.in_(["SQL", "Programming"])
+                )
             )
         )
         # Deterministic regardless of any cache another test may have left behind.
@@ -585,7 +587,10 @@ async def test_created_issue_carries_every_question_type_selected(
             IntegrationSetting(
                 key="jira_options:Content Tasks",
                 value={
-                    "task_type": {"Internal meeting": "10235", "Documentation": "10240"},
+                    "task_type": {
+                        "Internal meeting": "10235",
+                        "Documentation": "10240",
+                    },
                     "question_type": {"SQL": "10247", "Programming": "10250"},
                 },
             )
