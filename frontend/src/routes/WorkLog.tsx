@@ -220,7 +220,12 @@ export function WorkLog({ range, me }: { range: Range; me: CurrentUser["member"]
                           ) : r.jira_state === "pending" ? (
                             <span className="pill pill-muted">syncing…</span>
                           ) : r.jira_state === "failed" ? (
-                            <span className="pill pill-blocked" title={r.jira_error ?? undefined}>failed</span>
+                            <>
+                              <span className="pill pill-blocked">failed</span>
+                              <div className="hint" style={{ color: "var(--status-critical)" }}>
+                                {r.jira_error ?? "Jira ticket creation failed"}
+                              </div>
+                            </>
                           ) : (
                             <span className="muted">—</span>
                           )}
