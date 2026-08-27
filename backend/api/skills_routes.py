@@ -7,7 +7,9 @@ from core.users import current_user
 from schemas.skills import (
     RatingsBulkIn,
     SkillGraphOut,
+    SkillIn,
     SkillOut,
+    SkillPatch,
     WindowOut,
     WindowPatch,
 )
@@ -23,6 +25,24 @@ admin_only = Depends(require_role(*ADMINS))
 @router.get("", response_model=list[SkillOut])
 async def list_skills(db: AsyncSession = Depends(get_session)):
     return await svc.list_skills(db)
+
+
+@router.post("", response_model=SkillOut, status_code=201, dependencies=[admin_only])
+async def create_skill(body: SkillIn, db: AsyncSession = Depends(get_session)):
+    return await svc.create_skill(
+        db,
+        name=body.name,
+        category=body.category,
+        sub_domain=body.sub_domain,
+        sort_order=body.sort_order,
+    )
+
+
+@router.patch("/{skill_id}", response_model=SkillOut, dependencies=[admin_only])
+async def patch_skill(
+    skill_id: int, body: SkillPatch, db: AsyncSession = Depends(get_session)
+):
+    return await svc.patch_skill(db, skill_id, body.model_dump(exclude_unset=True))
 
 
 @router.get("/window", response_model=WindowOut)

@@ -8,7 +8,7 @@ Jira/Slack config already uses.
 from __future__ import annotations
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.dates import today
@@ -78,6 +78,30 @@ async def list_skills(db: AsyncSession) -> list[Skill]:
             .order_by(Skill.category, Skill.sort_order)
         )
     )
+
+
+async def create_skill(
+    db: AsyncSession, *, name: str, category: str, sub_domain: str | None, sort_order: int
+) -> Skill:
+    name = name.strip()
+    if await db.scalar(select(Skill).where(func.lower(Skill.name) == name.lower())):
+        raise err(409, "skill_exists", f"{name!r} already exists.")
+    row = Skill(name=name, category=category, sub_domain=sub_domain, sort_order=sort_order)
+    db.add(row)
+    await db.commit()
+    return row
+
+
+async def patch_skill(db: AsyncSession, skill_id: int, fields: dict) -> Skill:
+    row = await db.get(Skill, skill_id)
+    if row is None:
+        raise err(404, "not_found", "No such skill.")
+    if "name" in fields and fields["name"] is not None:
+        fields["name"] = fields["name"].strip()
+    for field, value in fields.items():
+        setattr(row, field, value)
+    await db.commit()
+    return row
 
 
 async def member_ratings(db: AsyncSession, member_id: int) -> dict[int, int]:

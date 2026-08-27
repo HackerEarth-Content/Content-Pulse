@@ -233,6 +233,9 @@ export const api = {
     get<WeeklyPlanCompletion>("/weekly-plan/completion", { week }),
 
   skills: () => get<Skill[]>("/skills"),
+  createSkill: (body: { name: string; category: string; sub_domain?: string | null; sort_order?: number }) =>
+    send<Skill>("POST", "/skills", body),
+  patchSkill: (id: number, body: unknown) => send<Skill>("PATCH", `/skills/${id}`, body),
   skillWindow: () => get<SkillWindow>("/skills/window"),
   setSkillWindow: (body: { open_weekdays?: number[]; excluded_member_ids?: number[] }) =>
     send<SkillWindow>("PATCH", "/skills/window", body),
