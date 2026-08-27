@@ -19,6 +19,7 @@ import type {
   OpenItem,
   Page,
   PipelineStat,
+  QuickLink,
   PlanDailyStatus,
   Status,
   Summary,
@@ -243,4 +244,11 @@ export const api = {
   saveMySkillRatings: (ratings: { skill_id: number; level: number }[]) =>
     send<SkillRatings>("PUT", "/skills/ratings/me", { ratings }),
   skillGraph: () => get<SkillGraphData>("/skills/graph"),
+
+  quickLinks: (memberId?: number) => get<QuickLink[]>("/quick-links", { member_id: memberId }),
+  createQuickLink: (body: { name: string; url: string }) =>
+    send<QuickLink>("POST", "/quick-links", body),
+  patchQuickLink: (id: number, body: { name?: string; url?: string }) =>
+    send<QuickLink>("PATCH", `/quick-links/${id}`, body),
+  deleteQuickLink: (id: number) => send<void>("DELETE", `/quick-links/${id}`),
 };

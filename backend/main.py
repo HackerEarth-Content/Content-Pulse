@@ -11,6 +11,7 @@ from api.intake_routes import router as intake_router
 from api.entries_routes import router as entries_router
 from api.export_routes import router as export_router
 from api.members_routes import router as members_router
+from api.quick_links_routes import router as quick_links_router
 from api.skills_routes import router as skills_router
 from api.weekly_plan_routes import router as weekly_plan_router
 from core.config import settings
@@ -74,3 +75,4 @@ app.include_router(intake_router)
 app.include_router(export_router)
 app.include_router(weekly_plan_router)
 app.include_router(skills_router)
+app.include_router(quick_links_router)

@@ -1797,3 +1797,102 @@ td.heat {
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-hover);
 }
+
+/* ── quick links ──────────────────────────────────────────────────────────── */
+
+.btn-icon {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-3);
+  border-radius: var(--radius-sm);
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+}
+.btn-icon:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.btn-icon:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.link-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.link-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.link-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.link-card-title .card-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-blue);
+  background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
+}
+.link-icon svg {
+  width: 17px;
+  height: 17px;
+}
+.link-card-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.link-card:hover .link-card-actions {
+  opacity: 1;
+}
+.link-card-url {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--accent-blue);
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  min-width: 0;
+}
+.link-card-url:hover {
+  text-decoration: underline;
+}
+.link-card-url-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-icon-sm {
+  flex: none;
+  display: inline-flex;
+}
+.link-icon-sm svg {
+  width: 13px;
+  height: 13px;
+}
+

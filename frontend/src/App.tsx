@@ -25,6 +25,7 @@ import { Members } from "./routes/Members";
 import { Overview } from "./routes/Overview";
 import { PlanBoard } from "./routes/PlanBoard";
 import { MyDay } from "./routes/MyDay";
+import { QuickLinks } from "./routes/QuickLinks";
 import { SkillGraph } from "./routes/SkillGraph";
 import { WeeklyPlan } from "./routes/WeeklyPlan";
 import { WorkLog } from "./routes/WorkLog";
@@ -93,6 +94,7 @@ export default function App() {
         <Route path="/content-requests" element={<ContentRequests />} />
         <Route path="/my-day" element={<MyDay me={user.member} />} />
         <Route path="/weekly-plan" element={<WeeklyPlan me={user.member} />} />
+        <Route path="/quick-links" element={<QuickLinks me={user.member} />} />
         {/* The old split forms; one screen replaces both. */}
         <Route path="/plans/new" element={<Navigate to="/my-day" replace />} />
         <Route path="/updates/new" element={<Navigate to="/my-day" replace />} />
