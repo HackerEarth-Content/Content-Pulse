@@ -19,6 +19,7 @@ import type {
   OpenItem,
   Page,
   PipelineStat,
+  QuickLink,
   PlanDailyStatus,
   Status,
   Summary,
@@ -222,6 +223,14 @@ export const api = {
   exportAnalytics: (p: Params) =>
     download("/exports/analytics.xlsx", p, `analytics-${p.from}_${p.to}.xlsx`),  exportContentRequests: (p: Params) =>
     download("/exports/content-requests.xlsx", p, "content-requests.xlsx"),
+  exportOverview: (p: Params) =>
+    download("/exports/overview.xlsx", p, `team-overview-${p.from}_${p.to}.xlsx`),
+  exportMemberOverview: (memberId: number, memberName: string, p: Params) =>
+    download(
+      "/exports/member.xlsx",
+      { ...p, member_id: memberId },
+      `${memberName}-${p.from}_${p.to}.xlsx`
+    ),
 
   weeklyPlan: (week: string, memberId?: number) =>
     get<WeeklyPlanItem[]>("/weekly-plan", { week, member_id: memberId }),
@@ -243,4 +252,11 @@ export const api = {
   saveMySkillRatings: (ratings: { skill_id: number; level: number }[]) =>
     send<SkillRatings>("PUT", "/skills/ratings/me", { ratings }),
   skillGraph: () => get<SkillGraphData>("/skills/graph"),
+
+  quickLinks: (memberId?: number) => get<QuickLink[]>("/quick-links", { member_id: memberId }),
+  createQuickLink: (body: { name: string; url: string }) =>
+    send<QuickLink>("POST", "/quick-links", body),
+  patchQuickLink: (id: number, body: { name?: string; url?: string }) =>
+    send<QuickLink>("PATCH", `/quick-links/${id}`, body),
+  deleteQuickLink: (id: number) => send<void>("DELETE", `/quick-links/${id}`),
 };

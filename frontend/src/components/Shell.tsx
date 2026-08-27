@@ -35,6 +35,8 @@ const LINKS: NavItem[] = [
     icon: icon("M4 5h16M4 12h16M4 19h10") },
   { to: "/members", label: "Team Members", title: "Per-person workload and effort",
     icon: icon("M16 20v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 3a4 4 0 100 8 4 4 0 000-8zM22 20v-2a4 4 0 00-3-3.9") },
+  { to: "/quick-links", label: "Quick Links", title: "Your saved OKRs, references and dashboards",
+    icon: icon("M10 14a5 5 0 007 0l3-3a5 5 0 00-7-7l-1.5 1.5M14 10a5 5 0 00-7 0l-3 3a5 5 0 007 7l1.5-1.5") },
   { to: "/requests", label: "Request streams", roles: ["admin"],
     title: "Requests, assessments, programs and technical writing",
     icon: icon("M4 6h16M4 11h16M4 16h9") },

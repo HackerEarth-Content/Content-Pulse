@@ -449,6 +449,20 @@ class Skill(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
 
 
+class QuickLink(Timestamps, Base):
+    """One saved link on one person's Quick Links tab — an OKR doc, a policy
+    reference, a dashboard, whatever they keep going back to."""
+
+    __tablename__ = "quick_links"
+    __table_args__ = (Index("ix_quick_links_member", "member_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(Text)
+    url: Mapped[str] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(default=0)
+
+
 class MemberSkillRating(Base):
     """One person's self-rated level (L1 Awareness .. L5 Expert) on one skill.
     No row at all means "not rated" — there's no zero level to store."""

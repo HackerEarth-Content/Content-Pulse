@@ -71,6 +71,14 @@
   --radius-pill: 999px;
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", "Cascadia Code", monospace;
+
+  /* Skill-rating ramp (Awareness → Expert) — fixed hues, not themed, so a
+   * level means the same color in both schemes, same as --status-*. */
+  --rating-1: #64748b;
+  --rating-2: #6366f1;
+  --rating-3: #818cf8;
+  --rating-4: #8b5cf6;
+  --rating-5: #c084fc;
 }
 
 /* Dark: the "Quiet Enterprise" navy ladder, taken from the reference's Tailwind

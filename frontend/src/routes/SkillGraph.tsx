@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
 import { ApiError, api } from "../api";
-import { Async, Banner, BarList, Card, SectionHeading } from "../components/ui";
+import { Async, Banner, BarList, Card, SectionHeading, StatTile } from "../components/ui";
 import { useApi } from "../hooks/useApi";
 import type { Skill, SkillCategory, SkillGraphData, SkillRatings } from "../types";
 
 const LEVEL_LABELS = ["", "Awareness", "Novice", "Practitioner", "Advanced", "Expert"];
-const LEVEL_COLORS = ["var(--ord-1)", "var(--ord-2)", "var(--ord-3)", "var(--ord-4)", "var(--ord-5)"];
+const LEVEL_COLORS = ["var(--rating-1)", "var(--rating-2)", "var(--rating-3)", "var(--rating-4)", "var(--rating-5)"];
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CATEGORIES: { key: SkillCategory; label: string }[] = [
   { key: "tech", label: "Tech" },
@@ -118,15 +118,16 @@ function OverviewTab({ data }: { data: SkillGraphData }) {
   }, [skills, members]);
 
   const filteredSkills = skills.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
+  const activeExperts = members.filter((m) => skills.some((s) => (m.ratings[s.id] ?? 0) >= 4)).length;
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <div className="grid cols-3">
+      <div className="stat-row stat-row--bare">
         {catAverages.map((c) => (
-          <Card key={c.key} title={c.label} sub="team average">
-            <div className="stat-value mono">{c.avg.toFixed(1)} <span className="hint">/ 5.0</span></div>
-          </Card>
+          <StatTile key={c.key} label={`${c.label} avg`} value={`${c.avg.toFixed(1)} / 5.0`} />
         ))}
+        <StatTile label="Active experts" value={activeExperts} sub={`of ${members.length} rated`} />
+        <StatTile label="Coverage gaps" value={gaps.length} sub="skills with ≤1 expert" />
       </div>
 
       {gaps.length ? (
@@ -142,7 +143,7 @@ function OverviewTab({ data }: { data: SkillGraphData }) {
         </Banner>
       ) : null}
 
-      <Card title="Skill × People matrix" action={<LevelLegend />}>
+      <Card title="Skill Distribution Matrix" action={<LevelLegend />}>
         <input
           className="field"
           style={{ maxWidth: 220, marginBottom: 10 }}
@@ -154,25 +155,48 @@ function OverviewTab({ data }: { data: SkillGraphData }) {
           <table>
             <thead>
               <tr>
-                <th>Skill</th>
-                {members.map((m) => (
-                  <th key={m.member_id} title={m.display_name} style={{ whiteSpace: "nowrap" }}>
-                    {m.display_name.split(" ")[0]}
-                  </th>
-                ))}
+                <th style={{ width: "35%" }}>Skill</th>
+                <th style={{ width: "15%" }}>Score</th>
+                <th style={{ width: "50%" }}>Distribution heatmap</th>
               </tr>
             </thead>
             <tbody>
-              {filteredSkills.map((s) => (
-                <tr key={s.id}>
-                  <td className="strong">{s.name}</td>
-                  {members.map((m) => (
-                    <td key={m.member_id} style={{ textAlign: "center" }}>
-                      <LevelDot level={m.ratings[s.id] ?? 0} />
+              {filteredSkills.map((s) => {
+                const counts = [1, 2, 3, 4, 5].map(
+                  (l) => members.filter((m) => (m.ratings[s.id] ?? 0) === l).length
+                );
+                const rated = counts.reduce((a, b) => a + b, 0);
+                const score = rated
+                  ? counts.reduce((sum, c, i) => sum + c * (i + 1), 0) / rated
+                  : 0;
+                const peak = Math.max(1, ...counts);
+                return (
+                  <tr key={s.id}>
+                    <td className="strong">{s.name}</td>
+                    <td>
+                      {rated ? (
+                        <span className="heatmap-score" style={{ color: LEVEL_COLORS[Math.round(score) - 1] }}>
+                          {score.toFixed(1)}
+                        </span>
+                      ) : (
+                        <span className="hint">—</span>
+                      )}
                     </td>
-                  ))}
-                </tr>
-              ))}
+                    <td>
+                      <div className="heatmap-row">
+                        {counts.map((c, i) => (
+                          <div
+                            key={i}
+                            className="heatmap-bar"
+                            title={`L${i + 1} · ${LEVEL_LABELS[i + 1]}: ${c}`}
+                            style={{ height: `${(c / peak) * 100}%`, background: LEVEL_COLORS[i] }}
+                          />
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -207,7 +231,7 @@ function PeopleTab({ data }: { data: SkillGraphData }) {
 
       <div className="grid cols-2">
         <Card title="Category shape">
-          <div style={{ height: 220 }}>
+          <div style={{ height: 320 }}>
             <CategoryRadar skills={skills} ratings={member.ratings} />
           </div>
         </Card>
@@ -286,7 +310,9 @@ function SkillsTab({ data }: { data: SkillGraphData }) {
 
       <div className="grid cols-2">
         <Card title={`${skill.name} — level distribution`}>
-          <BarList items={distribution} max={Math.max(1, members.length)} />
+          <div className="skill-distribution">
+            <BarList items={distribution} max={Math.max(1, members.length)} />
+          </div>
         </Card>
         <Card title="Who to ask (L4+)">
           {experts.length ? (
@@ -415,7 +441,7 @@ function MySkillsTab({ me }: { me: { id: number; display_name: string; role: str
 
             <Card title={`${me.display_name}'s portfolio`}>
               <div className="grid cols-2">
-                <div style={{ height: 220 }}>
+                <div style={{ height: 320 }}>
                   <CategoryRadar skills={skillList} ratings={ratings} />
                 </div>
                 <Breakdown skills={skillList} ratings={ratings} />

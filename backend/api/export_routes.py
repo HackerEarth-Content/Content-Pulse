@@ -3,13 +3,15 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.analytics_routes import scope
+from api.analytics_routes import scope, team_scope
 from core.database import get_session
 from core.dates import resolve_range
 from core.deps import ADMINS, Viewer, get_viewer, require_role
+from core.orm import Member
 from core.users import current_user
 from services import analytics as an
 from services import export
+from services.entries import err
 
 router = APIRouter(
     prefix="/api/exports", tags=["exports"], dependencies=[Depends(current_user)]
@@ -102,3 +104,36 @@ async def analytics_xlsx(
 ):
     content = await export.analytics_xlsx(db, s)
     return _attachment(content, f"analytics-{s.frm}_{s.to}.xlsx", XLSX)
+
+
+@router.get("/overview.xlsx")
+async def team_overview_xlsx(
+    s: an.Scope = Depends(team_scope), db: AsyncSession = Depends(get_session)
+):
+    """The Overview screen's own breakdown, for whatever range is picked
+    there — open to anyone, same as the page itself."""
+    content = await export.team_overview_xlsx(db, s)
+    return _attachment(content, f"team-overview-{s.frm}_{s.to}.xlsx", XLSX)
+
+
+@router.get("/member.xlsx")
+async def member_overview_xlsx(
+    member_id: int,
+    frm: date | None = Query(None, alias="from"),
+    to: date | None = None,
+    period: str | None = None,
+    db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
+):
+    """One person's Member Detail breakdown. Same visibility as that page:
+    yourself, or anyone if you're a lead."""
+    if not viewer.may_write_for(member_id):
+        raise err(404, "not_found", "No such member.")
+    member = await db.get(Member, member_id)
+    if member is None:
+        raise err(404, "not_found", "No such member.")
+
+    start, end = resolve_range(period, frm, to)
+    s = an.Scope(frm=start, to=end, member_id=member_id)
+    content = await export.member_overview_xlsx(db, member, s)
+    return _attachment(content, f"{member.display_name}-{s.frm}_{s.to}.xlsx", XLSX)

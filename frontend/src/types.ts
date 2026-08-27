@@ -392,6 +392,15 @@ export interface WeeklyPlanCompletion {
   updated: number;
 }
 
+export interface QuickLink {
+  id: number;
+  member_id: number;
+  name: string;
+  url: string;
+  sort_order: number;
+  updated_at: string;
+}
+
 export type SkillCategory = "tech" | "ai" | "nontech";
 
 export interface Skill {
