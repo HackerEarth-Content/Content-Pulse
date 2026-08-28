@@ -1750,11 +1750,21 @@ td.heat {
   font-size: 13px;
   color: var(--ink);
 }
+.skill-breakdown-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
 .skill-entry-row {
   display: grid;
   grid-template-columns: minmax(160px, 1fr) auto minmax(120px, auto);
   align-items: center;
   gap: 12px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: background 0.08s ease;
+}
+.skill-entry-row:hover {
+  background: color-mix(in srgb, var(--accent-indigo) 20%, var(--surface-2));
 }
 .skill-level-picker {
   display: flex;
