@@ -41,25 +41,16 @@ const isFriday = () => istNow().getDay() === 5;
 
 type AddWindow = "monday" | "friday" | "closed";
 
-/** New items only: Monday 6:30am-7:30pm files the week, Friday 1:30pm-midnight
- * adds anything unplanned. Status changes (below) aren't gated by this at all —
- * they're open the whole week. */
+/** New items only: open all day Monday (files the week) and all day Friday
+ * (adds anything unplanned) — matches the backend's day-only guard in
+ * services/weekly_plan.py. Status changes (below) aren't gated by this at
+ * all — they're open the whole week. */
 function addWindowNow(): { window: AddWindow; hint: string } {
-  const ist = istNow();
-  const day = ist.getDay();
-  const mins = ist.getHours() * 60 + ist.getMinutes();
-  const MON_OPEN = 6 * 60 + 30, MON_CLOSE = 19 * 60 + 30, FRI_OPEN = 13 * 60 + 30;
-
-  if (day === 1 && mins >= MON_OPEN && mins < MON_CLOSE) {
-    return { window: "monday", hint: "New items open until 7:30 PM today." };
-  }
-  if (day === 5 && mins >= FRI_OPEN) {
-    return { window: "friday", hint: "New items open until midnight tonight." };
-  }
-  if (day === 1 && mins < MON_OPEN) return { window: "closed", hint: "New items open today at 6:30 AM." };
-  if (day === 5 && mins < FRI_OPEN) return { window: "closed", hint: "New items open today at 1:30 PM." };
-  if (day === 6 || day === 0) return { window: "closed", hint: "New items open Monday at 6:30 AM." };
-  return { window: "closed", hint: "New items open Friday at 1:30 PM." };
+  const day = istNow().getDay();
+  if (day === 1) return { window: "monday", hint: "New items open all day today." };
+  if (day === 5) return { window: "friday", hint: "New items open all day today." };
+  if (day === 6 || day === 0) return { window: "closed", hint: "New items open Monday." };
+  return { window: "closed", hint: "New items open Friday." };
 }
 
 export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
