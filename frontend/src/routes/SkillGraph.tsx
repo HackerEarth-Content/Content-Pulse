@@ -75,7 +75,7 @@ function Breakdown({ skills, ratings }: { skills: Skill[]; ratings: SkillRatings
   if (!rated.length) return <p className="hint">Nothing rated yet.</p>;
 
   return (
-    <div style={{ display: "grid", gap: 6 }}>
+    <div className="skill-breakdown-list" style={{ display: "grid", gap: 6 }}>
       {rated.map((s) => (
         <div key={s.id} className="skill-row">
           <span className="skill-row-name">{s.name}</span>
