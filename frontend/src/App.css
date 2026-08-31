@@ -1725,6 +1725,38 @@ td.heat {
   }
 }
 
+/* A holiday reads as a small celebration, not another status row — warm
+   background instead of the neutral strip, no dot color code to learn. */
+.today-strip--holiday {
+  background: color-mix(in srgb, var(--accent-orange) 7%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent-orange) 24%, var(--line));
+}
+.today-dot--holiday {
+  background: var(--accent-orange);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-orange) 22%, transparent);
+}
+.today-holiday {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.today-holiday .mono {
+  color: var(--ink-2);
+}
+.today-holiday-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-orange) 16%, var(--surface));
+}
+
 /* ── skill graph ───────────────────────────────────────────────────────────── */
 
 .skill-legend {
@@ -1964,3 +1996,192 @@ td.heat {
   height: 13px;
 }
 
+
+/* ── leave: mark days off, named not tagged ──────────────────────────────── */
+
+.leave-card {
+  margin-bottom: 14px;
+}
+
+.leave-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.leave-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-aqua);
+  background: color-mix(in srgb, var(--accent-aqua) 10%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--accent-aqua) 24%, var(--line));
+  border-radius: var(--radius-pill);
+  padding: 4px 6px 4px 4px;
+}
+/* A small rounded-square tile behind the emoji, not a bare glyph — reads as
+   a deliberate icon rather than decoration floating in the chip. */
+.leave-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-aqua) 18%, var(--surface));
+}
+.leave-chip button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 3px;
+  font-size: 15px;
+  line-height: 1;
+}
+.leave-chip button:hover:not(:disabled) {
+  opacity: 1;
+}
+.leave-chip button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.leave-dialog {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.leave-cal {
+  margin-top: 4px;
+}
+.leave-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.leave-cal-label {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.leave-cal-nav {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.leave-cal-nav:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-aqua) 10%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent-aqua) 30%, var(--line));
+}
+.leave-cal-nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* The one direction there's always somewhere to go — the past is locked, so
+   this is the button people actually reach for. */
+.leave-cal-nav--next {
+  width: 40px;
+  height: 40px;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent-aqua);
+  border-color: color-mix(in srgb, var(--accent-aqua) 35%, var(--line));
+  background: color-mix(in srgb, var(--accent-aqua) 8%, var(--surface-2));
+}
+.leave-cal-nav--next:hover {
+  background: color-mix(in srgb, var(--accent-aqua) 18%, var(--surface-2));
+  border-color: var(--accent-aqua);
+}
+.leave-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+.leave-cal-grid + .leave-cal-grid {
+  margin-top: 5px;
+}
+.leave-cal-dow {
+  margin-bottom: 6px;
+}
+.leave-cal-dow span {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.leave-cal-day {
+  appearance: none;
+  aspect-ratio: 1;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.leave-cal-day:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+.leave-cal-day.is-today {
+  border-color: color-mix(in srgb, var(--accent-indigo) 40%, var(--line));
+}
+.leave-cal-day.is-selected {
+  background: var(--accent-aqua);
+  border-color: var(--accent-aqua);
+  color: var(--surface);
+  font-weight: 620;
+}
+/* ── holiday badge: distinct from a leave-chip — orange, not aqua, since it's
+   the whole team's day off, not one person's ─────────────────────────────── */
+.holiday-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  color: var(--accent-orange);
+}
+.holiday-badge-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-orange) 16%, var(--surface));
+}
+
+.leave-cal-day:disabled {
+  color: var(--ink-3);
+  opacity: 0.35;
+  cursor: default;
+}
+/* Weekend cells read as "not applicable" rather than "not loaded yet" — a
+   flatter dim than a past date, with no hover affordance at all. */
+.leave-cal-day.is-weekend:disabled {
+  opacity: 0.25;
+}

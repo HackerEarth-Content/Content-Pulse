@@ -10,6 +10,8 @@ from api.integrations_routes import router as integrations_router
 from api.intake_routes import router as intake_router
 from api.entries_routes import router as entries_router
 from api.export_routes import router as export_router
+from api.holidays_routes import router as holidays_router
+from api.leaves_routes import router as leaves_router
 from api.members_routes import router as members_router
 from api.quick_links_routes import router as quick_links_router
 from api.skills_routes import router as skills_router
@@ -76,3 +78,5 @@ app.include_router(export_router)
 app.include_router(weekly_plan_router)
 app.include_router(skills_router)
 app.include_router(quick_links_router)
+app.include_router(leaves_router)
+app.include_router(holidays_router)

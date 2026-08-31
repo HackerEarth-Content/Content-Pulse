@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ApiError, api } from "../api";
 import { DateField } from "../components/DateField";
+import { LeaveCalendar } from "../components/LeaveCalendar";
 import { SchedulePicker } from "../components/SchedulePicker";
 import { StatusDialog } from "../components/StatusDialog";
 import { Async, Banner, SectionHeading, StatTile } from "../components/ui";
@@ -82,6 +83,8 @@ export function MyDay({ me }: { me: CurrentUser["member"] }) {
         }
       />
 
+      {who === me.id ? <MarkLeave /> : null}
+
       <Async loading={plan.loading} error={plan.error} data={{ plan: plan.data }}>
         {({ plan: existing }) =>
           // A Jira-sync mirror (an externally-assigned ticket parked here,
@@ -113,6 +116,126 @@ export function MyDay({ me }: { me: CurrentUser["member"] }) {
         }
       </Async>
     </>
+  );
+}
+
+/* ── leave: say you won't be working, without saying it every morning ───── */
+
+/** A person's own leave days, current date onward. Marking one here is what
+ * keeps the Slack roll call from nagging them for a plan and from pinging
+ * them by name — they're still named, just not tagged. */
+function MarkLeave() {
+  const leaves = useApi(() => api.myLeaves(), []);
+  const [open, setOpen] = useState(false);
+  const dates = leaves.data?.dates ?? [];
+
+  async function unmark(iso: string) {
+    await api.unmarkLeave(iso);
+    leaves.reload();
+  }
+
+  return (
+    <div className="card leave-card">
+      <div className="card-head">
+        <div>
+          <div className="card-title">On leave</div>
+          <div className="card-sub">
+            {dates.length
+              ? `Not working on ${dates.length} upcoming day${dates.length > 1 ? "s" : ""} — named in the roll call, never tagged.`
+              : "Mark any upcoming day you won't be working — you'll be named, not tagged."}
+          </div>
+        </div>
+        <button className="section-action" onClick={() => setOpen(true)}>
+          {dates.length ? "Edit" : "+ Mark leave"}
+        </button>
+      </div>
+
+      {dates.length ? (
+        <div className="leave-chips">
+          {dates.map((iso) => (
+            <span className="leave-chip" key={iso}>
+              <span className="leave-chip-icon" aria-hidden="true">🗓️</span>
+              {dmy(iso)}
+              <button type="button" aria-label={`Unmark ${dmy(iso)}`} onClick={() => unmark(iso)}>
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {open ? (
+        <LeaveCalendarDialog
+          saved={dates}
+          onClose={() => setOpen(false)}
+          onSaved={() => {
+            setOpen(false);
+            leaves.reload();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** Selections here are pending until Save — clicking a date only updates the
+ * grid, so nothing is written until the choice is actually final. */
+function LeaveCalendarDialog({
+  saved, onClose, onSaved,
+}: { saved: string[]; onClose: () => void; onSaved: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [pending, setPending] = useState(saved);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+
+  const dirty = pending.length !== saved.length || pending.some((d) => !saved.includes(d));
+
+  async function save() {
+    setError(null);
+    setSaving(true);
+    try {
+      const added = pending.filter((d) => !saved.includes(d));
+      const removed = saved.filter((d) => !pending.includes(d));
+      await Promise.all([
+        ...(added.length ? [api.markLeave(added)] : []),
+        ...removed.map((d) => api.unmarkLeave(d)),
+      ]);
+      onSaved();
+    } catch (e) {
+      setError(e as ApiError);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <dialog ref={ref} className="dialog leave-dialog" onClose={onClose} onCancel={onClose}>
+      <div className="dialog-head">
+        <span className="card-title">Mark leave</span>
+        <button className="section-action" aria-label="Close" onClick={onClose}>✕</button>
+      </div>
+
+      {error ? <Banner tone="error">{error.message}</Banner> : null}
+
+      <LeaveCalendar
+        selected={pending}
+        onToggle={(iso) =>
+          setPending((ds) => (ds.includes(iso) ? ds.filter((d) => d !== iso) : [...ds, iso].sort()))
+        }
+      />
+
+      <div className="btn-row" style={{ marginTop: 14 }}>
+        <span className="topbar-spacer" />
+        <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" disabled={!dirty || saving} onClick={save}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </dialog>
   );
 }
 

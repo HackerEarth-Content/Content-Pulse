@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { ApiError, api } from "../api";
 import { Async, Banner, Card, SectionHeading } from "../components/ui";
-import { relativeTime } from "../format";
+import { DateField } from "../components/DateField";
+import { dmy, relativeTime, today } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { Lookup, Skill } from "../types";
 
@@ -512,6 +513,85 @@ function SkillWindow() {
   );
 }
 
+/** Company-wide days off — set once here, everyone sees it. Distinct from a
+ * person's own leave: this cancels the day's plan/update nag for the whole
+ * team and stops the Slack roll call from posting at all, not just from
+ * pinging one person. */
+function HolidayEditor() {
+  const list = useApi(() => api.holidays(), []);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [name, setName] = useState("");
+  const [date, setDate] = useState(today());
+  const [busy, setBusy] = useState(false);
+
+  async function add() {
+    setError(null);
+    setBusy(true);
+    try {
+      await api.addHoliday(date, name.trim());
+      setName("");
+      list.reload();
+    } catch (e) {
+      setError(e as ApiError);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(on: string) {
+    setError(null);
+    try {
+      await api.removeHoliday(on);
+      list.reload();
+    } catch (e) {
+      setError(e as ApiError);
+    }
+  }
+
+  return (
+    <Card
+      title="Company holidays"
+      sub="no plan/update nag for anyone that day, and Slack doesn't post at all"
+    >
+      {error ? <Banner tone="error">{error.message}</Banner> : null}
+
+      <div className="filter-bar">
+        <input
+          className="field"
+          placeholder="e.g. Diwali"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && name.trim() && add()}
+        />
+        <DateField value={date} min={today()} ariaLabel="Holiday date" onChange={setDate} />
+        <button className="btn btn-primary" disabled={busy || !name.trim()} onClick={add}>
+          {busy ? "Adding…" : "+ Add holiday"}
+        </button>
+      </div>
+
+      <Async loading={list.loading} error={list.error} data={list.data}
+             empty={{ title: "No upcoming holidays marked" }}>
+        {(rows) => (
+          <div className="admin-list-scroll">
+            {rows.map((h) => (
+              <div className="admin-row" key={h.date}>
+                <span className="holiday-badge">
+                  <span className="holiday-badge-icon" aria-hidden="true">🗓️</span>
+                  {h.name}
+                </span>
+                <span className="mono muted">{dmy(h.date)}</span>
+                <button className="section-action" onClick={() => remove(h.date)}>
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Async>
+    </Card>
+  );
+}
+
 function Integrations() {
   const sync = useApi(() => api.syncStatus(), []);
   const [note, setNote] = useState<string | null>(null);
@@ -640,6 +720,9 @@ export function Admin() {
       </div>
       <div style={{ marginTop: 12 }}>
         <SkillWindow />
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <HolidayEditor />
       </div>
       <div style={{ marginTop: 12 }}>
         <Integrations />

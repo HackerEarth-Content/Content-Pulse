@@ -61,6 +61,11 @@ export interface Entry {
   items: Item[];
 }
 
+export interface Holiday {
+  date: string;
+  name: string;
+}
+
 export interface TodayStatus {
   date: string;
   you: {
@@ -77,6 +82,10 @@ export interface TodayStatus {
   awaiting_update: { member_id: number; member: string }[];
   no_plan_yet: { member_id: number; member: string }[];
   team_size: number;
+  /** Set when today itself is a company-wide holiday — its name. */
+  holiday: string | null;
+  /** The soonest upcoming holiday, today included if today is one. */
+  next_holiday: Holiday | null;
 }
 
 export interface WorkLogRow {

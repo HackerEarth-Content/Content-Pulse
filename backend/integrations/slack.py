@@ -421,8 +421,14 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
     # imports `services.entries` — a top-level import here flips that order
     # and out-races entries' own class registration.
     from services.entries import updated_member_ids
+    from services.holidays import holiday_name
+    from services.leaves import member_ids_on_leave
 
     async with Session() as db:
+        holiday = await holiday_name(db, on)
+        if holiday:
+            return {"posted": False, "reason": f"holiday: {holiday}"}
+        on_leave = await member_ids_on_leave(db, on)
         planned = {
             mid: name
             for mid, name in await db.execute(
@@ -436,7 +442,7 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
             )
         }
         updated_ids = await updated_member_ids(db, on)
-        active = list(
+        all_active = list(
             await db.execute(
                 select(
                     Member.id, Member.display_name, Member.email, Member.slack_user_id
@@ -449,6 +455,9 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
                 .order_by(Member.display_name)
             )
         )
+        # Named, never tagged — they're not expected to check in today.
+        on_leave_names = [row[1] for row in all_active if row[0] in on_leave]
+        active = [row for row in all_active if row[0] not in on_leave]
         mention = await _pinned_mention(db)
 
         # One real ticket, one row — a plan row or an unmirrored update, same
@@ -517,6 +526,8 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
         ]
         if no_plan:
             lines += ["", f"❌ *No plan yet* ({len(no_plan)})", await names(no_plan)]
+        if on_leave_names:
+            lines += ["", f"🏖️ *On leave today* — {', '.join(sorted(on_leave_names))}"]
     else:
         total_effort = sum(stat_for(r[0])["effort"] for r in done)
         total_closed = sum(stat_for(r[0])["closed"] for r in done)
@@ -552,6 +563,8 @@ async def post_roll_call(on: date, phase: str, dry_run: bool = False) -> dict:
                 f"⚠️ *Never planned today* ({len(no_plan)})",
                 await names(no_plan),
             ]
+        if on_leave_names:
+            lines += ["", f"🏖️ *On leave today* — {', '.join(sorted(on_leave_names))}"]
 
     if mention:
         lines += ["", f"cc {mention}"]
@@ -612,8 +625,12 @@ async def post_weekly_plan_status(
     instead of one day.
     """
     from core.orm import WeeklyPlanItem
+    from services.holidays import holiday_name
 
     async with Session() as db:
+        holiday = await holiday_name(db, ist_today())
+        if holiday:
+            return {"posted": False, "reason": f"holiday: {holiday}"}
         active = list(
             await db.execute(
                 select(

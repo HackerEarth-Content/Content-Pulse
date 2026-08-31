@@ -12,6 +12,7 @@ import type {
   DataQuality,
   DueRisk,
   Entry,
+  Holiday,
   Lookup,
   Member,
   MemberProfile,
@@ -259,4 +260,12 @@ export const api = {
   patchQuickLink: (id: number, body: { name?: string; url?: string }) =>
     send<QuickLink>("PATCH", `/quick-links/${id}`, body),
   deleteQuickLink: (id: number) => send<void>("DELETE", `/quick-links/${id}`),
+
+  myLeaves: () => get<{ dates: string[] }>("/leaves"),
+  markLeave: (dates: string[]) => send<{ dates: string[] }>("POST", "/leaves", { dates }),
+  unmarkLeave: (on: string) => send<{ dates: string[] }>("DELETE", `/leaves/${on}`),
+
+  holidays: () => get<Holiday[]>("/holidays"),
+  addHoliday: (date: string, name: string) => send<Holiday[]>("POST", "/holidays", { date, name }),
+  removeHoliday: (on: string) => send<Holiday[]>("DELETE", `/holidays/${on}`),
 };
