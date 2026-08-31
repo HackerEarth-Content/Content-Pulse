@@ -284,11 +284,17 @@ async def _sync_question_types(db, item: EntryItem, f: dict, cache: dict) -> Non
     """Replace the item's question types with whatever Jira currently has —
     covers both first import and `--refresh`, so an edit made in Jira after
     the initial sync isn't stuck forever."""
-    ids = [
-        qid
-        for name in _vals(f.get("customfield_10235"))
-        if (qid := await _lookup(db, QuestionType, name, cache)) is not None
-    ]
+    # Jira can list the same option twice, or two spellings that `_lookup`'s
+    # casefold match collapses to the same id — either way the same id must
+    # not be inserted twice, since (entry_item_id, question_type_id) is a
+    # primary key.
+    ids = list(
+        dict.fromkeys(
+            qid
+            for name in _vals(f.get("customfield_10235"))
+            if (qid := await _lookup(db, QuestionType, name, cache)) is not None
+        )
+    )
     await db.execute(
         entry_item_question_types.delete().where(
             entry_item_question_types.c.entry_item_id == item.id
