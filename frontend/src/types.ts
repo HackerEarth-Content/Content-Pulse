@@ -439,3 +439,47 @@ export interface SkillGraphData {
   skills: Skill[];
   members: MemberSkillRatings[];
 }
+
+/** How the HE question library is actually performing — candidate usage,
+ *  feedback, and topic coverage, synced from Redash. */
+export interface ContentHealthType {
+  problem_type: string;
+  question_type_id: number | null;
+  tests_published: number | null;
+  tests_with_qt: number | null;
+  tests_with_library: number | null;
+  library_questions_used: number | null;
+  candidates_attempted: number | null;
+}
+
+export interface ContentHealthOverview {
+  problem_types: ContentHealthType[];
+  feedback: { total_slugs: number; slugs_with_rating: number; avg_rating: number | null } | null;
+  synced_at: string | null;
+}
+
+export type CoverageAction = "add" | "top_up" | "prune" | "balanced";
+
+export interface CoverageTopic {
+  topic: string;
+  questions: number;
+  active: number;
+  dead_pct: number;
+  attempts: number;
+  att_per_q: number;
+  avg_health: number | null;
+  difficulty: { easy: number; medium: number; hard: number };
+  action: CoverageAction;
+  action_label: string;
+}
+
+export interface ContentHealthCoverage {
+  topics: CoverageTopic[];
+  summary: { total_questions: number; total_attempts: number; topics: number; dead_questions: number };
+  verdicts: Record<CoverageAction, number>;
+}
+
+export interface ContentHealthCompanies {
+  value_label: string | null;
+  companies: { company: string; value: number | null }[];
+}

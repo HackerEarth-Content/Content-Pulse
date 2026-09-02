@@ -566,3 +566,89 @@ class AuditLog(Base):
     entity_id: Mapped[str | None]
     payload: Mapped[dict[str, Any]] = mapped_column(default=dict)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+
+
+# ── content health (Redash) ──────────────────────────────────────────────────
+# Candidate usage, feedback and topic-coverage for the HE question library,
+# synced from Redash on a schedule (see integrations/redash.py, SyncCursor key
+# "redash"). Latest snapshot per period only — a sync replaces the period's
+# rows rather than accumulating history.
+
+# CCA verdict, see services/content_health.py — mirrors --status-* in theme.css.
+CONTENT_HEALTH_ACTIONS = ("add", "top_up", "prune", "balanced")
+
+
+class ContentHealthSnapshot(Base):
+    """One row per (period, problem type): KPI block + top-10 companies."""
+
+    __tablename__ = "content_health_snapshots"
+    __table_args__ = (UniqueConstraint("period_from", "period_to", "problem_type"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    period_from: Mapped[date]
+    period_to: Mapped[date]
+    # Redash's own label (queries_config.PROBLEM_TYPES key) — kept verbatim so
+    # a sync can find its own rows even if the question_types match is fuzzy.
+    problem_type: Mapped[str]
+    question_type_id: Mapped[int | None] = mapped_column(
+        ForeignKey("question_types.id", ondelete="SET NULL")
+    )
+    tests_published: Mapped[int | None]
+    tests_with_qt: Mapped[int | None]
+    tests_with_library: Mapped[int | None]
+    library_questions_used: Mapped[int | None]
+    candidates_attempted: Mapped[int | None]
+    # {"value_label": str, "rows": [{"company": str, "value": number}, ...]}
+    top_companies: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    synced_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ContentHealthTopic(Base):
+    """One row per (period, problem type, topic/group) — the CCA breakdown."""
+
+    __tablename__ = "content_health_topics"
+    __table_args__ = (
+        UniqueConstraint("period_from", "period_to", "problem_type", "topic"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    period_from: Mapped[date]
+    period_to: Mapped[date]
+    problem_type: Mapped[str]
+    question_type_id: Mapped[int | None] = mapped_column(
+        ForeignKey("question_types.id", ondelete="SET NULL")
+    )
+    topic: Mapped[str]
+    questions: Mapped[int]
+    active: Mapped[int]
+    dead_pct: Mapped[float]
+    attempts: Mapped[int]
+    att_per_q: Mapped[float]
+    avg_health: Mapped[float | None]
+    difficulty_easy: Mapped[int]
+    difficulty_medium: Mapped[int]
+    difficulty_hard: Mapped[int]
+    action: Mapped[str]
+    synced_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ContentHealthFeedback(Base):
+    """One row per period — candidate feedback ratings are global, not
+    per-problem-type, in the source Redash query (5215)."""
+
+    __tablename__ = "content_health_feedback"
+    __table_args__ = (UniqueConstraint("period_from", "period_to"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    period_from: Mapped[date]
+    period_to: Mapped[date]
+    total_slugs: Mapped[int]
+    slugs_with_rating: Mapped[int]
+    avg_rating: Mapped[float | None]
+    synced_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )

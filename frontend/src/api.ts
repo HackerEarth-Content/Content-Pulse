@@ -3,6 +3,9 @@ import type {
   AreaByMember,
   AreaStat,
   Aging,
+  ContentHealthCompanies,
+  ContentHealthCoverage,
+  ContentHealthOverview,
   EffortBreakdown,
   QualityMix,
   ContentRequest,
@@ -268,4 +271,12 @@ export const api = {
   holidays: () => get<Holiday[]>("/holidays"),
   addHoliday: (date: string, name: string) => send<Holiday[]>("POST", "/holidays", { date, name }),
   removeHoliday: (on: string) => send<Holiday[]>("DELETE", `/holidays/${on}`),
+
+  contentHealthOverview: (p: Params) => get<ContentHealthOverview>("/content-health/overview", p),
+  contentHealthCoverage: (problemType: string, p: Params) =>
+    get<ContentHealthCoverage>("/content-health/coverage", { ...p, problem_type: problemType }),
+  contentHealthCompanies: (problemType: string, p: Params) =>
+    get<ContentHealthCompanies>("/content-health/companies", { ...p, problem_type: problemType }),
+  syncRedash: (p: Params) =>
+    request<{ started: boolean }>(`/integrations/redash/sync${qs(p)}`, { method: "POST" }),
 };

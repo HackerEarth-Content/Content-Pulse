@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     JIRA_EMAIL: str = ""
     JIRA_API_TOKEN: str = ""
 
+    # Redash-sourced content health (candidate attempts, feedback, coverage).
+    # Reads-only — there's no write concept, so no *_WRITES_ENABLED flag. Only
+    # reachable over VPN in practice; the scheduler job logs and skips a
+    # failed run rather than raising, same as the other background jobs.
+    # No default here — unlike JIRA_BASE_URL, the host isn't meant to appear
+    # in source; it's set in .env only.
+    REDASH_BASE_URL: str = ""
+    REDASH_API_KEY: str = ""
+
     # Same reasoning as JIRA_WRITES_ENABLED: posting to a team channel is
     # outward-facing and must be opted into, never a side effect of a test.
     SLACK_WRITES_ENABLED: bool

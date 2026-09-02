@@ -737,6 +737,29 @@ td.strong {
 .pill-inactive::before {
   display: none;
 }
+/* Content Coverage Analysis verdict — same four-way read as a status pill,
+   mapped onto the severity ramp rather than the lifecycle one: ADD is the
+   most urgent (candidates are hitting a too-small pool), balanced is fine. */
+.pill-add {
+  color: var(--status-critical-ink);
+  background: color-mix(in srgb, var(--status-critical) 12%, transparent);
+  border-color: color-mix(in srgb, var(--status-critical) 30%, transparent);
+}
+.pill-top_up {
+  color: var(--status-warning-ink);
+  background: color-mix(in srgb, var(--status-warning) 14%, transparent);
+  border-color: color-mix(in srgb, var(--status-warning) 30%, transparent);
+}
+.pill-prune {
+  color: var(--status-neutral-ink);
+  background: color-mix(in srgb, var(--status-neutral) 12%, transparent);
+  border-color: color-mix(in srgb, var(--status-neutral) 28%, transparent);
+}
+.pill-balanced {
+  color: var(--status-good-ink);
+  background: color-mix(in srgb, var(--status-good) 12%, transparent);
+  border-color: color-mix(in srgb, var(--status-good) 28%, transparent);
+}
 
 .tag {
   display: inline-block;
@@ -942,6 +965,282 @@ textarea.field {
   }
 }
 
+/* ── drilldown motion: a level opening, its rows arriving one after another ── */
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* A drilldown level opening below the row that expanded it. */
+  .expand-panel {
+    animation: panel-in 0.22s ease-out both;
+  }
+  /* Direct children reveal in sequence rather than all at once — a table's
+     rows, a bar-list's rows. Capped at 12 so a long table doesn't leave the
+     last rows waiting a visible beat; anything past that arrives together. */
+  .reveal-stagger > * {
+    animation: row-in 0.28s ease-out both;
+  }
+  .reveal-stagger > *:nth-child(1) { animation-delay: 0.02s; }
+  .reveal-stagger > *:nth-child(2) { animation-delay: 0.05s; }
+  .reveal-stagger > *:nth-child(3) { animation-delay: 0.08s; }
+  .reveal-stagger > *:nth-child(4) { animation-delay: 0.11s; }
+  .reveal-stagger > *:nth-child(5) { animation-delay: 0.14s; }
+  .reveal-stagger > *:nth-child(6) { animation-delay: 0.17s; }
+  .reveal-stagger > *:nth-child(7) { animation-delay: 0.2s; }
+  .reveal-stagger > *:nth-child(8) { animation-delay: 0.23s; }
+  .reveal-stagger > *:nth-child(9) { animation-delay: 0.26s; }
+  .reveal-stagger > *:nth-child(10) { animation-delay: 0.29s; }
+  .reveal-stagger > *:nth-child(11) { animation-delay: 0.32s; }
+  .reveal-stagger > *:nth-child(12) { animation-delay: 0.35s; }
+  .reveal-stagger > *:nth-child(n + 13) { animation-delay: 0.35s; }
+}
+
+/* ── Content Health: month strip ──────────────────────────────────────────── */
+
+.month-strip {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+  width: fit-content;
+  max-width: 100%;
+  scrollbar-width: thin;
+}
+.month-pill {
+  appearance: none;
+  border: 0;
+  flex: none;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 550;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.month-pill:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent-aqua) 8%, transparent);
+}
+.month-pill.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+/* The whole month's content re-enters on switch, so a click reads as
+   "new data arrived" rather than a number silently swapping underfoot. */
+@media (prefers-reduced-motion: no-preference) {
+  .month-fade {
+    animation: panel-in 0.25s ease-out both;
+  }
+}
+
+/* A donut, a radar and a gauge side by side — three shapes for three
+   different questions (share of a whole, one subject across several
+   dimensions, one number against a fixed ceiling), not three ways to draw
+   the same bar chart. */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+.gauge-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 2px;
+}
+.gauge-ring {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent-aqua) calc(var(--gauge-pct) * 1%), var(--surface-2) 0);
+}
+.gauge-hole {
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.gauge-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.gauge-unit {
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+.gauge-sub {
+  font-size: 11px;
+  color: var(--ink-3);
+  text-align: center;
+  max-width: 180px;
+}
+
+/* ── info-card: the (i) toggle and the explanation it swaps in ───────────── */
+
+.info-toggle {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--card-accent, var(--accent-blue)) 45%, var(--line));
+  background: var(--surface);
+  color: var(--card-accent, var(--accent-blue));
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.info-toggle:hover {
+  background: color-mix(in srgb, var(--card-accent, var(--accent-blue)) 12%, var(--surface));
+}
+.info-explain {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.info-explain p {
+  margin: 0 0 8px;
+}
+.info-explain p:last-child {
+  margin-bottom: 0;
+}
+.info-explain ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+.info-explain li {
+  margin-bottom: 4px;
+}
+.info-explain code {
+  background: var(--surface-2);
+  border-radius: var(--radius-xs);
+  padding: 1px 5px;
+  font-size: 0.92em;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .info-swap {
+    animation: panel-in 0.18s ease-out both;
+  }
+}
+
+/* ── question-type grid: a scrollable card per type, not one long list ───── */
+
+.qt-scroll {
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+.qt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+.qt-tile {
+  appearance: none;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--qt-accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.qt-tile:hover {
+  background: var(--surface-3);
+}
+.qt-tile.active {
+  background: var(--surface-3);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--qt-accent) 45%, transparent);
+}
+.qt-tile-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.qt-tile-rank {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+.qt-tile-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qt-tile-value {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.qt-tile-sub {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  margin-top: -3px;
+}
+.qt-tile-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+  margin-top: 3px;
+}
+.qt-tile-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--qt-accent);
+}
+.qt-tile-sub2 {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
 /* ── date field: dd/mm/yyyy text, native calendar behind a button ────────── */
 
 .datefield {
@@ -983,6 +1282,48 @@ textarea.field {
 }
 .field.is-invalid {
   border-color: var(--status-critical);
+}
+/* A small callout anchored right under the field it's about, so the problem
+   is found by looking, not by reading a paragraph at the bottom of the row. */
+.field-callout {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  z-index: 5;
+  display: inline-block;
+  max-width: 220px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--status-critical);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  box-shadow: var(--shadow-hover);
+}
+.field-callout::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 14px;
+  border: 5px solid transparent;
+  border-bottom-color: var(--status-critical);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .field-callout {
+    animation: callout-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+}
+@keyframes callout-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .richtext-field {
@@ -1414,6 +1755,9 @@ tr:hover .heatmap-bar {
 .pill-button:hover {
   filter: brightness(1.06);
   border-color: currentColor;
+}
+.pill-button[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px currentColor;
 }
 
 /* Caps a plain row list (work types, question types, skills) so a long

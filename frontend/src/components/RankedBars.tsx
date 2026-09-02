@@ -35,9 +35,21 @@ export function RankedBars({
       {rows.map((r, i) => (
         <div
           className="rank-row"
-          role="listitem"
+          role={onSelect ? "button" : "listitem"}
           key={r.key}
+          tabIndex={onSelect ? 0 : undefined}
+          aria-pressed={onSelect ? selected === r.key : undefined}
           onClick={() => onSelect?.(r.key)}
+          onKeyDown={
+            onSelect
+              ? (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelect(r.key);
+                  }
+                }
+              : undefined
+          }
           style={{
             cursor: onSelect ? "pointer" : undefined,
             opacity: selected && selected !== r.key ? 0.5 : 1,
