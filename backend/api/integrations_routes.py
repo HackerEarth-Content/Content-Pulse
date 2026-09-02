@@ -138,7 +138,10 @@ async def jira_health(db: AsyncSession = Depends(get_session)):
 
 @router.post("/integrations/jira/retry-pending")
 async def retry_pending():
-    return {"retried": await jira.sweep_pending()}
+    """The only place `failed` items get retried — a person clicked this, so
+    trying a permanently-broken item again is a deliberate choice, not the
+    automatic 5-minute sweep hammering it forever (see sweep_pending)."""
+    return {"retried": await jira.sweep_pending(include_failed=True)}
 
 
 @router.get("/meta/sync-status")

@@ -1,6 +1,7 @@
 
 import type { ReactNode } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { useState } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import "./theme.css";
 import "./App.css";
 
@@ -12,8 +13,9 @@ import { Banner, Skeleton } from "./components/ui";
 import { dmy } from "./format";
 import { useAuth } from "./hooks/useAuth";
 import { useJiraSync } from "./hooks/useJiraSync";
-import { usePeriod } from "./hooks/usePeriod";
+import { usePeriod, type Range } from "./hooks/usePeriod";
 import { useTheme } from "./hooks/useTheme";
+import type { CurrentUser } from "./types";
 import { Admin } from "./routes/Admin";
 import { Analytics } from "./routes/Analytics";
 import { ContentHealth } from "./routes/ContentHealth";
@@ -43,6 +45,84 @@ function AdminOnly({ role, children }: { role?: string; children: ReactNode }) {
     return <Banner tone="warn">No access — this section is limited to admins.</Banner>;
   }
   return <>{children}</>;
+}
+
+/** The primary nav tabs — kept mounted (instead of torn down by <Routes> on
+ * every navigation) so switching between them is instant and doesn't lose
+ * in-progress state like unsaved plan rows. Capped at MAX_KEPT_ALIVE: past
+ * that, the least-recently-visited tab is unmounted (its state and any
+ * fetched data go with it) so a long session doesn't keep every tab ever
+ * opened alive in memory forever. */
+const MAX_KEPT_ALIVE = 5;
+
+function tabsFor(user: CurrentUser, range: Range): { path: string; element: ReactNode }[] {
+  const role = user.member?.role;
+  return [
+    { path: "/", element: <Overview range={range} /> },
+    { path: "/work-log", element: <WorkLog range={range} me={user.member} /> },
+    { path: "/analytics", element: <AdminOnly role={role}><Analytics range={range} /></AdminOnly> },
+    { path: "/content-health", element: <AdminOnly role={role}><ContentHealth /></AdminOnly> },
+    { path: "/members", element: <Members range={range} /> },
+    { path: "/admin", element: <Admin /> },
+    { path: "/plan-board", element: <PlanBoard /> },
+    { path: "/requests", element: <AdminOnly role={role}><Requests range={range} /></AdminOnly> },
+    { path: "/leaderboard", element: <Leaderboard range={range} /> },
+    { path: "/skills", element: <SkillGraph me={user.member} /> },
+    { path: "/my-day", element: <MyDay me={user.member} /> },
+    { path: "/weekly-plan", element: <WeeklyPlan me={user.member} /> },
+    { path: "/quick-links", element: <QuickLinks me={user.member} /> },
+  ];
+}
+
+/** Tracks which tab paths to keep mounted, most-recently-visited last.
+ * Adjusts during render (React's documented pattern for state derived from a
+ * changing prop) rather than in an effect, so there's no extra render where
+ * the newly-visited tab is briefly missing from the list. */
+function useKeepAliveOrder(current: string, isTab: boolean, max: number): string[] {
+  const [order, setOrder] = useState<string[]>(isTab ? [current] : []);
+  if (isTab && order[order.length - 1] !== current) {
+    const next = [...order.filter((p) => p !== current), current];
+    setOrder(next);
+    return next.length > max ? next.slice(next.length - max) : next;
+  }
+  return order;
+}
+
+/** Renders every kept-alive tab (hidden unless active) plus a normal
+ * <Routes> for everything that isn't a tab: the dynamic member profile,
+ * the off-nav Jira mirror, and the old-URL redirects. */
+function TabPanes({ user, range }: { user: CurrentUser; range: Range }) {
+  const location = useLocation();
+  const tabs = tabsFor(user, range);
+  const isTab = tabs.some((t) => t.path === location.pathname);
+  const order = useKeepAliveOrder(location.pathname, isTab, MAX_KEPT_ALIVE);
+
+  return (
+    <>
+      {tabs
+        .filter((t) => order.includes(t.path))
+        .map((t) => (
+          <div key={t.path} hidden={t.path !== location.pathname}>
+            {t.element}
+          </div>
+        ))}
+
+      <Routes>
+        {/* Declared so the catch-all below doesn't intercept a tab path — the
+            actual content for these renders above, outside this <Routes>. */}
+        {tabs.map((t) => (
+          <Route key={t.path} path={t.path} element={null} />
+        ))}
+        <Route path="/members/:id" element={<MemberDetail range={range} me={user.member} />} />
+        {/* Raw Jira board mirror. Off the nav — /requests supersedes it. */}
+        <Route path="/content-requests" element={<ContentRequests />} />
+        {/* The old split forms; one screen replaces both. */}
+        <Route path="/plans/new" element={<Navigate to="/my-day" replace />} />
+        <Route path="/updates/new" element={<Navigate to="/my-day" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
+  );
 }
 
 export default function App() {
@@ -76,34 +156,7 @@ export default function App() {
       trailing={<SyncButton sync={sync} />}
       strip={<TodayStrip me={user.member} />}
     >
-      <Routes>
-        <Route path="/" element={<Overview range={range} />} />
-        <Route path="/work-log" element={<WorkLog range={range} me={user.member} />} />
-        <Route path="/analytics" element={
-          <AdminOnly role={user.member?.role}><Analytics range={range} /></AdminOnly>
-        } />
-        <Route path="/content-health" element={
-          <AdminOnly role={user.member?.role}><ContentHealth /></AdminOnly>
-        } />
-        <Route path="/members" element={<Members range={range} />} />
-        <Route path="/members/:id" element={<MemberDetail range={range} me={user.member} />} />
-        <Route path="/admin" element={<Admin />} />
-        <Route path="/plan-board" element={<PlanBoard />} />
-        <Route path="/requests" element={
-          <AdminOnly role={user.member?.role}><Requests range={range} /></AdminOnly>
-        } />
-        <Route path="/leaderboard" element={<Leaderboard range={range} />} />
-        <Route path="/skills" element={<SkillGraph me={user.member} />} />
-        {/* Raw Jira board mirror. Off the nav — /requests supersedes it. */}
-        <Route path="/content-requests" element={<ContentRequests />} />
-        <Route path="/my-day" element={<MyDay me={user.member} />} />
-        <Route path="/weekly-plan" element={<WeeklyPlan me={user.member} />} />
-        <Route path="/quick-links" element={<QuickLinks me={user.member} />} />
-        {/* The old split forms; one screen replaces both. */}
-        <Route path="/plans/new" element={<Navigate to="/my-day" replace />} />
-        <Route path="/updates/new" element={<Navigate to="/my-day" replace />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <TabPanes user={user} range={range} />
 
       <footer className="footer">
         <span className="live-dot" />

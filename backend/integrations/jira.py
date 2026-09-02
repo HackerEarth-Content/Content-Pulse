@@ -751,19 +751,28 @@ async def cancel_issue(key: str) -> None:
             log.warning("jira cancel failed for %s: %s", key, e)
 
 
-async def sweep_pending(limit: int = 25) -> int:
+async def sweep_pending(limit: int = 25, include_failed: bool = False) -> int:
     """BackgroundTasks die with the process — a restart mid-write strands items
-    on `pending`. Also retries `failed` ones: a write that failed once (a bad
-    network blip, an unlinkable parent, a transient Jira error) used to get no
-    second chance anywhere — not from this sweep, which only looked at
-    `pending`, and not from the UI, which has no retry action either. Both
-    states share `ix_items_jira_retry` for exactly this reason.
+    on `pending`. That's always safe to retry automatically: it only ever
+    means a crash interrupted an in-flight write.
+
+    `failed` is different and NOT included by default. A failed write can be
+    a transient blip (worth retrying) or something permanent a retry can
+    never fix — a Jira workflow with no path to the target status, a deleted
+    or inaccessible issue. Retrying those automatically forever just re-hits
+    the same wall every 5 minutes, spamming logs and burning Jira API calls
+    for nothing. So `failed` is opt-in: pass `include_failed=True` for the
+    on-demand admin retry (a person decided to try again), while the
+    scheduled sweep (`core/scheduler._sweep_jira`) only ever touches
+    `pending`. Both states still share `ix_items_jira_retry` since both are
+    the same "needs a retry pass" query shape.
 
     Dispatches per item rather than always calling `push_item`: that no-ops
     once `jira_issue_key` is set (see its own guard), so a failed *status
     move* on an already-created ticket would otherwise sit retried-never —
     it needs `push_status`, not another create attempt.
     """
+    states = ("pending", "failed") if include_failed else ("pending",)
     async with Session() as db:
         rows = (
             await db.execute(
@@ -773,7 +782,7 @@ async def sweep_pending(limit: int = 25) -> int:
                     EntryItem.status,
                     EntryItem.notes,
                 )
-                .where(EntryItem.jira_state.in_(("pending", "failed")))
+                .where(EntryItem.jira_state.in_(states))
                 .limit(limit)
             )
         ).all()

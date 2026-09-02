@@ -23,7 +23,7 @@ make up
 | `make migrate` | `alembic upgrade head` |
 | `make revision m="…"` | autogenerate a migration from `core/orm.py` |
 | `make seed` | lookups + legacy Django SQLite import (idempotent) |
-| `make test` | pytest (161 tests) |
+| `make test` | pytest (173 tests) |
 
 Backend without Docker:
 
@@ -54,6 +54,7 @@ cd frontend && npm install && npm run dev
 | `PLAN_REMINDER_HOUR` | when the email nudge fires, in `TIMEZONE` |
 | `WEEK_START` | `0` = Mon–Sun reporting weeks, `6` = Sun–Sat |
 | `TIMEZONE` | `Asia/Kolkata` — every "today"/"this week" boundary in the app is computed in this zone, not UTC |
+| `REDASH_BASE_URL` / `REDASH_API_KEY` | HE metrics Redash instance — only reachable over VPN in practice; no default baked into config, `.env` only |
 
 **Two Supabase gotchas:**
 - **Percent-encode the password.** A `#` in it truncates the URL silently — `pa#ss` must be `pa%23ss`.
@@ -89,6 +90,12 @@ scheduler; one React SPA renders it. The product surface:
   today, plus how many tickets each person created/closed.
 - **Content requests** (admin) — a raw mirror of the Jira Content Requests
   board.
+- **Content Health** (admin) — whether the HE question library is actually
+  working: candidate usage and feedback ratings per question type, and
+  topic-level coverage with an ADD/top-up/prune/balanced verdict, synced
+  from Redash. Month picker (May 2026 onward), full per-type breakdowns
+  (nothing folded into "Other"), a health-profile radar, and click-to-explain
+  info cards on every chart. See "Content Health (Redash) integration" below.
 - **Admin** — members, task/question-type lookups, integration health and
   manual sync/retry/digest triggers.
 
@@ -100,6 +107,15 @@ scheduler; one React SPA renders it. The product surface:
   type after creation re-syncs those fields on the Jira issue, not just our
   own database. A periodic drift check flags tickets whose Jira issue has
   since been deleted (`jira_missing`) rather than silently dropping them.
+  A Content Request's sub-task carries its parent as a Jira issue *link*
+  (not the `parent` field — same-level types 400 on that); if the link
+  itself fails, the ticket still gets created and the failure is surfaced
+  as a warning on that ticket rather than silently dropped. A write that
+  fails outright (`jira_state = "failed"`) is *not* auto-retried forever —
+  only `pending` (a crash mid-write) is retried automatically; retrying a
+  `failed` item is a deliberate admin action (Admin → "Retry pending Jira
+  writes"), since some failures (a dead workflow transition, a deleted
+  issue) can't be fixed by retrying at all.
 - **Slack**: every entry gets posted into a per-day thread; a roll call
   posts who has/hasn't planned or updated; a weekly-plan digest posts who's
   filed/updated the week. All gated behind `SLACK_WRITES_ENABLED`.
@@ -112,39 +128,67 @@ scheduler; one React SPA renders it. The product surface:
 | Jira history sync | every 30 min | incremental pull of created/updated issues |
 | Jira deletion check | every 2 hr | full re-fetch to flag issues deleted in Jira |
 | Publish scheduled entries | every 1 min | releases plans/updates whose `post_at` has arrived |
-| Jira write sweep | every 5 min | retries stranded `pending` Jira writes |
+| Jira write sweep | every 5 min | retries stranded `pending` Jira writes (never `failed` — see above) |
+| Content health sync | every 15 days | pulls candidate usage/feedback/coverage from Redash for the current month |
 | Plan reminder email | `PLAN_REMINDER_HOUR`, Mon–Fri | nudges anyone without a plan filed |
 | Plan / update digest | 10:30 / 19:30 daily | reposts each entry into Slack |
 | Plan / update roll call | 11:05 / 19:35, Mon–Fri | who has/hasn't planned or updated today |
 | Weekly plan status | 23:59 Mon / 23:59 Fri | who's filed / updated this week's plan |
+
+## Content Health (Redash) integration
+
+Read-only: candidate usage, feedback ratings and per-topic coverage for the
+HE question library, pulled from Redash (`he-metrics.hackerearth.com`,
+VPN-only) and joined to the existing `question_types` lookup.
+
+- **Sync** (`services/content_health.py`) fetches ~24 Redash queries per
+  month (8 problem types × KPI/attempt/top-10, plus one feedback query)
+  concurrently, capped at 5 in-flight — enough to beat sequential fetch
+  badly without overloading Redash's own job-worker pool. A run can
+  legitimately take 30–90+ minutes; the DB session is only held open for
+  the brief lookup and final write, never across the fetch itself, so a
+  long-running sync can't hold a pooled connection idle.
+- **Coverage verdicts** (ADD / top-up / prune / balanced) are a port of the
+  team's original Excel CCA tracker logic: attempts-per-question against
+  fixed thresholds, plus a dead-question percentage.
+- **Historical backfill** (`scripts/backfill_content_health.py`) seeds every
+  month from May 2026 (when this tracking started) through the current
+  month — resumable, skips months already synced:
+  ```bash
+  cd backend && uv run python -m scripts.backfill_content_health
+  ```
+- The scheduled job (every 15 days) only ever re-syncs the *current* month;
+  the backfill script is the one-time historical seed.
 
 ## Layout
 
 ```
 backend/
   core/          config · database · orm · users · deps · dates · scheduler
-  api/           auth · members · entries · analytics · integrations
-                 intake · export · weekly_plan
+  api/           auth · members · entries · analytics · integrations ·
+                 content_health · intake · export · weekly_plan
   services/      entries · analytics · publish · content_requests ·
-                 export · weekly_plan
-  integrations/  jira · slack · email
+                 content_health · export · weekly_plan
+  integrations/  jira · slack · email · redash
   schemas/       entries · weekly_plan
-  scripts/       seed.py            # lookups + legacy import, idempotent
-                 backfill_jira.py   # bulk/incremental Jira import
-                 reconcile_jira.py  # read-only Jira drift report + jira_missing flagger
+  scripts/       seed.py                      # lookups + legacy import, idempotent
+                 backfill_jira.py             # bulk/incremental Jira import
+                 backfill_content_health.py   # one-time Redash historical seed, resumable
+                 reconcile_jira.py            # read-only Jira drift report + jira_missing flagger
                  audit_totals.py
   migrations/    alembic, autogenerate only — edit core/orm.py, never write these by hand
-  tests/         161 tests
+  tests/         173 tests
 frontend/src/
   routes/        Overview · MyDay · WeeklyPlan · WorkLog · Members ·
                  MemberDetail · Requests · Leaderboard · PlanBoard ·
-                 ContentRequests · Analytics · Admin · Login
+                 ContentRequests · ContentHealth · Analytics · Admin ·
+                 QuickLinks · SkillGraph · Login
   components/    ui · Shell · PeriodPicker · DateField · SchedulePicker ·
                  StatusDialog · RankedBars · RichText · Donut ·
                  StreamSplit · WorkloadHeatmap · EffortDrilldown ·
-                 SyncButton · TodayStrip
+                 SyncButton · RedashSyncDialog · TodayStrip · LeaveCalendar
   hooks/         useApi · useAuth · usePeriod · useTheme · useJiraSync ·
-                 useDataVersion
+                 useRedashSync · useCountUp · useDataVersion
   richtext.ts    sanitizer backing RichText.tsx (bold/italic/bullet list only)
   theme.css      design tokens (see frontend/DESIGN_REFERENCE.md)
 ```
@@ -155,6 +199,6 @@ then `make migrate`. Nothing calls `create_all()`.
 
 ## Status
 
-67 API endpoints, 161 backend tests, 13 SPA routes. Schema, OAuth, RBAC,
-Jira sync (read and write), Slack posting, scheduled digests, and exports
-are all live end to end.
+91 API endpoints, 173 backend tests, 16 SPA routes. Schema, OAuth, RBAC,
+Jira sync (read and write), Slack posting, scheduled digests, exports, and
+the Redash-backed Content Health tab are all live end to end.
