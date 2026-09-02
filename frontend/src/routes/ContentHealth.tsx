@@ -7,6 +7,7 @@ import {
 import { api } from "../api";
 import { AXIS, TOOLTIP, shadeFor } from "../charts";
 import { Donut } from "../components/Donut";
+import { RedashSyncDialog } from "../components/RedashSyncDialog";
 import { Async, Card, SectionHeading, StatTile } from "../components/ui";
 import { num, pct, relativeTime } from "../format";
 import { useApi } from "../hooks/useApi";
@@ -249,6 +250,7 @@ export function ContentHealth() {
   const [selected, setSelected] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>("By topic");
   const [verdictFilter, setVerdictFilter] = useState<CoverageAction | null>(null);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const { from, to, label } = months.find((m) => m.ym === ym) ?? months[0];
   const sync = useRedashSync();
 
@@ -289,21 +291,33 @@ export function ContentHealth() {
                     : "Not synced yet"}
             </span>
             <button
-              className="sync-btn"
+              className="btn btn-secondary"
               disabled={sync.syncing}
               title="Pull the latest candidate usage and coverage from Redash"
-              aria-label="Sync from Redash now"
-              onClick={() => sync.refresh(from, to)}
+              onClick={() => setSyncDialogOpen(true)}
             >
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
                    strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"
-                   className={sync.syncing ? "spin" : undefined} aria-hidden="true">
+                   className={sync.syncing ? "spin" : undefined} aria-hidden="true"
+                   style={{ marginRight: 6, verticalAlign: -2 }}>
                 <path d="M21 12a9 9 0 11-2.6-6.4M21 3v6h-6" />
               </svg>
+              {sync.syncing ? "Syncing…" : "Sync from Redash"}
             </button>
           </span>
         }
       />
+
+      {syncDialogOpen ? (
+        <RedashSyncDialog
+          lastSynced={sync.lastSynced}
+          onClose={() => setSyncDialogOpen(false)}
+          onConfirm={() => {
+            sync.refresh(from, to);
+            setSyncDialogOpen(false);
+          }}
+        />
+      ) : null}
 
       <div className="month-strip" role="tablist" aria-label="Month">
         {months.map((m) => (
