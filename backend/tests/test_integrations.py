@@ -753,6 +753,118 @@ async def test_create_issue_is_always_content_task_and_links_parent(monkeypatch)
     assert not link, "no parent link without one"
 
 
+async def test_create_issue_surfaces_link_failure_as_warning(monkeypatch):
+    """A ticket whose issueLink call 400s used to come back indistinguishable
+    from a fully-linked one — jira_state stayed "ok", nothing recorded the
+    failure, and the ticket silently wasn't attached to the parent it was
+    split off from. create_issue must still succeed (the issue itself was
+    created fine) but report the link failure so the caller can surface it."""
+    from types import SimpleNamespace as N
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/rest/api/3/issue" and request.method == "POST":
+            return httpx.Response(201, json={"key": "TCE-50"})
+        if request.url.path == "/rest/api/3/issueLink":
+            return httpx.Response(400, json={"errorMessages": ["bad link type"]})
+        return httpx.Response(200, json={"fields": {}})
+
+    monkeypatch.setattr(jira, "_client", transport(handler))
+
+    async def fake_option_ids(db, c, cfg, issue_type):
+        return {"task_type": {}, "question_type": {}}
+
+    monkeypatch.setattr(jira, "option_ids", fake_option_ids)
+    entry = N(
+        kind="plan",
+        entry_date="2030-07-08",
+        source="web",
+        raw_text=None,
+        member=N(display_name="Ada", jira_account_id=None),
+    )
+    item = N(
+        task_type=N(name="Documentation"),
+        question_types=[],
+        customer="Entri",
+        count=None,
+        notes=None,
+        due_at=None,
+        effort_minutes=None,
+        pipeline="content_request",
+        parent_issue_key="TCE-1",
+    )
+
+    async with Session() as db:
+        key, url, link_warning = await jira.create_issue(db, entry, item)
+
+    assert key == "TCE-50", (
+        "the issue itself was created fine — its key must not be lost"
+    )
+    assert url.endswith("/TCE-50")
+    assert link_warning is not None and "TCE-1" in link_warning
+
+
+async def test_sweep_pending_retries_failed_items_by_kind(
+    member, task_type, monkeypatch
+):
+    """`failed` used to have no retry path at all — this is that path, and it
+    must route each item to the right retry: a failed *create* (no Jira key
+    yet) needs create_issue tried again; a failed *status move* on an
+    already-created ticket needs its transition retried, not another create
+    (push_item no-ops once jira_issue_key is set)."""
+    from core.orm import DailyEntry, EntryItem
+
+    async with Session() as db:
+        mirror = DailyEntry(
+            member_id=member,
+            entry_date="2030-07-09",
+            kind="plan",
+            source="web",
+            idempotency_key=f"sweep-test:{member}",
+        )
+        db.add(mirror)
+        await db.flush()
+        never_created = EntryItem(
+            entry_id=mirror.id,
+            task_type_id=task_type,
+            notes="x",
+            due_at="2030-07-09",
+            jira_state="failed",
+            jira_error="network blip",
+        )
+        created_but_stuck = EntryItem(
+            entry_id=mirror.id,
+            task_type_id=task_type,
+            notes="y",
+            due_at="2030-07-09",
+            status="closed",
+            jira_issue_key="TCE-99",
+            jira_issue_url="https://x/TCE-99",
+            jira_state="failed",
+            jira_error="transition failed",
+        )
+        db.add_all([never_created, created_but_stuck])
+        await db.commit()
+        never_created_id, created_but_stuck_id = never_created.id, created_but_stuck.id
+
+    calls = []
+
+    # sweep_pending awaits these — the monkeypatched stand-ins must be coroutines.
+    async def record_push_item(item_id):
+        calls.append(("create", item_id))
+
+    async def record_push_status(item_id, status, note=None):
+        calls.append(("status", item_id, status))
+
+    monkeypatch.setattr(jira, "push_item", record_push_item)
+    monkeypatch.setattr(jira, "push_status", record_push_status)
+
+    swept = await jira.sweep_pending()
+
+    assert swept >= 2
+    assert ("create", never_created_id) in calls
+    assert ("status", created_but_stuck_id, "closed") in calls
+
+
 async def test_issue_exists_rejects_leaf_types_as_parents(monkeypatch):
     """Jira's create call 400s with 'Please select valid parent issue' when the
     key names a Content Task or subtask — existing isn't enough, the type has
@@ -848,7 +960,7 @@ async def test_rate_limit_is_obeyed(monkeypatch):
         parent_issue_key=None,
     )
     async with Session() as db:
-        key, _ = await jira.create_issue(db, entry, item)
+        key, _, _ = await jira.create_issue(db, entry, item)
 
     assert key == "TCE-77"
     assert waits == [2.0, 2.0], "must wait what Retry-After says, not a guess"

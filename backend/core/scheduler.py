@@ -14,9 +14,9 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from core.config import settings
-from core.dates import TZ, today, week_bounds
+from core.dates import TZ, month_bounds, today, week_bounds
 from integrations import email, jira, slack
-from services import content_requests
+from services import content_health, content_requests
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +62,19 @@ async def _mark_jira_deletions() -> None:
         log.info("jira deletion check: %s", await mark_missing(DEFAULT_FROM))
     except Exception:
         log.exception("jira deletion check failed")
+
+
+async def _sync_content_health() -> None:
+    """Refresh the current month's candidate-usage/coverage numbers from
+    Redash. Slow (Redash queries can take minutes) and only reachable over
+    VPN in practice, so a failure here is logged and skipped, not raised —
+    same treatment as every other job in this file. A person can also force
+    it from the Content Health tab (POST /api/integrations/redash/sync)."""
+    try:
+        frm, to = month_bounds(today())
+        log.info("content health sync: %s", await content_health.sync(frm, to))
+    except Exception:
+        log.exception("content health sync failed")
 
 
 async def _sweep_jira() -> None:
@@ -167,6 +180,18 @@ def start() -> AsyncIOScheduler:
         _sync_content_requests,
         IntervalTrigger(minutes=15),
         id="content_requests",
+        max_instances=1,
+        coalesce=True,
+    )
+    # Every 15 days, not 6 hours — a month's candidate-usage numbers don't
+    # meaningfully change hour to hour, and a run can take a long time (many
+    # slow Redash queries in sequence), so there's nothing to gain from a
+    # tighter cadence. Historical months (before this job's first run) are
+    # seeded once via `scripts.backfill_content_health`, not by this job.
+    s.add_job(
+        _sync_content_health,
+        IntervalTrigger(days=15),
+        id="content_health",
         max_instances=1,
         coalesce=True,
     )

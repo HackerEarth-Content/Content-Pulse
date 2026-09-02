@@ -3,6 +3,9 @@ import type {
   AreaByMember,
   AreaStat,
   Aging,
+  ContentHealthCompanies,
+  ContentHealthCoverage,
+  ContentHealthOverview,
   EffortBreakdown,
   QualityMix,
   ContentRequest,
@@ -12,6 +15,7 @@ import type {
   DataQuality,
   DueRisk,
   Entry,
+  Holiday,
   Lookup,
   Member,
   MemberProfile,
@@ -259,4 +263,20 @@ export const api = {
   patchQuickLink: (id: number, body: { name?: string; url?: string }) =>
     send<QuickLink>("PATCH", `/quick-links/${id}`, body),
   deleteQuickLink: (id: number) => send<void>("DELETE", `/quick-links/${id}`),
+
+  myLeaves: () => get<{ dates: string[] }>("/leaves"),
+  markLeave: (dates: string[]) => send<{ dates: string[] }>("POST", "/leaves", { dates }),
+  unmarkLeave: (on: string) => send<{ dates: string[] }>("DELETE", `/leaves/${on}`),
+
+  holidays: () => get<Holiday[]>("/holidays"),
+  addHoliday: (date: string, name: string) => send<Holiday[]>("POST", "/holidays", { date, name }),
+  removeHoliday: (on: string) => send<Holiday[]>("DELETE", `/holidays/${on}`),
+
+  contentHealthOverview: (p: Params) => get<ContentHealthOverview>("/content-health/overview", p),
+  contentHealthCoverage: (problemType: string, p: Params) =>
+    get<ContentHealthCoverage>("/content-health/coverage", { ...p, problem_type: problemType }),
+  contentHealthCompanies: (problemType: string, p: Params) =>
+    get<ContentHealthCompanies>("/content-health/companies", { ...p, problem_type: problemType }),
+  syncRedash: (p: Params) =>
+    request<{ started: boolean }>(`/integrations/redash/sync${qs(p)}`, { method: "POST" }),
 };

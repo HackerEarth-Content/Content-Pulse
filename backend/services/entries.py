@@ -12,6 +12,8 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+import services.holidays as holidays_svc
+import services.leaves as leaves_svc
 from core.config import settings
 from core.dates import day_bounds_utc
 from core.orm import (
@@ -464,17 +466,30 @@ async def today_status(
         if updated_ids
         else set()
     )
-    # Everyone active plans their day, admins included.
+    # Everyone active plans their day, admins included — except whoever's on
+    # leave today, who shouldn't be chased for a plan they never meant to file.
+    on_leave = await leaves_svc.member_ids_on_leave(db, on)
     active = {
         m: mid
         for mid, m in await db.execute(
             select(Member.id, Member.display_name).where(Member.is_active.is_(True))
         )
+        if mid not in on_leave
     }
+
+    # A global holiday means nobody's expected to plan today — the same
+    # exclusion `post_roll_call` applies before it decides whether to post.
+    holidays = await holidays_svc.list_holidays(db)
+    next_holiday = holidays[0] if holidays else None
+    holiday_today = (
+        next_holiday["name"]
+        if next_holiday and next_holiday["date"] == on.isoformat()
+        else None
+    )
 
     done = sorted(n for n in planned if n in updated)
     pending = sorted(n for n in planned if n not in updated)
-    no_plan = sorted(n for n in active if n not in planned)
+    no_plan = [] if holiday_today else sorted(n for n in active if n not in planned)
 
     mine = next((n for n, mid in active.items() if mid == viewer_member_id), None)
     plan_entry_id = planned[mine][1] if mine in planned else None
@@ -525,7 +540,9 @@ async def today_status(
         "updated": len(done),
         "awaiting_update": [{"member_id": planned[n][0], "member": n} for n in pending],
         "no_plan_yet": [{"member_id": active[n], "member": n} for n in no_plan],
-        "team_size": len(active),
+        "team_size": 0 if holiday_today else len(active),
+        "holiday": holiday_today,
+        "next_holiday": next_holiday,
         "you": you,
     }
 

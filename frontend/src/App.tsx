@@ -16,6 +16,7 @@ import { usePeriod } from "./hooks/usePeriod";
 import { useTheme } from "./hooks/useTheme";
 import { Admin } from "./routes/Admin";
 import { Analytics } from "./routes/Analytics";
+import { ContentHealth } from "./routes/ContentHealth";
 import { ContentRequests } from "./routes/ContentRequests";
 import { Leaderboard } from "./routes/Leaderboard";
 import { Requests } from "./routes/Requests";
@@ -80,6 +81,9 @@ export default function App() {
         <Route path="/work-log" element={<WorkLog range={range} me={user.member} />} />
         <Route path="/analytics" element={
           <AdminOnly role={user.member?.role}><Analytics range={range} /></AdminOnly>
+        } />
+        <Route path="/content-health" element={
+          <AdminOnly role={user.member?.role}><ContentHealth /></AdminOnly>
         } />
         <Route path="/members" element={<Members range={range} />} />
         <Route path="/members/:id" element={<MemberDetail range={range} me={user.member} />} />

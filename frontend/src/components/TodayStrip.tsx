@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api";
+import { shortDate } from "../format";
 import { useApi } from "../hooks/useApi";
 import type { CurrentUser } from "../types";
 
@@ -32,6 +33,22 @@ export function TodayStrip({ me }: { me: CurrentUser["member"] }) {
         : { to: "/my-day", label: "Open my day", tone: "secondary" as const };
 
   const state = !me ? "none" : iUpdated ? "done" : iPlanned ? "planned" : "todo";
+
+  // A holiday overrides the whole strip — nobody's plan is due, so the usual
+  // nag and CTA would just be noise.
+  if (t.holiday) {
+    return (
+      <section className="today-strip today-strip--holiday" aria-label="Today">
+        <span className="today-dot today-dot--holiday" />
+        <span className="today-mine">
+          <strong>🎉 {t.holiday}</strong> — no plan needed today.
+        </span>
+        {t.next_holiday && t.next_holiday.date !== t.date ? (
+          <NextHoliday holiday={t.next_holiday} />
+        ) : null}
+      </section>
+    );
+  }
 
   return (
     <section className="today-strip" aria-label="Today">
@@ -70,11 +87,25 @@ export function TodayStrip({ me }: { me: CurrentUser["member"] }) {
         ) : null}
       </span>
 
+      {t.next_holiday ? <NextHoliday holiday={t.next_holiday} /> : null}
+
       {call && !onMyDay ? (
         <Link className={`btn btn-${call.tone} btn-sm today-cta`} to={call.to}>
           {call.label}
         </Link>
       ) : null}
     </section>
+  );
+}
+
+/** Visible on every page, same as the rest of the strip — a holiday coming
+ * up is exactly the kind of thing nobody should have to open Admin to see. */
+function NextHoliday({ holiday }: { holiday: { date: string; name: string } }) {
+  return (
+    <span className="today-holiday" title={`Next holiday: ${holiday.name}`}>
+      <span className="today-holiday-icon" aria-hidden="true">🗓️</span>
+      <span>{holiday.name}</span>
+      <span className="mono">{shortDate(holiday.date)}</span>
+    </span>
   );
 }

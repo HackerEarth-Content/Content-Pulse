@@ -284,11 +284,20 @@ async def _sync_question_types(db, item: EntryItem, f: dict, cache: dict) -> Non
     """Replace the item's question types with whatever Jira currently has —
     covers both first import and `--refresh`, so an edit made in Jira after
     the initial sync isn't stuck forever."""
-    ids = [
-        qid
-        for name in _vals(f.get("customfield_10235"))
-        if (qid := await _lookup(db, QuestionType, name, cache)) is not None
-    ]
+    # Jira can list the same option twice, or two spellings that `_lookup`'s
+    # casefold match collapses to the same id — either way the same id must
+    # not be inserted twice, since (entry_item_id, question_type_id) is a
+    # primary key. A genexpr can't do the lookup here: an `await` inside a
+    # bare generator expression (unlike inside a list comprehension) compiles
+    # to an async generator even with a plain `for`, and dict.fromkeys() can't
+    # iterate that synchronously.
+    seen: set[int] = set()
+    ids: list[int] = []
+    for name in _vals(f.get("customfield_10235")):
+        qid = await _lookup(db, QuestionType, name, cache)
+        if qid is not None and qid not in seen:
+            seen.add(qid)
+            ids.append(qid)
     await db.execute(
         entry_item_question_types.delete().where(
             entry_item_question_types.c.entry_item_id == item.id
