@@ -858,7 +858,14 @@ async def test_sweep_pending_retries_failed_items_by_kind(
     monkeypatch.setattr(jira, "push_item", record_push_item)
     monkeypatch.setattr(jira, "push_status", record_push_status)
 
-    swept = await jira.sweep_pending()
+    # Default excludes `failed` — the automatic scheduler sweep must never
+    # retry a permanently-broken item (a dead workflow transition, a deleted
+    # issue) forever every 5 minutes. Only the explicit admin retry opts in.
+    swept_default = await jira.sweep_pending()
+    assert swept_default == 0
+    assert calls == []
+
+    swept = await jira.sweep_pending(include_failed=True)
 
     assert swept >= 2
     assert ("create", never_created_id) in calls
