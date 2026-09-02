@@ -286,8 +286,12 @@ def _describe(entry: DailyEntry, item: EntryItem) -> str:
 # ── writes ────────────────────────────────────────────────────────────────────
 
 
-async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str]:
+async def create_issue(
+    db, entry: DailyEntry, item: EntryItem
+) -> tuple[str, str, str | None]:
     """Creates the issue carrying every field the analytics later read back.
+    Returns (key, url, link_warning) — link_warning is set when the issue was
+    created fine but linking it to its parent failed (see below).
 
     Sending only a summary produced tickets with no work type, no customer and
     no assignee — invisible to the reporting this app then does.
@@ -369,20 +373,27 @@ async def create_issue(db, entry: DailyEntry, item: EntryItem) -> tuple[str, str
         if r.status_code >= 400:
             raise RuntimeError(_explain(r))
         key = r.json()["key"]
+        link_warning = None
         if item.parent_issue_key:
             # Best-effort: the issue itself is already created at this point,
             # so a link failure shouldn't discard its key and orphan a ticket
             # (or, worse, get retried into a duplicate by the pending sweep).
+            # It's surfaced to the caller rather than only logged, though —
+            # a ticket that silently isn't linked to the parent it was split
+            # off from defeats the entire point of asking for a parent ticket.
             try:
                 await _link_parent(c, cfg, key, item.parent_issue_key)
             except Exception as e:
+                link_warning = (
+                    f"Created but not linked to parent {item.parent_issue_key}: {e}"
+                )
                 log.warning(
                     "created %s but failed to link it to parent %s: %s",
                     key,
                     item.parent_issue_key,
                     e,
                 )
-    return key, f"{settings.JIRA_BASE_URL}/browse/{key}"
+    return key, f"{settings.JIRA_BASE_URL}/browse/{key}", link_warning
 
 
 async def _link_parent(
@@ -582,9 +593,9 @@ async def push_item(item_id: int) -> None:
             return
         entry = await db.get(DailyEntry, item.entry_id)
         try:
-            key, url = await create_issue(db, entry, item)
+            key, url, link_warning = await create_issue(db, entry, item)
             item.jira_issue_key, item.jira_issue_url = key, url
-            item.jira_state, item.jira_error = "ok", None
+            item.jira_state, item.jira_error = "ok", link_warning
             await _audit(db, "jira.create", item, {"pipeline": item.pipeline})
             if item.status != "open":
                 # Just created as a Content Task above, whatever `item.pipeline`
@@ -742,15 +753,33 @@ async def cancel_issue(key: str) -> None:
 
 async def sweep_pending(limit: int = 25) -> int:
     """BackgroundTasks die with the process — a restart mid-write strands items
-    on `pending`. This is the safety net that a real broker would provide."""
+    on `pending`. Also retries `failed` ones: a write that failed once (a bad
+    network blip, an unlinkable parent, a transient Jira error) used to get no
+    second chance anywhere — not from this sweep, which only looked at
+    `pending`, and not from the UI, which has no retry action either. Both
+    states share `ix_items_jira_retry` for exactly this reason.
+
+    Dispatches per item rather than always calling `push_item`: that no-ops
+    once `jira_issue_key` is set (see its own guard), so a failed *status
+    move* on an already-created ticket would otherwise sit retried-never —
+    it needs `push_status`, not another create attempt.
+    """
     async with Session() as db:
-        ids = list(
-            await db.scalars(
-                select(EntryItem.id)
-                .where(EntryItem.jira_state == "pending")
+        rows = (
+            await db.execute(
+                select(
+                    EntryItem.id,
+                    EntryItem.jira_issue_key,
+                    EntryItem.status,
+                    EntryItem.notes,
+                )
+                .where(EntryItem.jira_state.in_(("pending", "failed")))
                 .limit(limit)
             )
-        )
-    for item_id in ids:
-        await push_item(item_id)
-    return len(ids)
+        ).all()
+    for item_id, jira_issue_key, status, notes in rows:
+        if jira_issue_key:
+            await push_status(item_id, status, notes)
+        else:
+            await push_item(item_id)
+    return len(rows)

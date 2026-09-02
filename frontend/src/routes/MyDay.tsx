@@ -312,11 +312,18 @@ function StartTheDay({
   const setQuestionTypes = (i: number, ids: number[]) =>
     setRows((rs) => rs.map((r, j) => (i === j ? { ...r, question_type_ids: ids } : r)));
   const filled = rows.filter((r) => r.task_type_id);
+  // A row someone has started typing into — customer, count, question types,
+  // a parent ticket — but never picked a task type for. `filled` above just
+  // drops these silently on save (no error, no ticket, no trace), which is
+  // exactly the "where did that one go" report this guards against.
+  const touched = (r: Draft) =>
+    Boolean(r.notes.trim() || r.customer.trim() || r.count || r.question_type_ids.length || r.parent_issue_key.trim());
+  const missingTaskType = (r: Draft) => touched(r) && !r.task_type_id;
   const incomplete = (r: Draft) =>
     Boolean(r.task_type_id) &&
     (!r.due_at || !r.notes.trim() ||
       (r.pipeline === "content_request" && !PARENT_KEY_PATTERN.test(r.parent_issue_key.trim())));
-  const hasIncomplete = rows.some(incomplete);
+  const hasIncomplete = rows.some((r) => incomplete(r) || missingTaskType(r));
   // Nothing new to type is fine — Jira may already be the whole day's work,
   // and there has to be some way to set the plan without inventing a task.
   const nothingToSave = filled.length === 0 && jiraItems.length === 0;
@@ -396,15 +403,24 @@ function StartTheDay({
               ))}
             </select>
           </div>
-          <div>
+          <div style={{ position: "relative" }}>
             <label className="label">Task type *</label>
-            <select className="field" value={row.task_type_id}
-                    onChange={(e) => patch(i, "task_type_id", e.target.value)}>
+            <select
+              className={`field${missingTaskType(row) ? " is-invalid" : ""}`}
+              value={row.task_type_id}
+              aria-invalid={missingTaskType(row) || undefined}
+              onChange={(e) => patch(i, "task_type_id", e.target.value)}
+            >
               <option value="">Pick a task type…</option>
               {(taskTypes.data ?? []).map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
+            {missingTaskType(row) ? (
+              <span className="field-callout" role="alert">
+                Pick a task type — this row won't be saved without one.
+              </span>
+            ) : null}
           </div>
           <div>
             <label className="label">Question type</label>
@@ -450,6 +466,12 @@ function StartTheDay({
                 Due date, summary
                 {row.pipeline === "content_request" ? ", and a valid parent ticket (e.g. TCE-1234)" : ""}
                 {" "}are required before this can be saved.
+              </span>
+            </div>
+          ) : missingTaskType(row) ? (
+            <div className="task-row-wide">
+              <span className="hint" style={{ color: "var(--status-critical)" }}>
+                Task type is required before this can be saved.
               </span>
             </div>
           ) : null}
@@ -653,8 +675,19 @@ function TicketRow({ item, onMove }: { item: Item; onMove: () => void }) {
             removed in Jira
           </span>
         ) : item.jira_issue_key ? (
-          <a className="tag" href={item.jira_issue_url ?? "#"} target="_blank"
-             rel="noreferrer">{item.jira_issue_key}</a>
+          <>
+            <a className="tag" href={item.jira_issue_url ?? "#"} target="_blank"
+               rel="noreferrer">{item.jira_issue_key}</a>
+            {/* The ticket itself exists — jira_state is "ok" — but linking it
+                to its parent can still fail on its own. Surfaced here rather
+                than silently, since an unlinked split-off ticket defeats the
+                reason a parent was asked for in the first place. */}
+            {item.jira_error ? (
+              <span className="pill pill-warn" title={item.jira_error}>
+                not linked to parent
+              </span>
+            ) : null}
+          </>
         ) : item.jira_state === "pending" ? (
           <span className="pill pill-muted">syncing…</span>
         ) : item.jira_state === "failed" ? (
