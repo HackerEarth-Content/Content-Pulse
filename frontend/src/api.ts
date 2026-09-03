@@ -264,9 +264,12 @@ export const api = {
     send<QuickLink>("PATCH", `/quick-links/${id}`, body),
   deleteQuickLink: (id: number) => send<void>("DELETE", `/quick-links/${id}`),
 
-  myLeaves: () => get<{ dates: string[] }>("/leaves"),
-  markLeave: (dates: string[]) => send<{ dates: string[] }>("POST", "/leaves", { dates }),
-  unmarkLeave: (on: string) => send<{ dates: string[] }>("DELETE", `/leaves/${on}`),
+  myLeaves: (memberId?: number) =>
+    get<{ dates: string[] }>("/leaves", { member_id: memberId }),
+  markLeave: (dates: string[], memberId?: number) =>
+    send<{ dates: string[] }>("POST", `/leaves${qs({ member_id: memberId })}`, { dates }),
+  unmarkLeave: (on: string, memberId?: number) =>
+    send<{ dates: string[] }>("DELETE", `/leaves/${on}${qs({ member_id: memberId })}`),
 
   holidays: () => get<Holiday[]>("/holidays"),
   addHoliday: (date: string, name: string) => send<Holiday[]>("POST", "/holidays", { date, name }),

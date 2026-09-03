@@ -1,8 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
-import { api } from "../api";
 import { shortDate } from "../format";
-import { useApi } from "../hooks/useApi";
-import type { CurrentUser } from "../types";
+import type { State } from "../hooks/useApi";
+import type { CurrentUser, TodayStatus } from "../types";
 
 /** Today's plan/update state, on every page.
  *
@@ -11,8 +10,9 @@ import type { CurrentUser } from "../types";
  * are planned/updated today — with the action attached to the sentence
  * rather than floating beside it.
  */
-export function TodayStrip({ me }: { me: CurrentUser["member"] }) {
-  const today = useApi(() => api.today(), []);
+export function TodayStrip({
+  me, today,
+}: { me: CurrentUser["member"]; today: State<TodayStatus | null> }) {
   // Already on the page the CTA would send you to — the link is redundant there.
   const onMyDay = useLocation().pathname === "/my-day";
 

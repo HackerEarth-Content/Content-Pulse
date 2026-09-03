@@ -6,10 +6,10 @@ import { LeaveCalendar } from "../components/LeaveCalendar";
 import { SchedulePicker } from "../components/SchedulePicker";
 import { StatusDialog } from "../components/StatusDialog";
 import { Async, Banner, SectionHeading, StatTile } from "../components/ui";
-import { dmy, mins, statusLabel, today } from "../format";
-import { useApi } from "../hooks/useApi";
+import { dmy, mins, statusLabel, today as todayIso } from "../format";
+import { useApi, type State } from "../hooks/useApi";
 import { bumpDataVersion } from "../hooks/useDataVersion";
-import type { CurrentUser, Entry, Item, Lookup } from "../types";
+import type { CurrentUser, Entry, Item, Lookup, TodayStatus } from "../types";
 
 const PARENT_KEY_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
 
@@ -20,14 +20,16 @@ const PARENT_KEY_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
  * single page whose shape follows where you are — write your list in the
  * morning, report against it later, raise a ticket for anything unplanned.
  */
-export function MyDay({ me }: { me: CurrentUser["member"] }) {
+export function MyDay({
+  me, today,
+}: { me: CurrentUser["member"]; today: State<TodayStatus | null> }) {
   const isLead = me?.role === "admin" || me?.role === "manager";
   // A lead lands here from the Plan Board with ?member_id=… to open that
   // person's day directly, rather than picking them from the dropdown.
   const [params] = useSearchParams();
   const linkedMemberId = isLead ? Number(params.get("member_id")) || null : null;
 
-  const [date, setDate] = useState(today());
+  const [date, setDate] = useState(todayIso());
   const [memberId, setMemberId] = useState<number | null>(linkedMemberId ?? me?.id ?? null);
   const [justCreated, setJustCreated] = useState<Item[]>([]);
   const members = useApi(() => (isLead ? api.members() : Promise.resolve([])), [isLead]);
@@ -75,7 +77,7 @@ export function MyDay({ me }: { me: CurrentUser["member"] }) {
             ) : null}
             <DateField
               value={date}
-              max={today()}
+              max={todayIso()}
               ariaLabel="Date"
               onChange={(iso) => iso && setDate(iso)}
             />
@@ -83,7 +85,7 @@ export function MyDay({ me }: { me: CurrentUser["member"] }) {
         }
       />
 
-      {who === me.id ? <MarkLeave /> : null}
+      {who ? <MarkLeave memberId={who} today={today} /> : null}
 
       <Async loading={plan.loading} error={plan.error} data={{ plan: plan.data }}>
         {({ plan: existing }) =>
@@ -124,13 +126,17 @@ export function MyDay({ me }: { me: CurrentUser["member"] }) {
 /** A person's own leave days, current date onward. Marking one here is what
  * keeps the Slack roll call from nagging them for a plan and from pinging
  * them by name — they're still named, just not tagged. */
-function MarkLeave() {
-  const leaves = useApi(() => api.myLeaves(), []);
+function MarkLeave({
+  memberId, today,
+}: { memberId: number; today: State<TodayStatus | null> }) {
+  const leaves = useApi(() => api.myLeaves(memberId), [memberId]);
   const [open, setOpen] = useState(false);
   const dates = leaves.data?.dates ?? [];
+  const nextHoliday = today.data?.next_holiday;
+  const onLeaveToday = today.data?.on_leave_today ?? [];
 
   async function unmark(iso: string) {
-    await api.unmarkLeave(iso);
+    await api.unmarkLeave(iso, memberId);
     leaves.reload();
   }
 
@@ -142,13 +148,29 @@ function MarkLeave() {
           <div className="card-sub">
             {dates.length
               ? `Not working on ${dates.length} upcoming day${dates.length > 1 ? "s" : ""} — named in the roll call, never tagged.`
-              : "Mark any upcoming day you won't be working — you'll be named, not tagged."}
+              : "Mark any upcoming day off — named in the roll call, never tagged."}
           </div>
         </div>
         <button className="section-action" onClick={() => setOpen(true)}>
           {dates.length ? "Edit" : "+ Mark leave"}
         </button>
       </div>
+
+      {nextHoliday ? (
+        <div className="leave-chips">
+          <span className="holiday-badge">
+            <span className="holiday-badge-icon" aria-hidden="true">🗓️</span>
+            Next holiday: {nextHoliday.name}
+            <span className="mono">{dmy(nextHoliday.date)}</span>
+          </span>
+        </div>
+      ) : null}
+
+      {onLeaveToday.length ? (
+        <div className="card-sub" style={{ marginTop: 10 }}>
+          On leave today: {onLeaveToday.map((m) => m.member).join(", ")}
+        </div>
+      ) : null}
 
       {dates.length ? (
         <div className="leave-chips">
@@ -166,6 +188,7 @@ function MarkLeave() {
 
       {open ? (
         <LeaveCalendarDialog
+          memberId={memberId}
           saved={dates}
           onClose={() => setOpen(false)}
           onSaved={() => {
@@ -181,8 +204,8 @@ function MarkLeave() {
 /** Selections here are pending until Save — clicking a date only updates the
  * grid, so nothing is written until the choice is actually final. */
 function LeaveCalendarDialog({
-  saved, onClose, onSaved,
-}: { saved: string[]; onClose: () => void; onSaved: () => void }) {
+  memberId, saved, onClose, onSaved,
+}: { memberId: number; saved: string[]; onClose: () => void; onSaved: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [pending, setPending] = useState(saved);
   const [saving, setSaving] = useState(false);
@@ -201,8 +224,8 @@ function LeaveCalendarDialog({
       const added = pending.filter((d) => !saved.includes(d));
       const removed = saved.filter((d) => !pending.includes(d));
       await Promise.all([
-        ...(added.length ? [api.markLeave(added)] : []),
-        ...removed.map((d) => api.unmarkLeave(d)),
+        ...(added.length ? [api.markLeave(added, memberId)] : []),
+        ...removed.map((d) => api.unmarkLeave(d, memberId)),
       ]);
       onSaved();
     } catch (e) {
@@ -256,7 +279,7 @@ interface Draft {
 const blank = (): Draft => ({
   pipeline: "content_task",
   task_type_id: "", question_type_ids: [], customer: "", count: "",
-  due_at: today(), notes: "", parent_issue_key: "",
+  due_at: todayIso(), notes: "", parent_issue_key: "",
   // On by default — most planned work is meant to become a Jira ticket;
   // still a checkbox, so the exception is one click away.
   create_jira: true,
@@ -728,7 +751,7 @@ function NewTicketDialog({
   const [questionTypeIds, setQuestionTypeIds] = useState<number[]>([]);
   const [customer, setCustomer] = useState("");
   const [count, setCount] = useState("");
-  const [dueAt, setDueAt] = useState(today());
+  const [dueAt, setDueAt] = useState(todayIso());
   const [notes, setNotes] = useState("");
   const [parentIssueKey, setParentIssueKey] = useState("");
   // Same default as the morning plan — on, still a checkbox to opt out.

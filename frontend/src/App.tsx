@@ -5,17 +5,19 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import "./theme.css";
 import "./App.css";
 
+import { api } from "./api";
 import { PeriodPicker } from "./components/PeriodPicker";
 import { Shell } from "./components/Shell";
 import { SyncButton } from "./components/SyncButton";
 import { TodayStrip } from "./components/TodayStrip";
 import { Banner, Skeleton } from "./components/ui";
 import { dmy } from "./format";
+import { useApi, type State } from "./hooks/useApi";
 import { useAuth } from "./hooks/useAuth";
 import { useJiraSync } from "./hooks/useJiraSync";
 import { usePeriod, type Range } from "./hooks/usePeriod";
 import { useTheme } from "./hooks/useTheme";
-import type { CurrentUser } from "./types";
+import type { CurrentUser, TodayStatus } from "./types";
 import { Admin } from "./routes/Admin";
 import { Analytics } from "./routes/Analytics";
 import { ContentHealth } from "./routes/ContentHealth";
@@ -55,7 +57,11 @@ function AdminOnly({ role, children }: { role?: string; children: ReactNode }) {
  * opened alive in memory forever. */
 const MAX_KEPT_ALIVE = 5;
 
-function tabsFor(user: CurrentUser, range: Range): { path: string; element: ReactNode }[] {
+function tabsFor(
+  user: CurrentUser,
+  range: Range,
+  today: State<TodayStatus | null>
+): { path: string; element: ReactNode }[] {
   const role = user.member?.role;
   return [
     { path: "/", element: <Overview range={range} /> },
@@ -68,7 +74,7 @@ function tabsFor(user: CurrentUser, range: Range): { path: string; element: Reac
     { path: "/requests", element: <AdminOnly role={role}><Requests range={range} /></AdminOnly> },
     { path: "/leaderboard", element: <Leaderboard range={range} /> },
     { path: "/skills", element: <SkillGraph me={user.member} /> },
-    { path: "/my-day", element: <MyDay me={user.member} /> },
+    { path: "/my-day", element: <MyDay me={user.member} today={today} /> },
     { path: "/weekly-plan", element: <WeeklyPlan me={user.member} /> },
     { path: "/quick-links", element: <QuickLinks me={user.member} /> },
   ];
@@ -91,9 +97,11 @@ function useKeepAliveOrder(current: string, isTab: boolean, max: number): string
 /** Renders every kept-alive tab (hidden unless active) plus a normal
  * <Routes> for everything that isn't a tab: the dynamic member profile,
  * the off-nav Jira mirror, and the old-URL redirects. */
-function TabPanes({ user, range }: { user: CurrentUser; range: Range }) {
+function TabPanes({
+  user, range, today,
+}: { user: CurrentUser; range: Range; today: State<TodayStatus | null> }) {
   const location = useLocation();
-  const tabs = tabsFor(user, range);
+  const tabs = tabsFor(user, range, today);
   const isTab = tabs.some((t) => t.path === location.pathname);
   const order = useKeepAliveOrder(location.pathname, isTab, MAX_KEPT_ALIVE);
 
@@ -134,6 +142,10 @@ export default function App() {
   // refreshes the screen when it lands. Never blocks the first paint.
   const sync = useJiraSync(!!user);
 
+  // Fetched once here — TodayStrip (on every page) and My Day's leave card
+  // both need it; without this they each fired their own /today request.
+  const today = useApi(() => (user ? api.today() : Promise.resolve(null)), [!!user]);
+
   if (loading) {
     return (
       <div className="wrap">
@@ -154,9 +166,9 @@ export default function App() {
       onLogout={logout}
       aside={<PeriodPicker range={range} />}
       trailing={<SyncButton sync={sync} />}
-      strip={<TodayStrip me={user.member} />}
+      strip={<TodayStrip me={user.member} today={today} />}
     >
-      <TabPanes user={user} range={range} />
+      <TabPanes user={user} range={range} today={today} />
 
       <footer className="footer">
         <span className="live-dot" />
