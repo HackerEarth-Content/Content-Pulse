@@ -469,13 +469,21 @@ async def today_status(
     # Everyone active plans their day, admins included — except whoever's on
     # leave today, who shouldn't be chased for a plan they never meant to file.
     on_leave = await leaves_svc.member_ids_on_leave(db, on)
-    active = {
+    all_active = {
         m: mid
         for mid, m in await db.execute(
             select(Member.id, Member.display_name).where(Member.is_active.is_(True))
         )
-        if mid not in on_leave
     }
+    active = {m: mid for m, mid in all_active.items() if mid not in on_leave}
+    on_leave_today = sorted(
+        (
+            {"member_id": mid, "member": m}
+            for m, mid in all_active.items()
+            if mid in on_leave
+        ),
+        key=lambda x: x["member"],
+    )
 
     # A global holiday means nobody's expected to plan today — the same
     # exclusion `post_roll_call` applies before it decides whether to post.
@@ -543,6 +551,7 @@ async def today_status(
         "team_size": 0 if holiday_today else len(active),
         "holiday": holiday_today,
         "next_holiday": next_holiday,
+        "on_leave_today": on_leave_today,
         "you": you,
     }
 

@@ -13,7 +13,10 @@ router = APIRouter(
 )
 
 
-def _member_required(viewer: Viewer) -> int:
+def _member_required(viewer: Viewer, member_id: int | None) -> int:
+    """Self for anyone; a lead may name another member instead."""
+    if member_id is not None:
+        return viewer.writer_id(member_id)
     if viewer.member is None:
         raise HTTPException(
             403,
@@ -27,26 +30,32 @@ def _member_required(viewer: Viewer) -> int:
 
 @router.get("", response_model=LeaveOut)
 async def my_leaves(
-    db: AsyncSession = Depends(get_session), viewer: Viewer = Depends(get_viewer)
+    member_id: int | None = None,
+    db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
 ):
-    return {"dates": await svc.list_leaves(db, _member_required(viewer))}
+    return {"dates": await svc.list_leaves(db, _member_required(viewer, member_id))}
 
 
 @router.post("", response_model=LeaveOut)
 async def mark_leave(
     body: LeaveDatesIn,
+    member_id: int | None = None,
     db: AsyncSession = Depends(get_session),
     viewer: Viewer = Depends(get_viewer),
 ):
-    dates = await svc.add_leave_dates(db, _member_required(viewer), body.dates)
+    dates = await svc.add_leave_dates(
+        db, _member_required(viewer, member_id), body.dates
+    )
     return {"dates": dates}
 
 
 @router.delete("/{on}", response_model=LeaveOut)
 async def unmark_leave(
     on: date,
+    member_id: int | None = None,
     db: AsyncSession = Depends(get_session),
     viewer: Viewer = Depends(get_viewer),
 ):
-    dates = await svc.remove_leave_date(db, _member_required(viewer), on)
+    dates = await svc.remove_leave_date(db, _member_required(viewer, member_id), on)
     return {"dates": dates}

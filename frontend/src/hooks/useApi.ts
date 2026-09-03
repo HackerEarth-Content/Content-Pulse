@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api";
 import { useDataVersion } from "./useDataVersion";
 
-interface State<T> {
+export interface State<T> {
   data: T | null;
   loading: boolean;
   error: ApiError | null;

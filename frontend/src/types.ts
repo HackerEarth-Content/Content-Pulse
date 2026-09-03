@@ -86,6 +86,8 @@ export interface TodayStatus {
   holiday: string | null;
   /** The soonest upcoming holiday, today included if today is one. */
   next_holiday: Holiday | null;
+  /** Active team members marked off today. */
+  on_leave_today: { member_id: number; member: string }[];
 }
 
 export interface WorkLogRow {
