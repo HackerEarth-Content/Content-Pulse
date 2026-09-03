@@ -42,9 +42,9 @@ function LevelLegend() {
 function categoryAverages(skills: Skill[], ratings: SkillRatings) {
   return CATEGORIES.map((cat) => {
     const catSkills = skills.filter((s) => s.category === cat.key);
-    const rated = catSkills.filter((s) => ratings[s.id] > 0);
-    const avg = rated.length
-      ? rated.reduce((sum, s) => sum + ratings[s.id], 0) / rated.length
+    // ponytail: unrated skills count as 0 in the denominator so averages reflect breadth, not just rated skills
+    const avg = catSkills.length
+      ? catSkills.reduce((sum, s) => sum + (ratings[s.id] ?? 0), 0) / catSkills.length
       : 0;
     return { subject: cat.label, value: Number(avg.toFixed(1)), fullMark: 5 };
   });
@@ -98,14 +98,14 @@ function OverviewTab({ data }: { data: SkillGraphData }) {
   const catAverages = useMemo(() => {
     return CATEGORIES.map((cat) => {
       const catSkills = skills.filter((s) => s.category === cat.key);
-      let sum = 0, count = 0;
+      let sum = 0;
+      const total = catSkills.length * members.length;
       members.forEach((m) =>
         catSkills.forEach((s) => {
-          const level = m.ratings[s.id];
-          if (level > 0) { sum += level; count++; }
+          sum += m.ratings[s.id] ?? 0;
         })
       );
-      return { ...cat, avg: count ? sum / count : 0 };
+      return { ...cat, avg: total ? sum / total : 0 };
     });
   }, [skills, members]);
 
@@ -167,7 +167,7 @@ function OverviewTab({ data }: { data: SkillGraphData }) {
                 );
                 const rated = counts.reduce((a, b) => a + b, 0);
                 const score = rated
-                  ? counts.reduce((sum, c, i) => sum + c * (i + 1), 0) / rated
+                  ? counts.reduce((sum, c, i) => sum + c * (i + 1), 0) / members.length
                   : 0;
                 const peak = Math.max(1, ...counts);
                 return (
