@@ -1452,7 +1452,7 @@ textarea.field {
 .section-sub {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-2);
+  color: var(--ink-2);
   margin: 18px 0 8px;
 }
 
@@ -1489,7 +1489,7 @@ textarea.field {
   gap: 8px;
   cursor: pointer;
   font-size: 13px;
-  color: var(--text-2);
+  color: var(--ink-2);
 }
 .check input {
   width: 15px;
@@ -1498,7 +1498,12 @@ textarea.field {
   cursor: pointer;
 }
 .check:hover {
-  color: var(--text-1);
+  color: var(--ink);
+}
+@media (max-width: 1200px) and (min-width: 901px) {
+  .task-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (max-width: 900px) {
   .task-row {
