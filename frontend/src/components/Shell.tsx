@@ -47,7 +47,7 @@ const LINKS: NavItem[] = [
   { to: "/analytics", label: "Insights", roles: ["admin"],
     title: "Delivery, timing, customers and data quality",
     icon: icon("M3 3v18h18M7 15l4-5 3 3 5-7") },
-  { to: "/content-health", label: "Content Health", roles: ["admin"],
+  { to: "/content-health", label: "Content Health",
     title: "Candidate usage, feedback and topic coverage for the question library",
     icon: icon("M12 21s-7-4.35-9.5-9A5.5 5.5 0 0112 6a5.5 5.5 0 019.5 6c-2.5 4.65-9.5 9-9.5 9z") },
   { to: "/plan-board", label: "Plan board", roles: ["admin", "manager"],

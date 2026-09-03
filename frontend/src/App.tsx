@@ -40,8 +40,7 @@ const REVIEW_FORM_URL =
 
 /** Nav already hides the link for anyone but an admin; this is the same
  * check applied to the route itself, so pasting the URL doesn't get you
- * further than a "no access" banner — the backend refuses the data either
- * way. */
+ * further than a "no access" banner. */
 function AdminOnly({ role, children }: { role?: string; children: ReactNode }) {
   if (role !== "admin") {
     return <Banner tone="warn">No access — this section is limited to admins.</Banner>;
@@ -67,7 +66,7 @@ function tabsFor(
     { path: "/", element: <Overview range={range} /> },
     { path: "/work-log", element: <WorkLog range={range} me={user.member} /> },
     { path: "/analytics", element: <AdminOnly role={role}><Analytics range={range} /></AdminOnly> },
-    { path: "/content-health", element: <AdminOnly role={role}><ContentHealth /></AdminOnly> },
+    { path: "/content-health", element: <ContentHealth /> },
     { path: "/members", element: <Members range={range} /> },
     { path: "/admin", element: <Admin /> },
     { path: "/plan-board", element: <PlanBoard /> },
