@@ -485,3 +485,29 @@ export interface ContentHealthCompanies {
   value_label: string | null;
   companies: { company: string; value: number | null }[];
 }
+
+/** Weekly-vs-monthly view over the synced "Content Issue" Jira request type —
+ *  `daily` is only used by the monthly view's trend charts. */
+export interface ContentIssueOverview {
+  total: number;
+  valid_count: number;
+  invalid_count: number;
+  customer_count: number;
+  platform_count: number;
+  unknown_count: number;
+  impact: { tests_impacted: number; candidates_impacted: number; customers_impacted: number };
+  setters: {
+    setter: string;
+    setter_last_modified: string;
+    count: number;
+    issues: { issue_key: string; url: string }[];
+  }[];
+  daily: {
+    date: string;
+    valid: number;
+    invalid: number;
+    customer: number;
+    platform_issue: number;
+    unknown: number;
+  }[];
+}

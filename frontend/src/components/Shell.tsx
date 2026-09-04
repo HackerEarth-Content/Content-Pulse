@@ -53,6 +53,9 @@ const LINKS: NavItem[] = [
   { to: "/plan-board", label: "Plan board", roles: ["admin", "manager"],
     title: "Who's filed a plan and logged an update today",
     icon: icon("M3 10h18M7 3v4M17 3v4M5 6h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2zM7 14h2M11 14h2M15 14h2M7 17h2M11 17h2") },
+  { to: "/content-issue-analysis", label: "Content Issue Analysis",
+    title: "Valid/invalid/customer content issues from Jira, by week or month",
+    icon: icon("M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z") },
 ];
 
 const SETTINGS: NavItem = {

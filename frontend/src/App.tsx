@@ -21,6 +21,7 @@ import type { CurrentUser, TodayStatus } from "./types";
 import { Admin } from "./routes/Admin";
 import { Analytics } from "./routes/Analytics";
 import { ContentHealth } from "./routes/ContentHealth";
+import { ContentIssueAnalysis } from "./routes/ContentIssueAnalysis";
 import { ContentRequests } from "./routes/ContentRequests";
 import { Leaderboard } from "./routes/Leaderboard";
 import { Requests } from "./routes/Requests";
@@ -67,6 +68,7 @@ function tabsFor(
     { path: "/work-log", element: <WorkLog range={range} me={user.member} /> },
     { path: "/analytics", element: <AdminOnly role={role}><Analytics range={range} /></AdminOnly> },
     { path: "/content-health", element: <ContentHealth /> },
+    { path: "/content-issue-analysis", element: <ContentIssueAnalysis /> },
     { path: "/members", element: <Members range={range} /> },
     { path: "/admin", element: <Admin /> },
     { path: "/plan-board", element: <PlanBoard /> },

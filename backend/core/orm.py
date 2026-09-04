@@ -531,6 +531,32 @@ class ContentRequest(Base):
     synced_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
+class ContentIssue(Base):
+    """Mirror of Jira's "Content Issue" request type (project TCE, issue type
+    Content Requests) — the raw feed behind the weekly Slack digest and the
+    Content Issue Analysis tab. One row per issue, full-resynced each run
+    like `ContentRequest`; weekly vs. monthly is just a `created_at` range
+    read back at query time, not separate snapshot rows."""
+
+    __tablename__ = "content_issues"
+    __table_args__ = (
+        Index("ix_content_issues_created", "created_at"),
+        Index("ix_content_issues_status", "content_issue_status"),
+    )
+
+    issue_key: Mapped[str] = mapped_column(primary_key=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    content_issue_status: Mapped[str]
+    setter: Mapped[str | None]
+    setter_last_modified: Mapped[str | None]
+    test_slugs_impacted: Mapped[int] = mapped_column(default=0)
+    candidates_impacted: Mapped[int] = mapped_column(default=0)
+    customers_impacted: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime | None]
+    url: Mapped[str]
+    synced_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
 class SyncCursor(Base):
     __tablename__ = "sync_cursors"
 

@@ -1953,6 +1953,58 @@ td.heat {
   color: var(--ink-3);
 }
 
+/* ── Content Issue Analysis: valid issues by setter ──────────────────────── */
+
+.setter-list {
+  display: flex;
+  flex-direction: column;
+}
+.setter-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.setter-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.setter-row-main {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+.setter-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.setter-modified {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.setter-issue-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.setter-issue-links .tag {
+  font-size: 12.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+/* Each link is its own hover target — highlighting one must never dim or
+   shade its siblings, so this only ever touches the exact `.tag` under the
+   pointer. */
+.setter-issue-links .tag:hover {
+  background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
+  text-decoration: none;
+}
+
 /* A one-line reading of what the numbers mean, above the detail. */
 .insight {
   display: flex;
