@@ -16,7 +16,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from core.config import settings
 from core.dates import TZ, month_bounds, today, week_bounds
 from integrations import email, jira, slack
-from services import content_health, content_requests
+from services import content_health, content_issues, content_requests
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +75,17 @@ async def _sync_content_health() -> None:
         log.info("content health sync: %s", await content_health.sync(frm, to))
     except Exception:
         log.exception("content health sync failed")
+
+
+async def _sync_content_issues() -> None:
+    """Friday refresh of the Content Issue Analysis tab's data — a full
+    re-mirror (see content_issues.sync's docstring), not incremental, so
+    weekly is plenty; a person can also force it from the tab's sync button
+    (POST /api/content-issues/sync)."""
+    try:
+        log.info("content issue sync: %s", await content_issues.sync(True))
+    except Exception:
+        log.exception("content issue sync failed")
 
 
 async def _sweep_jira() -> None:
@@ -192,6 +203,13 @@ def start() -> AsyncIOScheduler:
         _sync_content_health,
         IntervalTrigger(days=15),
         id="content_health",
+        max_instances=1,
+        coalesce=True,
+    )
+    s.add_job(
+        _sync_content_issues,
+        CronTrigger(hour=18, minute=0, day_of_week="fri", timezone=TZ),
+        id="content_issues",
         max_instances=1,
         coalesce=True,
     )

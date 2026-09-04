@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 from api.analytics_routes import router as analytics_router
 from api.auth_routes import router as auth_router
 from api.content_health_routes import router as content_health_router
+from api.content_issue_routes import router as content_issue_router
 from api.integrations_routes import router as integrations_router
 from api.intake_routes import router as intake_router
 from api.entries_routes import router as entries_router
@@ -74,6 +75,7 @@ app.include_router(members_router)
 app.include_router(entries_router)
 app.include_router(analytics_router)
 app.include_router(content_health_router)
+app.include_router(content_issue_router)
 app.include_router(integrations_router)
 app.include_router(intake_router)
 app.include_router(export_router)

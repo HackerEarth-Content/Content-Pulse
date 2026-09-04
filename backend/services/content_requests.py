@@ -8,7 +8,7 @@ timer instead, which also makes created-vs-resolved trends possible at all.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -174,7 +174,10 @@ async def query(
     if frm:
         where.append(ContentRequest.created_at >= frm)
     if to:
-        where.append(func.date(ContentRequest.created_at) <= to)
+        # A plain upper-bound comparison, not `func.date(created_at) <= to` —
+        # wrapping the column in a function stops Postgres from using
+        # ix_cr_created and forces a sequential scan on every request.
+        where.append(ContentRequest.created_at < to + timedelta(days=1))
     if q:
         where.append(ContentRequest.summary.ilike(f"%{q}%"))
 
@@ -237,9 +240,9 @@ async def facets(db) -> dict:
 async def stats(db, frm: date | None = None, to: date | None = None) -> dict:
     where = []
     if frm:
-        where.append(func.date(ContentRequest.created_at) >= frm)
+        where.append(ContentRequest.created_at >= frm)
     if to:
-        where.append(func.date(ContentRequest.created_at) <= to)
+        where.append(ContentRequest.created_at < to + timedelta(days=1))
 
     async def group(column):
         return [

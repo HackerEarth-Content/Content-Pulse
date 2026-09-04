@@ -6,6 +6,7 @@ import type {
   ContentHealthCompanies,
   ContentHealthCoverage,
   ContentHealthOverview,
+  ContentIssueOverview,
   EffortBreakdown,
   QualityMix,
   ContentRequest,
@@ -282,4 +283,7 @@ export const api = {
     get<ContentHealthCompanies>("/content-health/companies", { ...p, problem_type: problemType }),
   syncRedash: (p: Params) =>
     request<{ started: boolean }>(`/integrations/redash/sync${qs(p)}`, { method: "POST" }),
+
+  contentIssuesOverview: (p: Params) => get<ContentIssueOverview>("/content-issues/overview", p),
+  syncContentIssues: () => request<{ started: boolean }>("/content-issues/sync", { method: "POST" }),
 };

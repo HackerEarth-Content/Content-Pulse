@@ -321,9 +321,20 @@ async def sync(from_date: date, till_date: date) -> dict:
             top = top10_results.get(t)
             top_rows, value_label = [], None
             if top and top.get("rows"):
-                valcol = next(
-                    (c["name"] for c in top["columns"] if c["name"] != "Company"), None
-                )
+                non_company = [
+                    c["name"] for c in top["columns"] if c["name"] != "Company"
+                ]
+                if len(non_company) > 1:
+                    log.warning(
+                        "top10 query %s (%s) returned %d non-Company columns %s — "
+                        "picking %r, verify this is still the right metric",
+                        redash.QUERIES["top10"]["id"],
+                        t,
+                        len(non_company),
+                        non_company,
+                        non_company[0],
+                    )
+                valcol = non_company[0] if non_company else None
                 if valcol:
                     value_label = valcol
                     ranked = sorted(
