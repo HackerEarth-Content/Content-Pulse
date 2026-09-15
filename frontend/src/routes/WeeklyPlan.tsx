@@ -38,6 +38,7 @@ function mondayOfInputValue(v: string): string {
   return mondayOf(new Date(y, m - 1, d));
 }
 const isFriday = () => istNow().getDay() === 5;
+const initial = (name: string) => (name.slice(0, 1) || "?").toUpperCase();
 
 type AddWindow = "monday" | "friday" | "closed";
 
@@ -159,7 +160,7 @@ function WeeklyPlanTable({
   const [adding, setAdding] = useState(false);
 
   return (
-    <div className="table-scroll day-table">
+    <div className="table-scroll day-table wp-table">
       <table>
         <thead>
           <tr>
@@ -195,7 +196,9 @@ function WeeklyPlanTable({
             ) : (
               <tr>
                 <td colSpan={4}>
-                  <button className="btn btn-secondary" onClick={() => setAdding(true)}>+ Add item</button>
+                  <button className="btn btn-secondary wp-add-trigger" onClick={() => setAdding(true)}>
+                    + Add item
+                  </button>
                 </td>
               </tr>
             )
@@ -219,8 +222,8 @@ function AddItemRow({
     setSaving(true);
     try {
       await api.createWeeklyPlanItem(monday, action);
-      setAction("");
       onAdded();
+      onDone();
     } catch (e) {
       setError(e as ApiError);
     } finally {
@@ -229,8 +232,13 @@ function AddItemRow({
   }
 
   return (
-    <tr>
-      <td className="strong">{meName}</td>
+    <tr className="wp-row-editing">
+      <td className="strong">
+        <span className="wp-person">
+          <span className="wp-avatar" aria-hidden="true">{initial(meName)}</span>
+          {meName}
+        </span>
+      </td>
       <td className="text">
         <RichText value={action} onChange={setAction} placeholder="What are you picking up this week?" />
         {error ? <Banner tone="error">{error.message}</Banner> : null}
@@ -241,7 +249,6 @@ function AddItemRow({
       <td>
         <span className={`pill pill-${PILL_KEY.yet_to_start}`}>{STATUS_LABEL.yet_to_start}</span>
         <div className="btn-row" style={{ marginTop: 6 }}>
-          <button className="btn btn-secondary" onClick={onDone}>Done</button>
           <button className="btn btn-primary" disabled={saving || isBlankHtml(action)} onClick={add}>
             {saving ? "Adding…" : "Add"}
           </button>
@@ -294,7 +301,12 @@ function WeeklyPlanRow({
 
   return (
     <tr>
-      <td className="strong">{item.member}</td>
+      <td className="strong">
+        <span className="wp-person">
+          <span className="wp-avatar" aria-hidden="true">{initial(item.member)}</span>
+          {item.member}
+        </span>
+      </td>
       <td className="text"><RichText value={item.action} readOnly /></td>
       <td className="text">
         {editable && achievementsOpen ? (

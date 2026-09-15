@@ -862,6 +862,72 @@ textarea.field {
   margin-bottom: 2px;
 }
 
+/* Weekly plan only — `.day-table` is shared with My Day's read-only ticket
+   table, so anything specific to the editable rich-text rows here (padding,
+   fixed columns) lives under its own class instead of leaking there. */
+.wp-table td {
+  padding-top: 13px;
+  padding-bottom: 13px;
+}
+/* Auto table layout renegotiates every column's width from all rows' content
+   on every keystroke — typing in one row visibly reflowed the whole table,
+   width and all, including rows you weren't touching. Fixed widths mean a
+   growing rich-text field can only grow taller, never wider. */
+.wp-table table {
+  table-layout: fixed;
+}
+.wp-table th:nth-child(1),
+.wp-table td:nth-child(1) {
+  width: 18%;
+}
+.wp-table th:nth-child(2),
+.wp-table td:nth-child(2) {
+  width: 38%;
+}
+.wp-table th:nth-child(3),
+.wp-table td:nth-child(3) {
+  width: 28%;
+}
+.wp-table th:nth-child(4),
+.wp-table td:nth-child(4) {
+  width: 16%;
+}
+.wp-table .richtext-field,
+.wp-table .richtext-readonly {
+  overflow-wrap: anywhere;
+}
+.wp-person {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+/* Same "initial, not a photo" language as .profile-avatar, sized down for a
+   table row rather than a page header. */
+.wp-avatar {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent-aqua) 16%, var(--surface-2));
+  color: var(--accent-aqua);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+/* The row being actively typed into — a faint tint marks it apart from the
+   read-only rows above it without a full border/box around the table. */
+.wp-row-editing td {
+  background: color-mix(in srgb, var(--accent-aqua) 5%, var(--surface));
+}
+.wp-add-trigger {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  border-style: dashed;
+}
+
 /* ── person header ───────────────────────────────────────────────────────── */
 
 .profile-head {
