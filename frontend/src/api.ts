@@ -38,6 +38,7 @@ import type {
   SkillWindow,
   WeeklyPlanCompletion,
   WeeklyPlanItem,
+  WeeklyPlanOverride,
   WorkLogRow,
 } from "./types";
 
@@ -245,6 +246,10 @@ export const api = {
     send<WeeklyPlanItem>("PATCH", `/weekly-plan/items/${id}`, body),
   weeklyPlanCompletion: (week: string) =>
     get<WeeklyPlanCompletion>("/weekly-plan/completion", { week }),
+  weeklyPlanOverride: () => get<WeeklyPlanOverride>("/weekly-plan/override"),
+  openWeeklyPlanOverride: (phase: "monday" | "friday") =>
+    send<WeeklyPlanOverride>("POST", "/weekly-plan/override", { phase }),
+  closeWeeklyPlanOverride: () => send<void>("DELETE", "/weekly-plan/override"),
 
   skills: () => get<Skill[]>("/skills"),
   createSkill: (body: { name: string; category: string; sub_domain?: string | null; sort_order?: number }) =>

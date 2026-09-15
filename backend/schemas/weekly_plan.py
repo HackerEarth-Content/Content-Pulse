@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -49,3 +50,14 @@ class WeeklyPlanCompletionOut(BaseModel):
     active: int
     filed: int
     updated: int
+
+
+class WeeklyPlanOverrideIn(BaseModel):
+    phase: Literal["monday", "friday"]
+
+
+class WeeklyPlanOverrideOut(BaseModel):
+    phase: Literal["monday", "friday"] | None = None
+    opened_by: str | None = None
+    opened_at: datetime | None = None
+    expires_at: datetime | None = None

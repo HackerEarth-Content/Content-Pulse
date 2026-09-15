@@ -38,17 +38,23 @@ function mondayOfInputValue(v: string): string {
   return mondayOf(new Date(y, m - 1, d));
 }
 const isFriday = () => istNow().getDay() === 5;
+const initial = (name: string) => (name.slice(0, 1) || "?").toUpperCase();
 
 type AddWindow = "monday" | "friday" | "closed";
 
 /** New items only: open all day Monday (files the week) and all day Friday
  * (adds anything unplanned) — matches the backend's day-only guard in
  * services/weekly_plan.py. Status changes (below) aren't gated by this at
- * all — they're open the whole week. */
-function addWindowNow(): { window: AddWindow; hint: string } {
+ * all — they're open the whole week. An admin override (e.g. Monday was a
+ * holiday) stands in for either day until it self-expires at midnight. */
+function addWindowNow(overridePhase: "monday" | "friday" | null): { window: AddWindow; hint: string } {
   const day = istNow().getDay();
+  const overrideHint = "Opened early by an admin — new items open now.";
   if (day === 1) return { window: "monday", hint: "New items open all day today." };
   if (day === 5) return { window: "friday", hint: "New items open all day today." };
+  if (overridePhase === "monday" || overridePhase === "friday") {
+    return { window: overridePhase, hint: overrideHint };
+  }
   if (day === 6 || day === 0) return { window: "closed", hint: "New items open Monday." };
   return { window: "closed", hint: "New items open Friday." };
 }
@@ -64,7 +70,10 @@ export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
   // Leads aren't pinned to the current week — anyone else still only ever
   // has their own week to look at, so there's nothing for them to pick.
   const [week, setWeek] = useState(() => mondayOf(istNow()));
-  const { window: addWindow, hint } = addWindowNow();
+  const override = useApi(() => api.weeklyPlanOverride(), []);
+  const overridePhase = override.data?.phase ?? null;
+  const { window: addWindow, hint } = addWindowNow(overridePhase);
+  const achievementsOpen = isFriday() || overridePhase === "friday";
 
   const items = useApi(
     () => {
@@ -127,6 +136,7 @@ export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
           items={items.data ?? []}
           editable={viewingSelf}
           addWindow={addWindow}
+          achievementsOpen={achievementsOpen}
           monday={week}
           meName={me.display_name}
           onChange={items.reload}
@@ -137,11 +147,12 @@ export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
 }
 
 function WeeklyPlanTable({
-  items, editable, addWindow, monday, meName, onChange,
+  items, editable, addWindow, achievementsOpen, monday, meName, onChange,
 }: {
   items: WeeklyPlanItem[];
   editable: boolean;
   addWindow: AddWindow;
+  achievementsOpen: boolean;
   monday: string;
   meName: string;
   onChange: () => void;
@@ -149,7 +160,7 @@ function WeeklyPlanTable({
   const [adding, setAdding] = useState(false);
 
   return (
-    <div className="table-scroll day-table">
+    <div className="table-scroll day-table wp-table">
       <table>
         <thead>
           <tr>
@@ -161,7 +172,13 @@ function WeeklyPlanTable({
         </thead>
         <tbody>
           {items.map((item) => (
-            <WeeklyPlanRow key={item.id} item={item} editable={editable} onChange={onChange} />
+            <WeeklyPlanRow
+              key={item.id}
+              item={item}
+              editable={editable}
+              achievementsOpen={achievementsOpen}
+              onChange={onChange}
+            />
           ))}
           {items.length === 0 && !adding ? (
             <tr>
@@ -179,7 +196,9 @@ function WeeklyPlanTable({
             ) : (
               <tr>
                 <td colSpan={4}>
-                  <button className="btn btn-secondary" onClick={() => setAdding(true)}>+ Add item</button>
+                  <button className="btn btn-secondary wp-add-trigger" onClick={() => setAdding(true)}>
+                    + Add item
+                  </button>
                 </td>
               </tr>
             )
@@ -203,8 +222,8 @@ function AddItemRow({
     setSaving(true);
     try {
       await api.createWeeklyPlanItem(monday, action);
-      setAction("");
       onAdded();
+      onDone();
     } catch (e) {
       setError(e as ApiError);
     } finally {
@@ -213,8 +232,13 @@ function AddItemRow({
   }
 
   return (
-    <tr>
-      <td className="strong">{meName}</td>
+    <tr className="wp-row-editing">
+      <td className="strong">
+        <span className="wp-person">
+          <span className="wp-avatar" aria-hidden="true">{initial(meName)}</span>
+          {meName}
+        </span>
+      </td>
       <td className="text">
         <RichText value={action} onChange={setAction} placeholder="What are you picking up this week?" />
         {error ? <Banner tone="error">{error.message}</Banner> : null}
@@ -225,7 +249,6 @@ function AddItemRow({
       <td>
         <span className={`pill pill-${PILL_KEY.yet_to_start}`}>{STATUS_LABEL.yet_to_start}</span>
         <div className="btn-row" style={{ marginTop: 6 }}>
-          <button className="btn btn-secondary" onClick={onDone}>Done</button>
           <button className="btn btn-primary" disabled={saving || isBlankHtml(action)} onClick={add}>
             {saving ? "Adding…" : "Add"}
           </button>
@@ -236,15 +259,14 @@ function AddItemRow({
 }
 
 function WeeklyPlanRow({
-  item, editable, onChange,
-}: { item: WeeklyPlanItem; editable: boolean; onChange: () => void }) {
+  item, editable, achievementsOpen, onChange,
+}: { item: WeeklyPlanItem; editable: boolean; achievementsOpen: boolean; onChange: () => void }) {
   const [status, setStatus] = useState<WeeklyPlanStatus>(item.status);
   const [achievement, setAchievement] = useState(item.achievement ?? "");
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingAchievement, setSavingAchievement] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
 
-  const friday = isFriday();
   const statusOptions = Array.from(new Set([item.status, ...SETTABLE_STATUSES]));
   const achievementChanged = achievement !== (item.achievement ?? "");
 
@@ -279,10 +301,15 @@ function WeeklyPlanRow({
 
   return (
     <tr>
-      <td className="strong">{item.member}</td>
+      <td className="strong">
+        <span className="wp-person">
+          <span className="wp-avatar" aria-hidden="true">{initial(item.member)}</span>
+          {item.member}
+        </span>
+      </td>
       <td className="text"><RichText value={item.action} readOnly /></td>
       <td className="text">
-        {editable && friday ? (
+        {editable && achievementsOpen ? (
           <>
             <RichText value={achievement} onChange={setAchievement} placeholder="What came of it?" />
             {achievementChanged ? (

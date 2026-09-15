@@ -1,7 +1,7 @@
 """Weekly plan: one action per person per week, no tickets, no Jira. New items
 only Monday/Friday; status moves any day; achievements only on Friday."""
 
-from datetime import date
+from datetime import date, datetime, time
 
 import pytest
 
@@ -15,19 +15,25 @@ TUESDAY = date(2026, 8, 18)
 FRIDAY = date(2026, 8, 21)
 
 
+# `today` and `now` are mocked together — the override's expiry (computed
+# from `now()`) has to land on the same fake calendar day as `today()`, or a
+# fake day in the past reads as already-expired against the real wall clock.
 @pytest.fixture
 def as_monday(monkeypatch):
     monkeypatch.setattr(svc, "today", lambda: MONDAY)
+    monkeypatch.setattr(svc, "now", lambda: datetime.combine(MONDAY, time(10, 0)))
 
 
 @pytest.fixture
 def as_tuesday(monkeypatch):
     monkeypatch.setattr(svc, "today", lambda: TUESDAY)
+    monkeypatch.setattr(svc, "now", lambda: datetime.combine(TUESDAY, time(10, 0)))
 
 
 @pytest.fixture
 def as_friday(monkeypatch):
     monkeypatch.setattr(svc, "today", lambda: FRIDAY)
+    monkeypatch.setattr(svc, "now", lambda: datetime.combine(FRIDAY, time(10, 0)))
 
 
 async def test_new_item_defaults_to_yet_to_start(client, member, as_monday):
@@ -208,3 +214,83 @@ async def test_completion_requires_a_lead(as_ada):  # noqa: F811
     c, _ = as_ada
     r = await c.get("/api/weekly-plan/completion", params={"week": MONDAY.isoformat()})
     assert r.status_code == 403
+
+
+async def test_override_opens_add_window_on_an_ordinary_day(client, member, as_tuesday):
+    r = await client.post("/api/weekly-plan/override", json={"phase": "monday"})
+    assert r.status_code == 200, r.text
+    assert r.json()["phase"] == "monday"
+
+    r = await client.post(
+        "/api/weekly-plan/items",
+        json={"week_start": MONDAY.isoformat(), "action": "late-filed via override"},
+    )
+    assert r.status_code == 201
+
+
+async def test_override_unlocks_friday_achievements_on_an_ordinary_day(
+    client, member, as_tuesday
+):
+    await client.post("/api/weekly-plan/override", json={"phase": "friday"})
+    created = (
+        await client.post(
+            "/api/weekly-plan/items",
+            json={"week_start": MONDAY.isoformat(), "action": "a"},
+        )
+    ).json()
+
+    r = await client.patch(
+        f"/api/weekly-plan/items/{created['id']}", json={"achievement": "shipped it"}
+    )
+    assert r.status_code == 200
+    assert r.json()["achievement"] == "shipped it"
+
+
+async def test_override_refused_when_the_day_is_already_open(client, member, as_monday):
+    r = await client.post("/api/weekly-plan/override", json={"phase": "monday"})
+    assert r.status_code == 409
+    assert r.json()["detail"]["code"] == "already_open"
+
+
+async def test_override_requires_admin(as_ada, as_tuesday):  # noqa: F811
+    c, _ = as_ada
+    r = await c.post("/api/weekly-plan/override", json={"phase": "monday"})
+    assert r.status_code == 403
+
+
+async def test_override_can_be_closed_early(client, member, as_tuesday):
+    await client.post("/api/weekly-plan/override", json={"phase": "monday"})
+    r = await client.delete("/api/weekly-plan/override")
+    assert r.status_code == 204
+
+    r = await client.get("/api/weekly-plan/override")
+    assert r.json()["phase"] is None
+
+    r = await client.post(
+        "/api/weekly-plan/items",
+        json={"week_start": MONDAY.isoformat(), "action": "late add"},
+    )
+    assert r.status_code == 422
+
+
+async def test_override_self_expires_past_the_day_it_was_opened(
+    client, member, monkeypatch
+):
+    monkeypatch.setattr(svc, "today", lambda: TUESDAY)
+    monkeypatch.setattr(svc, "now", lambda: datetime.combine(TUESDAY, time(10, 0)))
+    r = await client.post("/api/weekly-plan/override", json={"phase": "monday"})
+    assert r.status_code == 200
+
+    # A new day arrives — an override opened on Tuesday must not still cover
+    # Wednesday, or a forgotten toggle would silently reopen filing forever.
+    WEDNESDAY = date(2026, 8, 19)
+    monkeypatch.setattr(svc, "today", lambda: WEDNESDAY)
+    monkeypatch.setattr(svc, "now", lambda: datetime.combine(WEDNESDAY, time(10, 0)))
+    r = await client.get("/api/weekly-plan/override")
+    assert r.json()["phase"] is None
+
+    r = await client.post(
+        "/api/weekly-plan/items",
+        json={"week_start": MONDAY.isoformat(), "action": "late add"},
+    )
+    assert r.status_code == 422

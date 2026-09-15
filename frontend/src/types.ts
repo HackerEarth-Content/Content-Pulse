@@ -397,6 +397,13 @@ export interface WeeklyPlanItem {
   updated_at: string;
 }
 
+export interface WeeklyPlanOverride {
+  phase: "monday" | "friday" | null;
+  opened_by: string | null;
+  opened_at: string | null;
+  expires_at: string | null;
+}
+
 export interface WeeklyPlanCompletion {
   active: number;
   filed: number;
