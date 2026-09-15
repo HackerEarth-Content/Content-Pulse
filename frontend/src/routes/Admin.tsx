@@ -592,6 +592,98 @@ function HolidayEditor() {
   );
 }
 
+function istWeekday(): number {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })).getDay();
+}
+
+/** A manual escape hatch for "Monday was a holiday, the team's still
+ * offline" — opens the Mon/Fri weekly-plan filing window on any other day,
+ * self-expiring at midnight so it never bleeds into an unrelated day. */
+function WeeklyPlanOverrideCard() {
+  const override = useApi(() => api.weeklyPlanOverride(), []);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [busy, setBusy] = useState<"monday" | "friday" | "close" | "">("");
+
+  const day = istWeekday();
+  const naturallyOpen = day === 1 ? "monday" : day === 5 ? "friday" : null;
+
+  async function open(phase: "monday" | "friday") {
+    const ok = confirm(
+      `Open the ${phase === "monday" ? "Monday plan-filing" : "Friday achievements"} window ` +
+        "right now, for the whole team, ahead of its normal schedule?"
+    );
+    if (!ok) return;
+    setError(null);
+    setBusy(phase);
+    try {
+      await api.openWeeklyPlanOverride(phase);
+      override.reload();
+    } catch (e) {
+      setError(e as ApiError);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function close() {
+    setError(null);
+    setBusy("close");
+    try {
+      await api.closeWeeklyPlanOverride();
+      override.reload();
+    } catch (e) {
+      setError(e as ApiError);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <Card
+      title="Weekly plan override"
+      sub="open the Monday/Friday filing window early — e.g. Monday was a holiday and the team was offline"
+    >
+      {error ? <Banner tone="error">{error.message}</Banner> : null}
+
+      <Async loading={override.loading} error={override.error} data={override.data}>
+        {(state) =>
+          state.phase ? (
+            <div className="admin-row">
+              <span>
+                <strong>{state.phase === "monday" ? "Monday plan filing" : "Friday achievements"}</strong>{" "}
+                is open early{state.opened_by ? ` — opened by ${state.opened_by}` : ""}.
+              </span>
+              <span className="muted">Closes automatically at midnight.</span>
+              <button className="section-action" disabled={busy === "close"} onClick={close}>
+                {busy === "close" ? "Closing…" : "Close now"}
+              </button>
+            </div>
+          ) : (
+            <div className="btn-row">
+              <button
+                className="btn btn-secondary"
+                disabled={!!busy || naturallyOpen === "monday"}
+                title={naturallyOpen === "monday" ? "It's already Monday" : undefined}
+                onClick={() => open("monday")}
+              >
+                {busy === "monday" ? "Opening…" : "Open Monday plan now"}
+              </button>
+              <button
+                className="btn btn-secondary"
+                disabled={!!busy || naturallyOpen === "friday"}
+                title={naturallyOpen === "friday" ? "It's already Friday" : undefined}
+                onClick={() => open("friday")}
+              >
+                {busy === "friday" ? "Opening…" : "Open Friday achievements now"}
+              </button>
+            </div>
+          )
+        }
+      </Async>
+    </Card>
+  );
+}
+
 function Integrations() {
   const sync = useApi(() => api.syncStatus(), []);
   const [note, setNote] = useState<string | null>(null);
@@ -723,6 +815,9 @@ export function Admin() {
       </div>
       <div style={{ marginTop: 12 }}>
         <HolidayEditor />
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <WeeklyPlanOverrideCard />
       </div>
       <div style={{ marginTop: 12 }}>
         <Integrations />

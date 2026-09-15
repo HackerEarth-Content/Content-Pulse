@@ -8,18 +8,25 @@ on a Friday.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time
 
 from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.dates import today
-from core.orm import Member, WeeklyPlanItem
+from core.dates import now, today
+from core.orm import IntegrationSetting, Member, WeeklyPlanItem
 
 # `yet_to_start` is a creation-only default — nothing may PATCH an item back
 # to it, and nothing may PATCH an item to it in the first place.
 SETTABLE_STATUSES = ("in_progress", "blocked", "completed")
+
+# One admin-set row, same `integration_settings` mechanism as holidays/skill
+# window — a manual escape hatch for "Monday was a holiday, the team's still
+# offline, open the window now" without touching the Mon/Fri schedule itself.
+OVERRIDE_KEY = "weekly_plan_override"
+OVERRIDE_PHASES = ("monday", "friday")
+_OVERRIDE_NATURAL_WEEKDAY = {"monday": 0, "friday": 4}
 
 
 def err(status_code: int, code: str, detail: str, **extra) -> HTTPException:
@@ -30,15 +37,69 @@ def is_friday() -> bool:
     return today().weekday() == 4
 
 
-def _guard_add_window() -> None:
-    # Monday (filing) or Friday (extra rows) only — see WeeklyPlan.tsx for the
-    # matching client-side time-of-day narrowing within those two days.
-    if today().weekday() not in (0, 4):
+async def _override_setting(db: AsyncSession) -> IntegrationSetting:
+    row = await db.get(IntegrationSetting, OVERRIDE_KEY)
+    if row is None:
+        row = IntegrationSetting(key=OVERRIDE_KEY, value={})
+        db.add(row)
+        await db.commit()
+    return row
+
+
+async def override_state(db: AsyncSession) -> dict:
+    """The active override, if any. Self-expires at the end of the day it was
+    opened — same as the natural Mon/Fri window closing at midnight — so a
+    forgotten override can never bleed into an unrelated day or week."""
+    row = await _override_setting(db)
+    value = row.value
+    if value and datetime.fromisoformat(value["expires_at"]) <= now():
+        value = {}
+        row.value = value
+        await db.commit()
+    return value
+
+
+async def _active_override_phase(db: AsyncSession) -> str | None:
+    return (await override_state(db)).get("phase")
+
+
+async def open_override(db: AsyncSession, phase: str, opened_by: str) -> dict:
+    if phase not in OVERRIDE_PHASES:
         raise err(
-            422,
-            "window_closed",
-            "Weekly plan items can only be added Monday or Friday.",
+            422, "bad_phase", f"Phase must be one of: {', '.join(OVERRIDE_PHASES)}."
         )
+    if today().weekday() == _OVERRIDE_NATURAL_WEEKDAY[phase]:
+        raise err(409, "already_open", f"It's already {phase} — no override needed.")
+    row = await _override_setting(db)
+    row.value = {
+        "phase": phase,
+        "opened_by": opened_by,
+        "opened_at": now().isoformat(),
+        "expires_at": datetime.combine(today(), time(23, 59, 59)).isoformat(),
+    }
+    await db.commit()
+    return row.value
+
+
+async def close_override(db: AsyncSession) -> None:
+    row = await _override_setting(db)
+    row.value = {}
+    await db.commit()
+
+
+async def _guard_add_window(db: AsyncSession) -> None:
+    # Monday (filing) or Friday (extra rows) only — see WeeklyPlan.tsx for the
+    # matching client-side time-of-day narrowing within those two days. An
+    # active admin override stands in for either day.
+    if today().weekday() in (0, 4):
+        return
+    if await _active_override_phase(db):
+        return
+    raise err(
+        422,
+        "window_closed",
+        "Weekly plan items can only be added Monday or Friday.",
+    )
 
 
 async def list_items(
@@ -78,7 +139,7 @@ async def create_item(
     week_start: date,
     action: str,
 ) -> WeeklyPlanItem:
-    _guard_add_window()
+    await _guard_add_window(db)
     item = WeeklyPlanItem(
         member_id=member_id, week_start=week_start, action=action.strip()
     )
@@ -110,7 +171,7 @@ async def patch_item(
         item.status = status
 
     if achievement is not None:
-        if not is_friday():
+        if not is_friday() and await _active_override_phase(db) != "friday":
             raise err(
                 422,
                 "achievements_locked",

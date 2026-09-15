@@ -44,11 +44,16 @@ type AddWindow = "monday" | "friday" | "closed";
 /** New items only: open all day Monday (files the week) and all day Friday
  * (adds anything unplanned) — matches the backend's day-only guard in
  * services/weekly_plan.py. Status changes (below) aren't gated by this at
- * all — they're open the whole week. */
-function addWindowNow(): { window: AddWindow; hint: string } {
+ * all — they're open the whole week. An admin override (e.g. Monday was a
+ * holiday) stands in for either day until it self-expires at midnight. */
+function addWindowNow(overridePhase: "monday" | "friday" | null): { window: AddWindow; hint: string } {
   const day = istNow().getDay();
+  const overrideHint = "Opened early by an admin — new items open now.";
   if (day === 1) return { window: "monday", hint: "New items open all day today." };
   if (day === 5) return { window: "friday", hint: "New items open all day today." };
+  if (overridePhase === "monday" || overridePhase === "friday") {
+    return { window: overridePhase, hint: overrideHint };
+  }
   if (day === 6 || day === 0) return { window: "closed", hint: "New items open Monday." };
   return { window: "closed", hint: "New items open Friday." };
 }
@@ -64,7 +69,10 @@ export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
   // Leads aren't pinned to the current week — anyone else still only ever
   // has their own week to look at, so there's nothing for them to pick.
   const [week, setWeek] = useState(() => mondayOf(istNow()));
-  const { window: addWindow, hint } = addWindowNow();
+  const override = useApi(() => api.weeklyPlanOverride(), []);
+  const overridePhase = override.data?.phase ?? null;
+  const { window: addWindow, hint } = addWindowNow(overridePhase);
+  const achievementsOpen = isFriday() || overridePhase === "friday";
 
   const items = useApi(
     () => {
@@ -127,6 +135,7 @@ export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
           items={items.data ?? []}
           editable={viewingSelf}
           addWindow={addWindow}
+          achievementsOpen={achievementsOpen}
           monday={week}
           meName={me.display_name}
           onChange={items.reload}
@@ -137,11 +146,12 @@ export function WeeklyPlan({ me }: { me: CurrentUser["member"] }) {
 }
 
 function WeeklyPlanTable({
-  items, editable, addWindow, monday, meName, onChange,
+  items, editable, addWindow, achievementsOpen, monday, meName, onChange,
 }: {
   items: WeeklyPlanItem[];
   editable: boolean;
   addWindow: AddWindow;
+  achievementsOpen: boolean;
   monday: string;
   meName: string;
   onChange: () => void;
@@ -161,7 +171,13 @@ function WeeklyPlanTable({
         </thead>
         <tbody>
           {items.map((item) => (
-            <WeeklyPlanRow key={item.id} item={item} editable={editable} onChange={onChange} />
+            <WeeklyPlanRow
+              key={item.id}
+              item={item}
+              editable={editable}
+              achievementsOpen={achievementsOpen}
+              onChange={onChange}
+            />
           ))}
           {items.length === 0 && !adding ? (
             <tr>
@@ -236,15 +252,14 @@ function AddItemRow({
 }
 
 function WeeklyPlanRow({
-  item, editable, onChange,
-}: { item: WeeklyPlanItem; editable: boolean; onChange: () => void }) {
+  item, editable, achievementsOpen, onChange,
+}: { item: WeeklyPlanItem; editable: boolean; achievementsOpen: boolean; onChange: () => void }) {
   const [status, setStatus] = useState<WeeklyPlanStatus>(item.status);
   const [achievement, setAchievement] = useState(item.achievement ?? "");
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingAchievement, setSavingAchievement] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
 
-  const friday = isFriday();
   const statusOptions = Array.from(new Set([item.status, ...SETTABLE_STATUSES]));
   const achievementChanged = achievement !== (item.achievement ?? "");
 
@@ -282,7 +297,7 @@ function WeeklyPlanRow({
       <td className="strong">{item.member}</td>
       <td className="text"><RichText value={item.action} readOnly /></td>
       <td className="text">
-        {editable && friday ? (
+        {editable && achievementsOpen ? (
           <>
             <RichText value={achievement} onChange={setAchievement} placeholder="What came of it?" />
             {achievementChanged ? (

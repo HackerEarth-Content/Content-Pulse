@@ -4,13 +4,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_session
-from core.deps import LEADS, Viewer, get_viewer, require_role
+from core.deps import ADMINS, LEADS, Viewer, get_viewer, require_role
 from core.users import current_user
 from schemas.weekly_plan import (
     WeeklyPlanCompletionOut,
     WeeklyPlanItemIn,
     WeeklyPlanItemOut,
     WeeklyPlanItemPatch,
+    WeeklyPlanOverrideIn,
+    WeeklyPlanOverrideOut,
 )
 from services import weekly_plan as svc
 
@@ -21,6 +23,7 @@ router = APIRouter(
 )
 
 leads_only = Depends(require_role(*LEADS))
+admin_only = Depends(require_role(*ADMINS))
 
 
 def _target_member(viewer: Viewer, requested: int | None) -> int:
@@ -91,3 +94,24 @@ async def patch_weekly_plan_item(
 )
 async def weekly_plan_completion(week: date, db: AsyncSession = Depends(get_session)):
     return await svc.completion(db, week)
+
+
+@router.get("/override", response_model=WeeklyPlanOverrideOut)
+async def get_weekly_plan_override(db: AsyncSession = Depends(get_session)):
+    return await svc.override_state(db)
+
+
+@router.post(
+    "/override", response_model=WeeklyPlanOverrideOut, dependencies=[admin_only]
+)
+async def open_weekly_plan_override(
+    body: WeeklyPlanOverrideIn,
+    db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
+):
+    return await svc.open_override(db, body.phase, viewer.user.email or "admin")
+
+
+@router.delete("/override", status_code=204, dependencies=[admin_only])
+async def close_weekly_plan_override(db: AsyncSession = Depends(get_session)):
+    await svc.close_override(db)
