@@ -33,6 +33,9 @@ import { PlanBoard } from "./routes/PlanBoard";
 import { MyDay } from "./routes/MyDay";
 import { QuickLinks } from "./routes/QuickLinks";
 import { SkillGraph } from "./routes/SkillGraph";
+import { McqReviewer } from "./routes/McqReviewer";
+import { TaxonomyManager } from "./routes/TaxonomyManager";
+import { Utils } from "./routes/Utils";
 import { WeeklyPlan } from "./routes/WeeklyPlan";
 import { WorkLog } from "./routes/WorkLog";
 
@@ -78,6 +81,7 @@ function tabsFor(
     { path: "/my-day", element: <MyDay me={user.member} today={today} /> },
     { path: "/weekly-plan", element: <WeeklyPlan me={user.member} /> },
     { path: "/quick-links", element: <QuickLinks me={user.member} /> },
+    { path: "/utils", element: <Utils /> },
   ];
 }
 
@@ -123,6 +127,9 @@ function TabPanes({
           <Route key={t.path} path={t.path} element={null} />
         ))}
         <Route path="/members/:id" element={<MemberDetail range={range} me={user.member} />} />
+        <Route path="/utils/mcq-reviewer" element={<McqReviewer />} />
+        <Route path="/utils/mcq-reviewer/:jobId" element={<McqReviewer />} />
+        <Route path="/utils/taxonomy" element={<TaxonomyManager />} />
         {/* Raw Jira board mirror. Off the nav — /requests supersedes it. */}
         <Route path="/content-requests" element={<ContentRequests />} />
         {/* The old split forms; one screen replaces both. */}

@@ -21,7 +21,10 @@
   gap: 18px;
   padding: 18px 12px;
   background: var(--surface);
-  border-right: 1px solid var(--line);
+  /* A very soft rightward cast instead of a second hairline — the sidebar
+     reads as a raised plane the content sits beside, not just a bordered
+     column of the same material. */
+  box-shadow: 1px 0 0 var(--line), 6px 0 24px -18px rgba(20, 24, 38, 0.25);
   /* Sticky, not fixed: it scrolls with a short viewport instead of clipping
      the settings and theme controls out of reach. */
   position: sticky;
@@ -46,6 +49,7 @@
   border-top: 1px solid var(--line);
 }
 .side-link {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 11px;
@@ -61,6 +65,7 @@
   cursor: pointer;
   width: 100%;
   text-align: left;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
 }
 .side-link:hover {
   background: var(--surface-2);
@@ -70,6 +75,30 @@
   background: var(--surface-3);
   color: var(--ink);
   font-weight: 600;
+}
+/* A brand-hued rail on the active destination, animated in from zero height —
+   the one persistent "you are here" mark, brand-anchored rather than another
+   grey background step. */
+.side-link.active::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 20%;
+  bottom: 20%;
+  width: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-indigo);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .side-link.active::before {
+    animation: rank-grow var(--dur-base) var(--ease-out) both;
+    transform-origin: center;
+  }
+}
+@media (max-width: 1000px) {
+  .side-link.active::before {
+    display: none;
+  }
 }
 .side-icon {
   display: grid;
@@ -109,8 +138,7 @@
     flex-direction: row;
     align-items: center;
     flex-wrap: wrap;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+    box-shadow: 0 1px 0 var(--line), 0 6px 24px -18px rgba(20, 24, 38, 0.25);
   }
   .side-nav {
     flex-direction: row;
@@ -129,6 +157,11 @@
 
 /* ── top bar ─────────────────────────────────────────────────────────────── */
 
+/* Sticky and glassed: the period picker, sync state and account controls now
+   stay reachable while a long table (Work log, the workload heatmap) scrolls
+   underneath, instead of scrolling away with the first row. The blur is
+   doing a real job here — content actually passes behind this bar — so it
+   earns its keep rather than decorating a bar nothing sits under. */
 .topbar {
   display: flex;
   align-items: center;
@@ -136,7 +169,12 @@
   flex-wrap: wrap;
   padding: 14px 26px;
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 @media (max-width: 1000px) {
   .topbar {
@@ -233,6 +271,8 @@
   cursor: pointer;
   text-decoration: none;
   white-space: nowrap;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease,
+    box-shadow var(--dur-base) var(--ease-out);
 }
 .nav-link:hover {
   color: var(--ink);
@@ -264,6 +304,10 @@
   padding: 5px 11px;
   border-radius: 999px;
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.period-btn:active {
+  transform: scale(0.95);
 }
 /* The group is a radiogroup now, so selection is `aria-checked`. The old
    `aria-pressed` rule is kept because a toggle elsewhere may still use it. */
@@ -467,13 +511,22 @@
   }
 }
 
-/* No shadow: a card is defined by its background step and border. Shadows are
-   reserved for things that genuinely float, like the status dialog. */
+/* Depth is tonal at rest, then a real soft lift on hover — a resting card
+   still reads by its background step and border (untouched), but interaction
+   now gets a felt shadow and a 1px rise instead of only a colour shift, so a
+   dashboard full of these doesn't read as a spreadsheet with rounded corners. */
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 16px;
+  box-shadow: var(--shadow-rest);
+  transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease,
+    box-shadow var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+}
+.card:hover {
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-2px);
 }
 .card-head {
   display: flex;
@@ -506,6 +559,13 @@
   border-radius: var(--radius);
   padding: 13px 14px;
   min-width: 0;
+  box-shadow: var(--shadow-rest);
+  transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease,
+    box-shadow var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+}
+.stat:hover {
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-2px);
 }
 /* The same numbers with the card chrome taken away, for a headline row where
    eight boxed tiles is more border than content. Divided by hairlines instead,
@@ -527,9 +587,14 @@
 .stat-row--bare .stat:first-child {
   border-left: 0;
 }
+.stat-row--bare .stat {
+  box-shadow: none;
+}
 .stat-row--bare .stat:hover {
   background: var(--surface-2);
   border-color: var(--line);
+  box-shadow: none;
+  transform: none;
 }
 .stat-label {
   display: block;
@@ -566,6 +631,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
+  box-shadow: var(--shadow-rest);
 }
 /* For long, single-fetch tables: the table scrolls in place instead of
    stretching the page, and `th`'s `position: sticky` (below) only has
@@ -614,6 +680,9 @@ td.text {
 }
 tbody tr:last-child td {
   border-bottom: 0;
+}
+tbody tr td {
+  transition: background-color var(--dur-fast) ease;
 }
 tbody tr:hover td {
   background: var(--surface-3);
@@ -1059,24 +1128,68 @@ textarea.field {
     animation: panel-in 0.22s ease-out both;
   }
   /* Direct children reveal in sequence rather than all at once — a table's
-     rows, a bar-list's rows. Capped at 12 so a long table doesn't leave the
-     last rows waiting a visible beat; anything past that arrives together. */
-  .reveal-stagger > * {
-    animation: row-in 0.28s ease-out both;
+     rows, a bar-list's rows, and (new) every stat/card grid in the app, since
+     .stat-row and .grid are the shared primitive every route builds its
+     layout from. One entrance grammar, inherited for free by all 19 routes
+     instead of authored per screen. Capped at 12 so a long table/grid doesn't
+     leave the last rows waiting a visible beat; anything past that arrives
+     together. */
+  .reveal-stagger > *,
+  .stat-row > *,
+  .grid > * {
+    animation: row-in 0.28s var(--ease-out, ease-out) both;
   }
-  .reveal-stagger > *:nth-child(1) { animation-delay: 0.02s; }
-  .reveal-stagger > *:nth-child(2) { animation-delay: 0.05s; }
-  .reveal-stagger > *:nth-child(3) { animation-delay: 0.08s; }
-  .reveal-stagger > *:nth-child(4) { animation-delay: 0.11s; }
-  .reveal-stagger > *:nth-child(5) { animation-delay: 0.14s; }
-  .reveal-stagger > *:nth-child(6) { animation-delay: 0.17s; }
-  .reveal-stagger > *:nth-child(7) { animation-delay: 0.2s; }
-  .reveal-stagger > *:nth-child(8) { animation-delay: 0.23s; }
-  .reveal-stagger > *:nth-child(9) { animation-delay: 0.26s; }
-  .reveal-stagger > *:nth-child(10) { animation-delay: 0.29s; }
-  .reveal-stagger > *:nth-child(11) { animation-delay: 0.32s; }
-  .reveal-stagger > *:nth-child(12) { animation-delay: 0.35s; }
-  .reveal-stagger > *:nth-child(n + 13) { animation-delay: 0.35s; }
+  .reveal-stagger > *:nth-child(1),
+  .stat-row > *:nth-child(1),
+  .grid > *:nth-child(1) { animation-delay: 0.02s; }
+  .reveal-stagger > *:nth-child(2),
+  .stat-row > *:nth-child(2),
+  .grid > *:nth-child(2) { animation-delay: 0.05s; }
+  .reveal-stagger > *:nth-child(3),
+  .stat-row > *:nth-child(3),
+  .grid > *:nth-child(3) { animation-delay: 0.08s; }
+  .reveal-stagger > *:nth-child(4),
+  .stat-row > *:nth-child(4),
+  .grid > *:nth-child(4) { animation-delay: 0.11s; }
+  .reveal-stagger > *:nth-child(5),
+  .stat-row > *:nth-child(5),
+  .grid > *:nth-child(5) { animation-delay: 0.14s; }
+  .reveal-stagger > *:nth-child(6),
+  .stat-row > *:nth-child(6),
+  .grid > *:nth-child(6) { animation-delay: 0.17s; }
+  .reveal-stagger > *:nth-child(7),
+  .stat-row > *:nth-child(7),
+  .grid > *:nth-child(7) { animation-delay: 0.2s; }
+  .reveal-stagger > *:nth-child(8),
+  .stat-row > *:nth-child(8),
+  .grid > *:nth-child(8) { animation-delay: 0.23s; }
+  .reveal-stagger > *:nth-child(9),
+  .stat-row > *:nth-child(9),
+  .grid > *:nth-child(9) { animation-delay: 0.26s; }
+  .reveal-stagger > *:nth-child(10),
+  .stat-row > *:nth-child(10),
+  .grid > *:nth-child(10) { animation-delay: 0.29s; }
+  .reveal-stagger > *:nth-child(11),
+  .stat-row > *:nth-child(11),
+  .grid > *:nth-child(11) { animation-delay: 0.32s; }
+  .reveal-stagger > *:nth-child(12),
+  .stat-row > *:nth-child(12),
+  .grid > *:nth-child(12) { animation-delay: 0.35s; }
+  .reveal-stagger > *:nth-child(n + 13),
+  .stat-row > *:nth-child(n + 13),
+  .grid > *:nth-child(n + 13) { animation-delay: 0.35s; }
+
+  /* rank-fill (RankedBars, used by Requests/Analytics/Leaderboard/skills/etc.)
+     grows in from zero instead of appearing at full width — the one chart
+     primitive shared across the app that had no motion at all. */
+  .rank-fill {
+    animation: rank-grow var(--dur-slow) var(--ease-out) both;
+    transform-origin: left;
+  }
+}
+@keyframes rank-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
 
 /* ── Content Health: month strip ──────────────────────────────────────────── */
@@ -1378,7 +1491,7 @@ textarea.field {
 }
 @media (prefers-reduced-motion: no-preference) {
   .field-callout {
-    animation: callout-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation: callout-pop 0.3s var(--ease-out) both;
   }
 }
 @keyframes callout-pop {
@@ -1448,6 +1561,14 @@ textarea.field {
   border-radius: 999px;
   border: 1px solid transparent;
   cursor: pointer;
+  /* .btn is a <button> everywhere else, so this never mattered until a Link
+     (an <a>) started using it too — an anchor's own underline otherwise
+     shows through regardless of the button styling around it. */
+  text-decoration: none;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .btn:disabled {
   opacity: 0.5;
@@ -1745,11 +1866,19 @@ tr:hover .heatmap-bar {
 
 /* ── login ───────────────────────────────────────────────────────────────── */
 
+/* First screen anyone — content team or a visiting exec — ever sees. A soft
+   brand-hued glow behind the card instead of a flat plane, and the card
+   itself arrives rather than appearing, so the very first impression already
+   carries the motion grammar the rest of the app uses. */
 .login-shell {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 24px;
+  background:
+    radial-gradient(560px 420px at 50% 28%, color-mix(in srgb, var(--accent-indigo) 10%, transparent), transparent 70%),
+    radial-gradient(480px 360px at 82% 82%, color-mix(in srgb, var(--accent-aqua) 7%, transparent), transparent 70%),
+    var(--plane);
 }
 .login-card {
   width: min(380px, 100%);
@@ -1759,6 +1888,15 @@ tr:hover .heatmap-bar {
   box-shadow: var(--shadow-hover);
   padding: 30px 28px;
   text-align: center;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .login-card {
+    animation: login-in var(--dur-slow) var(--ease-out) both;
+  }
+}
+@keyframes login-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .login-title {
   font-size: 18px;
@@ -1822,10 +1960,14 @@ tr:hover .heatmap-bar {
   appearance: none;
   font: inherit;
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 .pill-button:hover {
   filter: brightness(1.06);
   border-color: currentColor;
+}
+.pill-button:active {
+  transform: scale(0.96);
 }
 .pill-button[aria-pressed="true"] {
   box-shadow: 0 0 0 2px currentColor;
@@ -2380,10 +2522,14 @@ td.heat {
   justify-content: center;
   cursor: pointer;
   font-size: 13px;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 .btn-icon:hover:not(:disabled) {
   background: var(--surface-2);
   color: var(--ink);
+}
+.btn-icon:active:not(:disabled) {
+  transform: scale(0.92);
 }
 .btn-icon:disabled {
   opacity: 0.5;
