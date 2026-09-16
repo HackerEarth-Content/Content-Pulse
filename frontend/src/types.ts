@@ -518,3 +518,88 @@ export interface ContentIssueOverview {
     unknown: number;
   }[];
 }
+
+// ── Utils: MCQ Reviewer ──────────────────────────────────────────────────────
+
+export type McqJobStatus = "uploaded" | "parsing" | "parsed" | "reviewing" | "done" | "failed";
+
+export interface McqReviewJobSummary {
+  id: number;
+  filename: string;
+  status: McqJobStatus;
+  created_at: string;
+}
+
+export interface McqCheckResult {
+  status: string;
+  reason: string;
+  setter_difficulty?: string | null;
+  assessed_difficulty?: string | null;
+  tag_status?: string | null;
+  provided_tags?: string[] | null;
+  suggested_tags?: string[] | null;
+}
+
+export interface McqQuestionReview {
+  row_number: number;
+  verdict: "fail";
+  checks: Record<string, McqCheckResult>;
+  suggestion: string;
+}
+
+export interface McqOverallResults {
+  total: number;
+  passed: number;
+  failed: number;
+  pass_pct: number;
+  fail_pct: number;
+  structural_failures: number;
+  clear_defects: number;
+  borderline_failures: number;
+  overall_status: "clean" | "issues_found";
+}
+
+export interface McqDistributionGroup {
+  sample_size: number;
+  expected_distribution: Record<string, number>;
+  observed_distribution: Record<string, number>;
+  tolerance: string;
+  status: string;
+}
+
+export interface McqSetSummary {
+  overall_results: McqOverallResults | null;
+  most_frequent_issues: Record<string, { count: number; pct_of_reviewed: number }>;
+  answer_choice_distribution: Record<string, McqDistributionGroup>;
+  complexity_mismatch: {
+    structurally_valid_rows_assessed: number;
+    rows_with_mismatch: number;
+    mismatch_pct: number;
+  } | null;
+  skill_tag_gaps: { rows_missing_tags: number } | null;
+  skill_tag_analysis_status: string | null;
+}
+
+export interface McqReviewResult {
+  question_reviews: McqQuestionReview[];
+  set_summary: McqSetSummary;
+}
+
+export interface McqReviewJobDetail extends McqReviewJobSummary {
+  error: string | null;
+  result: McqReviewResult | null;
+  updated_at: string;
+}
+
+// ── Utils: Skill Taxonomy ────────────────────────────────────────────────────
+
+export interface TaxonomyTag {
+  id: number;
+  category: string;
+  tag: string;
+}
+
+export interface TaxonomyGroup {
+  category: string;
+  tags: TaxonomyTag[];
+}

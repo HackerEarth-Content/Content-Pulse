@@ -56,6 +56,9 @@ const LINKS: NavItem[] = [
   { to: "/content-issue-analysis", label: "Content Issue Analysis",
     title: "Valid/invalid/customer content issues from Jira, by week or month",
     icon: icon("M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z") },
+  { to: "/utils", label: "Utils",
+    title: "MCQ Reviewer, skill taxonomy, and other setter tools",
+    icon: icon("M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z") },
 ];
 
 const SETTINGS: NavItem = {

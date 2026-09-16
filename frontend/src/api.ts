@@ -18,6 +18,8 @@ import type {
   Entry,
   Holiday,
   Lookup,
+  McqReviewJobDetail,
+  McqReviewJobSummary,
   Member,
   MemberProfile,
   MemberStat,
@@ -25,6 +27,8 @@ import type {
   Page,
   PipelineStat,
   QuickLink,
+  TaxonomyGroup,
+  TaxonomyTag,
   PlanDailyStatus,
   Status,
   Summary,
@@ -69,7 +73,12 @@ function qs(params: Params = {}): string {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: init?.body ? { "Content-Type": "application/json", ...init?.headers } : init?.headers,
+    // A FormData body (file upload) must set its own multipart boundary —
+    // only a JSON string body gets the header forced on.
+    headers:
+      typeof init?.body === "string"
+        ? { "Content-Type": "application/json", ...init?.headers }
+        : init?.headers,
   });
   if (!res.ok) {
     let code = String(res.status);
@@ -291,4 +300,17 @@ export const api = {
 
   contentIssuesOverview: (p: Params) => get<ContentIssueOverview>("/content-issues/overview", p),
   syncContentIssues: () => request<{ started: boolean }>("/content-issues/sync", { method: "POST" }),
+
+  uploadMcqReview: (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return request<McqReviewJobSummary>("/utils/mcq-reviewer", { method: "POST", body });
+  },
+  mcqReviewJob: (id: number) => get<McqReviewJobDetail>(`/utils/mcq-reviewer/${id}`),
+  myMcqReviewJobs: () => get<McqReviewJobSummary[]>("/utils/mcq-reviewer"),
+
+  taxonomy: () => get<TaxonomyGroup[]>("/utils/taxonomy"),
+  addTaxonomyTag: (category: string, tag: string) =>
+    send<TaxonomyTag>("POST", "/utils/taxonomy", { category, tag }),
+  removeTaxonomyTag: (id: number) => send<void>("DELETE", `/utils/taxonomy/${id}`),
 };

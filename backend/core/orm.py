@@ -662,6 +662,59 @@ class ContentHealthTopic(Base):
     )
 
 
+# ── utils: MCQ reviewer ───────────────────────────────────────────────────────
+# The Utils tab's first tool. A setter uploads a bulk-MCQ workbook, it's
+# validated against the exact HackerEarth template columns (order included),
+# then reviewed by an LLM against utils/prompts.MCQ_REVIEWER_PROMPT. See
+# services/mcq_reviewer.py.
+
+MCQ_JOB_STATUSES = ("uploaded", "parsing", "parsed", "reviewing", "done", "failed")
+
+
+class SkillTaxonomyTag(Timestamps, Base):
+    """One (category, tag) pair from the HackerEarth skill taxonomy. Seeded
+    once from utils/taxonomy.py (see scripts/seed_taxonomy.py) and editable
+    from the Utils > Skill Taxonomy screen from then on — the MCQ reviewer's
+    Skill Tag Coverage check reads this table live, not the seed file, so an
+    edit here takes effect on the very next review."""
+
+    __tablename__ = "skill_taxonomy_tags"
+    __table_args__ = (
+        UniqueConstraint("category", "tag", name="uq_taxonomy_category_tag"),
+        Index("ix_taxonomy_category", "category"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    category: Mapped[str]
+    tag: Mapped[str]
+
+
+class McqReviewJob(Base):
+    """One uploaded MCQ workbook's review lifecycle. `id` is the `job_id` used
+    in the frontend URL and by the recent-jobs list (`user_id`) — a job is
+    resumable from either, so losing the URL doesn't lose the work."""
+
+    __tablename__ = "mcq_review_jobs"
+    __table_args__ = (
+        _enum("status", MCQ_JOB_STATUSES),
+        Index("ix_mcq_jobs_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("user.user_id", ondelete="SET NULL")
+    )
+    filename: Mapped[str]
+    status: Mapped[str] = mapped_column(default="uploaded")
+    error: Mapped[str | None] = mapped_column(Text)
+    # The MCQReviewResult schema (question_reviews + set_summary) once done.
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ContentHealthFeedback(Base):
     """One row per period — candidate feedback ratings are global, not
     per-problem-type, in the source Redash query (5215)."""

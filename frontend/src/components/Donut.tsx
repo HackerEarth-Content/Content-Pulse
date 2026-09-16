@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { CATEGORICAL, DONUT, MUTED, TOOLTIP } from "../charts";
 
@@ -51,11 +52,23 @@ export function Donut({
   ].filter((s) => s.value > 0);
 
   const sum = total ?? data.reduce((s, d) => s + d.value, 0);
+  const gradientId = useId();
 
   return (
     <div className="donut">
       <ResponsiveContainer width="100%" height={height}>
         <PieChart>
+          <defs>
+            {/* A gentle depth gradient per slice, base hue to a touch lighter —
+                subtle enough to keep the CVD-safe hue identity intact, just
+                gives each wedge a lit-from-above feel instead of flat fill. */}
+            {data.map((d) => (
+              <linearGradient key={d.key} id={`${gradientId}-${d.key}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={d.colour} stopOpacity={1} />
+                <stop offset="100%" stopColor={d.colour} stopOpacity={0.78} />
+              </linearGradient>
+            ))}
+          </defs>
           <Pie
             data={data}
             dataKey="value"
@@ -63,17 +76,20 @@ export function Donut({
             innerRadius={DONUT.innerRadius}
             outerRadius={DONUT.outerRadius}
             paddingAngle={DONUT.paddingAngle}
-            isAnimationActive={false}
+            isAnimationActive
+            animationDuration={700}
+            animationEasing="ease-out"
             onClick={(d: { key?: string }) => d.key && onSelect?.(d.key)}
           >
             {data.map((d) => (
               <Cell
                 key={d.key}
-                fill={d.colour}
+                fill={`url(#${gradientId}-${d.key})`}
                 stroke={DONUT.stroke}
                 strokeWidth={DONUT.strokeWidth}
                 opacity={selected && selected !== d.key ? 0.35 : 1}
                 cursor={onSelect ? "pointer" : undefined}
+                style={{ transition: "opacity 150ms ease" }}
               />
             ))}
           </Pie>
@@ -93,7 +109,7 @@ export function Donut({
 
       {/* Legend is always present for ≥2 slices — identity must never be
           colour-alone. */}
-      <ul className="donut-legend">
+      <ul className="donut-legend reveal-stagger">
         {data.map((d) => (
           <li key={d.key}>
             <button

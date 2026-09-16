@@ -17,6 +17,7 @@ from api.leaves_routes import router as leaves_router
 from api.members_routes import router as members_router
 from api.quick_links_routes import router as quick_links_router
 from api.skills_routes import router as skills_router
+from api.utils_routes import router as utils_router
 from api.weekly_plan_routes import router as weekly_plan_router
 from core.config import settings
 from core.database import engine
@@ -84,3 +85,4 @@ app.include_router(skills_router)
 app.include_router(quick_links_router)
 app.include_router(leaves_router)
 app.include_router(holidays_router)
+app.include_router(utils_router)

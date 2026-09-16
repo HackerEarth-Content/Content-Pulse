@@ -58,6 +58,17 @@ class Settings(BaseSettings):
     WEEK_START: int = 0
     TIMEZONE: str = "Asia/Kolkata"
 
+    # MCQ Reviewer (Utils tab): OpenAI is the primary model, Anthropic is the
+    # fallback used only when OpenAI errors or returns something that fails
+    # schema validation. Empty keys just mean that provider's calls fail
+    # immediately, which is already handled — no separate on/off flag needed.
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4.1"
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-5"
+    LANGSMITH_API_KEY: str = ""
+    LANGSMITH_PROJECT: str = "mcq-reviewer"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
