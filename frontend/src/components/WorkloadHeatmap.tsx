@@ -13,7 +13,7 @@ interface Row {
 /** Member × time density. Cell shade is the count relative to the busiest cell,
  * derived with color-mix so it tracks the accent and both themes. */
 export function WorkloadHeatmap({ rows, bucket }: { rows: Row[]; bucket: Bucket }) {
-  const [metric, setMetric] = useState<"tasks" | "volume" | "effort_minutes">("tasks");
+  const [metric, setMetric] = useState<"tasks" | "volume" | "effort_minutes">("effort_minutes");
   const cells = new Map<string, number>();
   const members = new Set<string>();
   const columns = new Set<string>();

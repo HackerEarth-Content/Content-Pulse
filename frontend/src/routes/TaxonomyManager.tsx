@@ -55,11 +55,13 @@ export function TaxonomyManager() {
         <div className="btn-row" style={{ marginTop: 8, flexWrap: "wrap" }}>
           <input
             className="field" placeholder="Category (e.g. Programming Languages)"
+            aria-label="Category"
             value={category} onChange={(e) => setCategory(e.target.value)}
             style={{ minWidth: 240 }}
           />
           <input
             className="field" placeholder="Tag (e.g. Rust)"
+            aria-label="Tag"
             value={tag} onChange={(e) => setTag(e.target.value)}
             style={{ minWidth: 160 }}
           />
@@ -86,7 +88,7 @@ export function TaxonomyManager() {
                     <span key={t.id} className="pill" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                       {t.tag}
                       <button
-                        className="btn-icon" title={`Remove ${t.tag}`}
+                        className="btn-icon" title={`Remove ${t.tag}`} aria-label={`Remove ${t.tag}`}
                         onClick={() => remove(t.id, t.tag)}
                       >
                         ✕

@@ -101,10 +101,8 @@ export function Analytics({ range }: { range: Range }) {
                       <tr>
                         <th>Member</th>
                         <th className="num">Planned</th>
-                        <th className="num">Reported</th>
                         <th className="num">Closed</th>
                         <th className="num">Never updated</th>
-                        <th className="num">Report rate</th>
                         <th className="num">Close rate</th>
                       </tr>
                     </thead>
@@ -113,7 +111,6 @@ export function Analytics({ range }: { range: Range }) {
                         <tr key={r.member_id}>
                           <td className="strong">{r.member}</td>
                           <td className="num">{r.planned}</td>
-                          <td className="num">{r.reported}</td>
                           <td className="num">{r.closed}</td>
                           <td className="num">
                             {r.no_update > 0 ? (
@@ -122,7 +119,6 @@ export function Analytics({ range }: { range: Range }) {
                               "0"
                             )}
                           </td>
-                          <td className="num">{pct(r.report_rate)}</td>
                           <td className="num">{pct(r.close_rate)}</td>
                         </tr>
                       ))}
