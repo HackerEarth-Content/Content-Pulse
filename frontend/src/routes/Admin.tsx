@@ -169,6 +169,7 @@ function MemberEditor() {
         <input
           className="field"
           placeholder="Full name"
+          aria-label="Full name"
           value={adding.display_name}
           onChange={(e) => setAdding((a) => ({ ...a, display_name: e.target.value }))}
         />
@@ -176,6 +177,7 @@ function MemberEditor() {
           className="field"
           type="email"
           placeholder="name@hackerearth.com"
+          aria-label="Email"
           value={adding.email}
           onChange={(e) => setAdding((a) => ({ ...a, email: e.target.value }))}
           onKeyDown={(e) => e.key === "Enter" && adding.display_name.trim() && add()}
@@ -183,6 +185,7 @@ function MemberEditor() {
         <input
           className="field"
           placeholder="Slack ID (U0123ABCD)"
+          aria-label="Slack ID"
           pattern={SLACK_ID_RE.source}
           title="A Slack member id, e.g. U0123ABCD — not a username or display name"
           value={adding.slack_user_id}
@@ -241,6 +244,7 @@ function MemberEditor() {
                           className="field"
                           type="email"
                           placeholder="name@hackerearth.com"
+                          aria-label={`Email for ${m.display_name}`}
                           value={edited?.email ?? m.email ?? ""}
                           onChange={(e) =>
                             setDraft((d) => ({
@@ -258,6 +262,7 @@ function MemberEditor() {
                         <input
                           className="field"
                           placeholder="U0123ABCD"
+                          aria-label={`Slack ID for ${m.display_name}`}
                           pattern={SLACK_ID_RE.source}
                           title="A Slack member id, e.g. U0123ABCD — not a username or display name"
                           value={edited?.slack_user_id ?? m.slack_user_id ?? ""}
@@ -276,6 +281,7 @@ function MemberEditor() {
                       <td>
                         <select
                           className="field"
+                          aria-label={`Role for ${m.display_name}`}
                           value={edited?.role ?? m.role}
                           onChange={(e) =>
                             setDraft((d) => ({
@@ -381,6 +387,7 @@ function SkillEditor() {
         <input
           className="field"
           placeholder="Skill name"
+          aria-label="Skill name"
           value={adding.name}
           onChange={(e) => setAdding((a) => ({ ...a, name: e.target.value }))}
           onKeyDown={(e) => e.key === "Enter" && adding.name.trim() && add()}
@@ -477,6 +484,7 @@ function SkillWindow() {
                   key={day}
                   className={`pill pill-button ${w.open_weekdays.includes(day) ? "pill-active" : "pill-inactive"}`}
                   disabled={busy}
+                  aria-pressed={w.open_weekdays.includes(day)}
                   onClick={() => toggleDay(day)}
                   title={w.open_weekdays.includes(day) ? "Open — click to close" : "Closed — click to open"}
                 >
@@ -497,6 +505,7 @@ function SkillWindow() {
                       key={m.id}
                       className={`pill pill-button ${w.excluded_member_ids.includes(m.id) ? "pill-inactive" : "pill-active"}`}
                       disabled={busy}
+                      aria-pressed={!w.excluded_member_ids.includes(m.id)}
                       onClick={() => toggleExcluded(m.id)}
                       title={w.excluded_member_ids.includes(m.id) ? "Excluded — click to include" : "Included — click to exclude"}
                     >
@@ -559,6 +568,7 @@ function HolidayEditor() {
         <input
           className="field"
           placeholder="e.g. Diwali"
+          aria-label="Holiday name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && name.trim() && add()}

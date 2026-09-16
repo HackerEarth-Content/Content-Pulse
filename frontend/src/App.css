@@ -2271,33 +2271,47 @@ td.heat {
   background: var(--status-neutral);
 }
 /* One mark per boolean — shape carries the meaning (tick vs cross), not just
- * color, so it still reads correctly for colorblind users. */
-.plan-cell {
+ * color, so it still reads correctly for colorblind users. Sized for a
+ * single mark per cell, not the bare glyph the old .plan-mark rules used. */
+.pb-summary {
+  margin-bottom: 14px;
+}
+.pb-cell {
   display: flex;
   justify-content: center;
-  gap: 20px;
-  padding-top: 4px;
-  padding-bottom: 4px;
 }
-.plan-mark {
-  font-size: 32px;
+.pb-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
   font-weight: 700;
   line-height: 1;
 }
-.plan-mark--yes {
+.pb-mark--yes {
   color: var(--status-good);
+  background: color-mix(in srgb, var(--status-good) 14%, transparent);
 }
-.plan-mark--no {
+.pb-mark--no {
   color: var(--status-serious);
-  opacity: 0.55;
+  background: color-mix(in srgb, var(--status-serious) 10%, transparent);
+  opacity: 0.75;
 }
 .plan-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   font-size: 12.5px;
   color: var(--ink-3);
+}
+.plan-legend .pb-mark {
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
 }
 .plan-legend-item {
   display: inline-flex;
