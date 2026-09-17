@@ -405,3 +405,24 @@ code {
   color: var(--ink);
   margin-bottom: 2px;
 }
+
+/* MCQ Reviewer: the Passed/Flagged stat tile that matches the verdict glows,
+ * so the outcome reads at a glance rather than only from the numbers. */
+.stat-glow-good {
+  border-color: color-mix(in srgb, var(--status-good) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-good) 35%, transparent),
+    0 0 18px color-mix(in srgb, var(--status-good) 35%, transparent);
+}
+.stat-glow-bad {
+  border-color: color-mix(in srgb, var(--status-critical) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-critical) 35%, transparent),
+    0 0 18px color-mix(in srgb, var(--status-critical) 35%, transparent);
+}
+
+/* Flagged questions can run long — scroll the list instead of pushing the
+ * rest of the page (Insights, skill-tag banner) far below the fold. */
+.mcq-flagged-list {
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+}

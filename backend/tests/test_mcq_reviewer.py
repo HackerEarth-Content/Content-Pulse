@@ -8,13 +8,14 @@ import io
 import openpyxl
 import pytest
 
-from schemas.mcq_review import CheckResult, QuestionReview
+from schemas.mcq_review import CheckResult, MCQReviewResult, QuestionReview
 from services.mcq_reviewer import (
     EXPECTED_COLUMNS,
     ParsedRow,
     TemplateValidationError,
     _build_summary,
     _filter_valid_reviews,
+    build_reviewed_workbook,
     parse_workbook,
     validate_columns,
 )
@@ -136,3 +137,48 @@ def test_filter_valid_reviews_drops_phantom_row_numbers():
     ]
     kept = _filter_valid_reviews(rows, reviews)
     assert [qr.row_number for qr in kept] == [2]
+
+
+def test_build_reviewed_workbook_appends_pass_fail_suggestion():
+    content = _workbook(
+        list(EXPECTED_COLUMNS),
+        [VALID_ROW, VALID_ROW],  # rows 2 and 3
+    )
+    result = MCQReviewResult(
+        question_reviews=[
+            QuestionReview(
+                row_number=3,
+                verdict="fail",
+                checks={"ambiguity": CheckResult(status="fail", reason="unclear")},
+                suggestion="rephrase the question",
+            )
+        ]
+    )
+    out = build_reviewed_workbook(content, "sample.xlsx", result)
+    wb = openpyxl.load_workbook(io.BytesIO(out))
+    ws = wb.active
+
+    header = [c.value for c in ws[1]]
+    assert header[-3:] == ["Pass", "Fail", "Suggestion"]
+
+    pass_col, fail_col, suggestion_col = (
+        len(EXPECTED_COLUMNS) + 1,
+        len(EXPECTED_COLUMNS) + 2,
+        len(EXPECTED_COLUMNS) + 3,
+    )
+
+    row2 = [
+        ws.cell(row=2, column=c).value for c in (pass_col, fail_col, suggestion_col)
+    ]
+    assert row2 == [
+        "Yes",
+        "No",
+        None,
+    ]  # openpyxl doesn't persist "" — reads back as None
+    assert ws.cell(row=2, column=fail_col).fill.fgColor.rgb in (None, "00000000")
+
+    row3 = [
+        ws.cell(row=3, column=c).value for c in (pass_col, fail_col, suggestion_col)
+    ]
+    assert row3 == ["No", "Yes", "rephrase the question"]
+    assert ws.cell(row=3, column=fail_col).fill.fgColor.rgb == "00FFC7CE"
