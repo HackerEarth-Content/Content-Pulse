@@ -1853,6 +1853,11 @@ tr:hover .heatmap-bar {
   background: var(--surface-2);
   border-color: var(--line);
 }
+.banner-success {
+  color: var(--status-good-ink, var(--status-good));
+  background: color-mix(in srgb, var(--status-good) 10%, transparent);
+  border-color: color-mix(in srgb, var(--status-good) 28%, transparent);
+}
 
 /* Live dot — a halo reads as "alive" without shouting */
 .live-dot {

@@ -358,20 +358,60 @@ function Insights({ job }: { job: McqReviewJobDetail }) {
   );
 }
 
+/** Downloads the reviewed sheet (original columns + Pass/Fail/Suggestion).
+ * Always a manual click — never fires on its own. */
+function useReviewedSheetDownload(job: McqReviewJobDetail) {
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+  const stem = job.filename.replace(/\.(xlsx|xls)$/i, "");
+
+  async function download() {
+    setDownloading(true);
+    setError(null);
+    try {
+      await api.downloadMcqReview(job.id, `reviewed-${stem}.xlsx`);
+    } catch (e) {
+      setError(e as ApiError);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return { download, downloading, error };
+}
+
 function Results({ job }: { job: McqReviewJobDetail }) {
   const result = job.result;
+  const { download, downloading, error: downloadError } = useReviewedSheetDownload(job);
+  const overall = result?.set_summary.overall_results;
+  const hasFailures = (overall?.failed ?? 0) > 0;
+
   if (!result) return null;
-  const overall = result.set_summary.overall_results;
 
   return (
     <>
       <div className="grid cols-3">
         <div className="stat"><span className="stat-label">Total questions</span><div className="stat-value">{overall?.total ?? "—"}</div></div>
-        <div className="stat"><span className="stat-label">Passed</span><div className="stat-value">{overall?.passed ?? "—"}</div></div>
-        <div className="stat"><span className="stat-label">Flagged</span><div className="stat-value">{overall?.failed ?? "—"}</div></div>
+        <div className={`stat${!hasFailures ? " stat-glow-good" : ""}`}>
+          <span className="stat-label">Passed</span><div className="stat-value">{overall?.passed ?? "—"}</div>
+        </div>
+        <div className={`stat${hasFailures ? " stat-glow-bad" : ""}`}>
+          <span className="stat-label">Flagged</span><div className="stat-value">{overall?.failed ?? "—"}</div>
+        </div>
       </div>
 
-      <Insights job={job} />
+      {hasFailures ? (
+        <Banner tone="error">Review rejected — {overall?.failed} question{overall?.failed === 1 ? "" : "s"} flagged.</Banner>
+      ) : (
+        <Banner tone="success">Review accepted — every question passed.</Banner>
+      )}
+
+      {downloadError ? <Banner tone="error">{downloadError.message}</Banner> : null}
+      <div className="btn-row" style={{ marginTop: 4 }}>
+        <button className="btn btn-secondary" disabled={downloading} onClick={download}>
+          {downloading ? "Preparing…" : "Download reviewed sheet"}
+        </button>
+      </div>
 
       {result.question_reviews.length === 0 ? (
         <div className="card mcq-clean-state">
@@ -391,10 +431,10 @@ function Results({ job }: { job: McqReviewJobDetail }) {
       ) : (
         <>
           <SectionHeading title="Flagged questions" color="var(--accent-blue)" />
-          <div className="reveal-stagger" style={{ display: "grid", gap: 10 }}>
+          <div className="reveal-stagger mcq-flagged-list" style={{ display: "grid", gap: 10 }}>
             {result.question_reviews.map((qr) => (
               <div className="card" key={qr.row_number}>
-                <div className="card-title">Row {qr.row_number}</div>
+                <div className="card-title">Question {qr.row_number}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "6px 0" }}>
                   {Object.entries(qr.checks).map(([name, check]) => (
                     <span key={name} className={`pill pill-${check.status === "fail" ? "blocked" : "in_progress"}`}>
@@ -408,6 +448,8 @@ function Results({ job }: { job: McqReviewJobDetail }) {
           </div>
         </>
       )}
+
+      <Insights job={job} />
 
       {result.set_summary.skill_tag_analysis_status === "taxonomy_not_provided" ? (
         <Banner tone="warn">

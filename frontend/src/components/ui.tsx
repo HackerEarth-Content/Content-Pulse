@@ -75,7 +75,7 @@ export function Banner({
   tone = "info",
   children,
 }: {
-  tone?: "info" | "warn" | "error";
+  tone?: "info" | "warn" | "error" | "success";
   children: ReactNode;
 }) {
   return <div className={`banner banner-${tone}`}>{children}</div>;

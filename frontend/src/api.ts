@@ -308,6 +308,8 @@ export const api = {
   },
   mcqReviewJob: (id: number) => get<McqReviewJobDetail>(`/utils/mcq-reviewer/${id}`),
   myMcqReviewJobs: () => get<McqReviewJobSummary[]>("/utils/mcq-reviewer"),
+  downloadMcqReview: (id: number, filename: string) =>
+    download(`/utils/mcq-reviewer/${id}/download`, {}, filename),
 
   taxonomy: () => get<TaxonomyGroup[]>("/utils/taxonomy"),
   addTaxonomyTag: (category: string, tag: string) =>

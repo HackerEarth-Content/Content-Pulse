@@ -24,6 +24,7 @@ import xlrd
 from anthropic import AsyncAnthropic
 from langsmith import traceable
 from openai import AsyncOpenAI
+from openpyxl.styles import Font, PatternFill
 from pydantic import BaseModel
 
 from core.config import settings
@@ -36,6 +37,7 @@ from schemas.mcq_review import (
     SetSummary,
 )
 from services import taxonomy as taxonomy_service
+from services.export import safe
 from utils.prompts import MCQ_REVIEWER_PROMPT
 
 log = logging.getLogger(__name__)
@@ -155,7 +157,11 @@ def validate_columns(header: list[str]) -> None:
             )
 
 
-def parse_workbook(content: bytes, filename: str) -> list[ParsedRow]:
+def _read_raw_rows(content: bytes, filename: str) -> tuple[list, list[tuple]]:
+    """Header row + data rows, straight off the sheet with no cleaning —
+    shared by parse_workbook (which derives ParsedRow from it) and
+    build_reviewed_workbook (which needs every original column verbatim to
+    append Pass/Fail/Suggestion onto)."""
     if len(content) > MAX_FILE_BYTES:
         raise TemplateValidationError(
             f"File is larger than the {MAX_FILE_BYTES // (1024 * 1024)}MB limit."
@@ -192,8 +198,66 @@ def parse_workbook(content: bytes, filename: str) -> list[ParsedRow]:
         raise TemplateValidationError(
             f"{len(data_rows)} questions found — the limit is {MAX_ROWS} per upload."
         )
+    return header, data_rows
 
+
+def parse_workbook(content: bytes, filename: str) -> list[ParsedRow]:
+    header, data_rows = _read_raw_rows(content, filename)
     return _rows_from_sheet(header, data_rows)
+
+
+RED_FILL = PatternFill("solid", fgColor="FFC7CE")
+RED_FONT = Font(color="9C0006")
+BOLD_HEADER = Font(bold=True)
+
+
+def build_reviewed_workbook(
+    content: bytes, filename: str, result: MCQReviewResult
+) -> bytes:
+    """The original uploaded sheet, unchanged column-for-column, with Pass,
+    Fail, and Suggestion appended. A row's verdict comes from whether it has
+    a QuestionReview — rows with none passed every check. Fail=Yes rows get
+    a red fill on the Fail cell so a reviewer scanning the sheet spots them
+    without reading every row."""
+    header, data_rows = _read_raw_rows(content, filename)
+    failed_by_row = {qr.row_number: qr for qr in result.question_reviews}
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Reviewed"
+
+    new_header = [*header, "Pass", "Fail", "Suggestion"]
+    for col, label in enumerate(new_header, 1):
+        cell = ws.cell(row=1, column=col, value=label)
+        cell.font = BOLD_HEADER
+
+    for i, raw_row in enumerate(data_rows):
+        row_number = i + 2
+        excel_row = i + 2
+        for col, value in enumerate(raw_row, 1):
+            ws.cell(row=excel_row, column=col, value=safe(value))
+
+        qr = failed_by_row.get(row_number)
+        failed = qr is not None
+        pass_col = len(header) + 1
+        fail_col = len(header) + 2
+        suggestion_col = len(header) + 3
+        ws.cell(row=excel_row, column=pass_col, value="No" if failed else "Yes")
+        fail_cell = ws.cell(
+            row=excel_row, column=fail_col, value="Yes" if failed else "No"
+        )
+        if failed:
+            fail_cell.fill = RED_FILL
+            fail_cell.font = RED_FONT
+        ws.cell(
+            row=excel_row,
+            column=suggestion_col,
+            value=safe(qr.suggestion) if qr else "",
+        )
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def _llm_input(rows: list[ParsedRow]) -> str:

@@ -13,6 +13,7 @@ from sqlalchemy import (
     Column,
     ForeignKey,
     Index,
+    LargeBinary,
     String,
     Table,
     Text,
@@ -709,6 +710,10 @@ class McqReviewJob(Base):
     error: Mapped[str | None] = mapped_column(Text)
     # The MCQReviewResult schema (question_reviews + set_summary) once done.
     result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # The raw bytes of the uploaded workbook, kept so the reviewed-sheet
+    # download can re-open and append Pass/Fail/Suggestion columns to the
+    # exact file the user uploaded.
+    source_file: Mapped[bytes | None] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now()
