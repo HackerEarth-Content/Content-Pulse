@@ -8,6 +8,7 @@ from fastapi import (
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
 from core.database import get_session
 from core.deps import ADMINS, require_role
@@ -84,7 +85,11 @@ async def download_mcq_reviewer_job(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(current_user),
 ):
-    job = await db.get(McqReviewJob, job_id)
+    job = await db.scalar(
+        select(McqReviewJob)
+        .options(undefer(McqReviewJob.source_file))
+        .where(McqReviewJob.id == job_id)
+    )
     if job is None or job.user_id != user.id:
         raise HTTPException(404, {"code": "not_found", "detail": "Job not found."})
     if job.status != "done" or job.result is None or job.source_file is None:
