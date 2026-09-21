@@ -14,7 +14,7 @@ export interface ContentIssueSync {
   refresh: () => void;
 }
 
-/** Content issue data refreshes on the Friday scheduler job
+/** Content issue data refreshes on the Monday scheduler job
  * (core/scheduler.py) — this only reports freshness and lets the tab force a
  * sync on demand, same shape as useRedashSync but with no date params since
  * the sync always re-mirrors the whole board. */
