@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api } from "../api";
 import { Banner, SectionHeading, Skeleton } from "../components/ui";
 import { Donut } from "../components/Donut";
+import { RankedBars } from "../components/RankedBars";
 import { shadeFor } from "../charts";
 import type { McqDistributionGroup, McqReviewJobDetail, McqReviewJobSummary } from "../types";
 
@@ -338,19 +339,14 @@ function Insights({ job }: { job: McqReviewJobDetail }) {
         <>
           <SectionHeading title="Most frequent issues" color="var(--accent-violet, var(--accent-indigo))" />
           <div className="card">
-            <div className="bar-list">
-              {topIssues.map(([name, info]) => (
-                <div className="bar-row" key={name}>
-                  <div>
-                    <div className="bar-label">{name.replace(/_/g, " ")}</div>
-                    <div className="bar-track">
-                      <div className="bar-fill" style={{ width: `${info.pct_of_reviewed}%` }} />
-                    </div>
-                  </div>
-                  <div className="bar-value">{info.count}</div>
-                </div>
-              ))}
-            </div>
+            <RankedBars
+              items={topIssues.map(([name, info]) => ({
+                key: name,
+                label: name.replace(/_/g, " "),
+                value: info.count,
+              }))}
+              showShare={false}
+            />
           </div>
         </>
       ) : null}

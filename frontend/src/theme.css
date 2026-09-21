@@ -54,14 +54,14 @@
   --plane: #f2f6fb;
   --surface: #ffffff;
   --surface-2: #eaf0f8;
-  --surface-3: #dfe8f3;
+  --surface-3: #dae5f1;
   --ink: #0a1826;
   --ink-2: #46586e;
-  --ink-3: #57687c;
-  --line: #d3dfec;
+  --ink-3: #526376;
+  --line: #b9cee3;
   --ring: rgba(10, 24, 38, 0.08);
-  --shadow: 0 1px 2px rgba(20, 24, 38, 0.05), 0 6px 16px -8px rgba(20, 24, 38, 0.08);
-  --shadow-hover: 0 2px 4px rgba(20, 24, 38, 0.06), 0 14px 28px -10px rgba(20, 24, 38, 0.14);
+  --shadow: 0 1px 2px rgba(20, 24, 38, 0.07), 0 6px 18px -8px rgba(20, 24, 38, 0.11);
+  --shadow-hover: 0 2px 4px rgba(20, 24, 38, 0.08), 0 16px 32px -10px rgba(20, 24, 38, 0.18);
 
   /* Containers 12px, status chips and other small elements 4px, actions fully
    * round — a pill silhouette makes a trigger findable among rectangular data. */
@@ -115,7 +115,7 @@
     --accent-red: #e66767;
     --accent-magenta: #d55181;
 
-    --ord-1: #16345f;
+    --ord-1: #1a3c6e;
     --ord-2: #1c5cab;
     --ord-3: #3987e5;
     --ord-4: #86b6ef;
@@ -124,21 +124,21 @@
     --plane: #051424;
     --surface: #0d1c2d;
     --surface-2: #122131;
-    --surface-3: #1c2b3c;
+    --surface-3: #1e3145;
     --ink: #d4e4fa;
     --ink-2: #a3b8d0;
     --ink-3: #8598b0;
-    --line: #273647;
+    --line: #31465c;
     --status-good-ink: #11a511;
     --status-warning-ink: #fab219;
     --status-serious-ink: #ec835a;
     --status-critical-ink: #da6666;
     --status-neutral-ink: #8c919a;
     --ring: rgba(212, 228, 250, 0.1);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 20px -8px rgba(0, 0, 0, 0.45);
-    --shadow-hover: 0 2px 4px rgba(0, 0, 0, 0.4), 0 16px 32px -10px rgba(0, 0, 0, 0.55);
-    --shadow-rest: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-lift: 0 14px 32px -14px rgba(0, 0, 0, 0.55), 0 3px 8px -2px rgba(0, 0, 0, 0.4);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 22px -8px rgba(0, 0, 0, 0.5);
+    --shadow-hover: 0 2px 5px rgba(0, 0, 0, 0.45), 0 18px 36px -10px rgba(0, 0, 0, 0.6);
+    --shadow-rest: 0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-lift: 0 16px 36px -14px rgba(0, 0, 0, 0.6), 0 4px 10px -2px rgba(0, 0, 0, 0.45);
   }
 }
 
@@ -150,7 +150,7 @@
   --accent-yellow: #c98500;
   --accent-red: #e66767;
   --accent-magenta: #d55181;
-  --ord-1: #16345f;
+  --ord-1: #1a3c6e;
   --ord-2: #1c5cab;
   --ord-3: #3987e5;
   --ord-4: #86b6ef;
@@ -158,21 +158,21 @@
   --plane: #051424;
   --surface: #0d1c2d;
   --surface-2: #122131;
-  --surface-3: #1c2b3c;
+  --surface-3: #1e3145;
   --ink: #d4e4fa;
   --ink-2: #a3b8d0;
   --ink-3: #8598b0;
-  --line: #273647;
+  --line: #31465c;
   --status-good-ink: #11a511;
   --status-warning-ink: #fab219;
   --status-serious-ink: #ec835a;
   --status-critical-ink: #da6666;
   --status-neutral-ink: #8c919a;
   --ring: rgba(212, 228, 250, 0.1);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 20px -8px rgba(0, 0, 0, 0.45);
-  --shadow-hover: 0 2px 4px rgba(0, 0, 0, 0.4), 0 16px 32px -10px rgba(0, 0, 0, 0.55);
-  --shadow-rest: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-lift: 0 14px 32px -14px rgba(0, 0, 0, 0.55), 0 3px 8px -2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 22px -8px rgba(0, 0, 0, 0.5);
+  --shadow-hover: 0 2px 5px rgba(0, 0, 0, 0.45), 0 18px 36px -10px rgba(0, 0, 0, 0.6);
+  --shadow-rest: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-lift: 0 16px 36px -14px rgba(0, 0, 0, 0.6), 0 4px 10px -2px rgba(0, 0, 0, 0.45);
 }
 
 :root[data-theme="light"] {
@@ -191,16 +191,16 @@
   --plane: #f2f6fb;
   --surface: #ffffff;
   --surface-2: #eaf0f8;
-  --surface-3: #dfe8f3;
+  --surface-3: #dae5f1;
   --ink: #0a1826;
   --ink-2: #46586e;
-  --ink-3: #57687c;
-  --line: #d3dfec;
+  --ink-3: #526376;
+  --line: #b9cee3;
   --ring: rgba(10, 24, 38, 0.08);
-  --shadow: 0 1px 2px rgba(20, 24, 38, 0.05), 0 6px 16px -8px rgba(20, 24, 38, 0.08);
-  --shadow-hover: 0 2px 4px rgba(20, 24, 38, 0.06), 0 14px 28px -10px rgba(20, 24, 38, 0.14);
-  --shadow-rest: 0 1px 2px rgba(20, 24, 38, 0.04);
-  --shadow-lift: 0 10px 24px -12px rgba(20, 24, 38, 0.22), 0 2px 6px -2px rgba(20, 24, 38, 0.1);
+  --shadow: 0 1px 2px rgba(20, 24, 38, 0.07), 0 6px 18px -8px rgba(20, 24, 38, 0.11);
+  --shadow-hover: 0 2px 4px rgba(20, 24, 38, 0.08), 0 16px 32px -10px rgba(20, 24, 38, 0.18);
+  --shadow-rest: 0 1px 3px rgba(20, 24, 38, 0.06);
+  --shadow-lift: 0 12px 28px -12px rgba(20, 24, 38, 0.28), 0 3px 8px -2px rgba(20, 24, 38, 0.14);
 }
 
 * {
@@ -244,8 +244,8 @@ body {
 }
 .card:hover,
 .stat:hover {
-  background: var(--surface-3);
-  border-color: color-mix(in srgb, var(--accent-indigo) 25%, var(--line));
+  background: color-mix(in srgb, var(--accent-indigo) 5%, var(--surface-3));
+  border-color: color-mix(in srgb, var(--accent-indigo) 40%, var(--line));
 }
 
 button {

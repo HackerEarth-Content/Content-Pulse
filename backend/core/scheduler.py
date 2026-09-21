@@ -78,7 +78,7 @@ async def _sync_content_health() -> None:
 
 
 async def _sync_content_issues() -> None:
-    """Friday refresh of the Content Issue Analysis tab's data — a full
+    """Monday refresh of the Content Issue Analysis tab's data — a full
     re-mirror (see content_issues.sync's docstring), not incremental, so
     weekly is plenty; a person can also force it from the tab's sync button
     (POST /api/content-issues/sync)."""
@@ -208,7 +208,7 @@ def start() -> AsyncIOScheduler:
     )
     s.add_job(
         _sync_content_issues,
-        CronTrigger(hour=18, minute=0, day_of_week="fri", timezone=TZ),
+        CronTrigger(hour=18, minute=0, day_of_week="mon", timezone=TZ),
         id="content_issues",
         max_instances=1,
         coalesce=True,

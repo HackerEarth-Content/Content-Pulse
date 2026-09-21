@@ -9,20 +9,34 @@ fit the schema. Both calls are traced to LangSmith. The set-level summary
 here in Python from the parsed rows and the model's per-row verdicts, not
 trusted from the model's own aggregation — deterministic and can't drift
 from what was actually parsed.
+
+Rows are reviewed in CHUNK_SIZE-sized batches, not one call for the whole
+set: a single call covering hundreds of rows against six per-row checks
+measurably stops doing the work (verified against a 346-row real set — one
+call flagged 1 row and claimed zero taxonomy mismatches that a deterministic
+recount showed on 335 rows). Duplicate/redundant-question detection (the one
+check that needs the whole set, not just one row) can't be chunked the same
+way — two duplicate rows split across batches would never be compared — so
+it runs as a separate pass: a cheap text-similarity pre-filter narrows the
+whole set down to the rows that plausibly overlap with another row, and only
+that small candidate list goes to the LLM for a real verdict.
 """
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 
 import openpyxl
 import xlrd
 from anthropic import AsyncAnthropic
 from langsmith import traceable
+from langsmith.wrappers import wrap_anthropic, wrap_openai
 from openai import AsyncOpenAI
 from openpyxl.styles import Font, PatternFill
 from pydantic import BaseModel
@@ -68,12 +82,38 @@ EXPECTED_COLUMNS = (
     "Shuffle Options (optional)",
 )
 
-# ponytail: single LLM call per job, no chunking — comfortably fits a normal
-# bulk-upload set in one context window. If real usage regularly exceeds
-# this, add chunking + merge in review_mcqs rather than raising the cap
-# indefinitely.
-MAX_ROWS = 500
+MAX_ROWS = 1000
 MAX_FILE_BYTES = 10 * 1024 * 1024
+
+# Rows per LLM call for Phase 0/1 per-row checks. Small enough that the model
+# still does six checks per row instead of skimming; see the module docstring
+# for the measured failure mode above this size.
+CHUNK_SIZE = 40
+
+# Batches run concurrently, capped by this semaphore rather than all at once —
+# a 1000-row upload is 25 CHUNK_SIZE batches, and firing all 25 at once trips
+# OpenAI/Anthropic per-minute rate limits. This still cuts wall-clock time
+# substantially over one-at-a-time while staying well under typical org limits.
+MAX_CONCURRENT_BATCHES = 5
+
+# Two problem statements are duplicate candidates when their normalized,
+# stopword-stripped token sets overlap this much (Jaccard). Deliberately
+# generous — this only narrows the set for LLM adjudication, so a false
+# positive costs a few extra tokens while a false negative means a real
+# duplicate is never checked.
+DUPLICATE_CANDIDATE_THRESHOLD = 0.4
+
+# Max rows per duplicate-adjudication call. Clusters are packed in without
+# splitting one across batches (see _candidate_duplicate_clusters), so an
+# individual cluster larger than this still goes in a single, larger call
+# rather than being broken apart incorrectly.
+DUPLICATE_BATCH_SIZE = 15
+
+_STOPWORDS = frozenset(
+    "a an the is are was were of to in on for with which following statements "
+    "about statement correct not true false does do you your using use it "
+    "this that these those be can will would".split()
+)
 
 
 class TemplateValidationError(Exception):
@@ -118,6 +158,58 @@ def _to_int(v) -> int | None:
 
 def _split_tags(v) -> list[str]:
     return [t.strip() for t in _clean(v).split(",") if t.strip()]
+
+
+def _token_set(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in _STOPWORDS}
+
+
+def _candidate_duplicate_clusters(rows: list[ParsedRow]) -> list[list[ParsedRow]]:
+    """Group rows into duplicate-candidate clusters via a cheap O(n^2)
+    token-Jaccard pass over problem statements (union-find over pairs at or
+    above DUPLICATE_CANDIDATE_THRESHOLD), instead of returning one flat list.
+
+    Returning a flat list of every candidate row and sending it to the LLM in
+    one call re-creates the exact "too many rows for one call to compare
+    exhaustively" problem chunking was built to fix, just at a smaller scale
+    (measured: 75 flat candidate rows in one adjudication call caught 1 real
+    duplicate pair on one run and 0 on the next, against a known real pair in
+    that set). Clustering first means each adjudication batch only ever needs
+    to compare rows that are already plausibly linked to each other, so
+    packing clusters into batches (below) never has to split a suspected
+    duplicate pair across two calls."""
+    signatures = [(r, _token_set(r.problem_statement)) for r in rows]
+    parent: dict[int, int] = {r.row_number: r.row_number for r in rows}
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for i in range(len(signatures)):
+        row_a, tokens_a = signatures[i]
+        if not tokens_a:
+            continue
+        for j in range(i + 1, len(signatures)):
+            row_b, tokens_b = signatures[j]
+            if not tokens_b:
+                continue
+            union_tokens = tokens_a | tokens_b
+            jaccard = len(tokens_a & tokens_b) / len(union_tokens)
+            if jaccard >= DUPLICATE_CANDIDATE_THRESHOLD:
+                union(row_a.row_number, row_b.row_number)
+
+    clusters: dict[int, list[ParsedRow]] = {}
+    for r in rows:
+        clusters.setdefault(find(r.row_number), []).append(r)
+
+    return [c for c in clusters.values() if len(c) >= 2]
 
 
 def _rows_from_sheet(header: list[str], data_rows: list[tuple]) -> list[ParsedRow]:
@@ -314,7 +406,7 @@ class _LLMQuestionReviews(BaseModel):
 async def _call_openai(system: str, user: str) -> str:
     if not settings.OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is not configured")
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    client = wrap_openai(AsyncOpenAI(api_key=settings.OPENAI_API_KEY))
     resp = await client.chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=[
@@ -331,7 +423,7 @@ async def _call_openai(system: str, user: str) -> str:
 async def _call_anthropic(system: str, user: str) -> str:
     if not settings.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY is not configured")
-    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = wrap_anthropic(AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY))
     resp = await client.messages.create(
         model=settings.ANTHROPIC_MODEL,
         max_tokens=8192,
@@ -451,17 +543,11 @@ def _build_summary(
     )
 
 
-async def review_mcqs(rows: list[ParsedRow], taxonomy_block: str) -> MCQReviewResult:
-    """OpenAI first; Anthropic on any failure (network, rate limit, invalid
-    JSON, or a response that fails schema validation). Both failing raises
-    ReviewFailedError — never a silently partial or fabricated result."""
-    system = MCQ_REVIEWER_PROMPT
-    if taxonomy_block:
-        system += (
-            "\n\n---\n\n"
-            "## Skill Taxonomy Reference (hackerearth-skill-taxonomy.md)\n\n"
-            + taxonomy_block
-        )
+async def _review_batch(rows: list[ParsedRow], system: str) -> list[QuestionReview]:
+    """One LLM call over one batch of rows. OpenAI first; Anthropic on any
+    failure (network, rate limit, invalid JSON, or a response that fails
+    schema validation). Both failing raises ReviewFailedError — never a
+    silently partial or fabricated result."""
     user = _llm_input(rows)
 
     last_error: Exception | None = None
@@ -471,21 +557,100 @@ async def review_mcqs(rows: list[ParsedRow], taxonomy_block: str) -> MCQReviewRe
             parsed = _LLMQuestionReviews.model_validate_json(_strip_fences(raw))
             question_reviews = _filter_valid_reviews(rows, parsed.question_reviews)
             log.info(
-                "mcq_reviewer: %s served the review (%d rows, %d flagged)",
+                "mcq_reviewer: %s served a batch (%d rows, %d flagged)",
                 provider,
                 len(rows),
                 len(question_reviews),
             )
-            return MCQReviewResult(
-                question_reviews=question_reviews,
-                set_summary=_build_summary(rows, question_reviews),
-            )
+            return question_reviews
         except Exception as e:
             log.warning("mcq_reviewer: %s failed: %s", provider, e)
             last_error = e
 
     raise ReviewFailedError(
         f"Both OpenAI and Anthropic failed to produce a valid review: {last_error}"
+    )
+
+
+def _pack_duplicate_batches(
+    clusters: list[list[ParsedRow]],
+) -> list[list[ParsedRow]]:
+    """Pack duplicate-candidate clusters into DUPLICATE_BATCH_SIZE-ish
+    batches, never splitting a single cluster across two batches, so an
+    adjudication call always sees every row it needs to compare a suspected
+    duplicate group against."""
+    batches: list[list[ParsedRow]] = []
+    current: list[ParsedRow] = []
+    for cluster in clusters:
+        if current and len(current) + len(cluster) > DUPLICATE_BATCH_SIZE:
+            batches.append(current)
+            current = []
+        current.extend(cluster)
+    if current:
+        batches.append(current)
+    return batches
+
+
+async def review_mcqs(rows: list[ParsedRow], taxonomy_block: str) -> MCQReviewResult:
+    """Phase 0/1 per-row checks run in CHUNK_SIZE batches (see module
+    docstring for why). Duplicate-question detection runs as a second, separate
+    pass over only the rows a text-similarity pre-filter clusters as plausible
+    duplicate groups, since that check needs whole-set visibility that chunking
+    would break. Each cluster is adjudicated in a small, whole batch (never
+    split across calls), the same reliability fix CHUNK_SIZE applies to the
+    main checks, applied here to the candidate set instead of the full set.
+    Only the `duplicate_question` check is taken from these calls; their other
+    checks are ignored, since the batches above are already the source of
+    truth for every other check on those rows."""
+    system = MCQ_REVIEWER_PROMPT
+    if taxonomy_block:
+        system += (
+            "\n\n---\n\n"
+            "## Skill Taxonomy Reference (hackerearth-skill-taxonomy.md)\n\n"
+            + taxonomy_block
+        )
+
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_BATCHES)
+
+    async def _review_batch_bounded(batch: list[ParsedRow]) -> list[QuestionReview]:
+        async with semaphore:
+            return await _review_batch(batch, system)
+
+    chunks = [rows[i : i + CHUNK_SIZE] for i in range(0, len(rows), CHUNK_SIZE)]
+    batch_results = await asyncio.gather(
+        *(_review_batch_bounded(chunk) for chunk in chunks)
+    )
+    question_reviews: list[QuestionReview] = [
+        qr for batch in batch_results for qr in batch
+    ]
+
+    clusters = _candidate_duplicate_clusters(rows)
+    if clusters:
+        by_row = {qr.row_number: qr for qr in question_reviews}
+        dup_batches = _pack_duplicate_batches(clusters)
+        dup_results = await asyncio.gather(
+            *(_review_batch_bounded(dup_batch) for dup_batch in dup_batches)
+        )
+        for qr in (qr for batch in dup_results for qr in batch):
+            dup_check = qr.checks.get("duplicate_question")
+            if dup_check is None:
+                continue
+            existing = by_row.get(qr.row_number)
+            if existing is not None:
+                existing.checks["duplicate_question"] = dup_check
+            else:
+                new_qr = QuestionReview(
+                    row_number=qr.row_number,
+                    verdict="fail",
+                    checks={"duplicate_question": dup_check},
+                    suggestion=qr.suggestion,
+                )
+                question_reviews.append(new_qr)
+                by_row[qr.row_number] = new_qr
+
+    return MCQReviewResult(
+        question_reviews=question_reviews,
+        set_summary=_build_summary(rows, question_reviews),
     )
 
 

@@ -22,6 +22,13 @@ const ACTION_ORDER: CoverageAction[] = ["add", "top_up", "prune", "balanced"];
 const VERDICT_CHIP_LABEL: Record<CoverageAction, string> = {
   add: "add", top_up: "top up", prune: "prune", balanced: "balanced",
 };
+// Display-only rename — the underlying problem_type value stays "Full stack"/
+// "Selenium" everywhere (DB, sync, filters); only what's shown to users changes.
+const PROBLEM_TYPE_LABEL: Record<string, string> = {
+  "Full stack": "Project Question",
+  "Selenium": "Automation testing",
+};
+const typeLabel = (t: string) => PROBLEM_TYPE_LABEL[t] ?? t;
 // Mirrors the thresholds in backend/services/content_health.py's _action()
 // exactly (AttQ_Under=30, AttQ_Tight=15, Dead_Prune=0.6) — if those ever
 // change, this text has to change with them.
@@ -230,7 +237,7 @@ function QuestionTypeGrid({
             >
               <div className="qt-tile-top">
                 <span className="qt-tile-rank">#{i + 1}</span>
-                <span className="qt-tile-name">{t.problem_type}</span>
+                <span className="qt-tile-name">{typeLabel(t.problem_type)}</span>
               </div>
               <span className="qt-tile-value mono">{num(t.candidates_attempted ?? 0)}</span>
               <span className="qt-tile-sub">candidates attempted</span>
@@ -382,7 +389,7 @@ export function ContentHealth() {
                         .filter((t) => (t.candidates_attempted ?? 0) > 0)
                         .sort((a, b) => (b.candidates_attempted ?? 0) - (a.candidates_attempted ?? 0))
                         .map((t, i, arr) => ({
-                          key: t.problem_type, label: t.problem_type, value: t.candidates_attempted ?? 0,
+                          key: t.problem_type, label: typeLabel(t.problem_type), value: t.candidates_attempted ?? 0,
                           colour: shadeFor(i, arr.length),
                         }))}
                       total={totalAttempted}
@@ -395,11 +402,11 @@ export function ContentHealth() {
 
                   <InfoCard
                     title="Health profile"
-                    sub={selected ? `${radarSubject.problem_type} — click a type below to switch` : `${radarSubject.problem_type} — busiest this month, by candidates attempted`}
+                    sub={selected ? `${typeLabel(radarSubject.problem_type)} — click a type below to switch` : `${typeLabel(radarSubject.problem_type)} — busiest this month, by candidates attempted`}
                     accent="var(--accent-indigo)"
                     explain={
                       <>
-                        <p>Three independent ratios for <strong>{radarSubject.problem_type}</strong>, each a real
+                        <p>Three independent ratios for <strong>{typeLabel(radarSubject.problem_type)}</strong>, each a real
                           share of something — nothing here is invented to fill out the shape:</p>
                         <ul>
                           <li><strong>Test coverage</strong> — tests containing this type ÷ all tests published this
@@ -546,7 +553,7 @@ export function ContentHealth() {
                         comp.companies.length ? (
                           <>
                             <p className="hint">
-                              Top {comp.companies.length} companies for {selected} by {comp.value_label ?? "candidate volume"}.
+                              Top {comp.companies.length} companies for {selected ? typeLabel(selected) : selected} by {comp.value_label ?? "candidate volume"}.
                             </p>
                             <CompaniesBarChart companies={comp.companies} valueLabel={comp.value_label ?? "candidates"} />
                           </>

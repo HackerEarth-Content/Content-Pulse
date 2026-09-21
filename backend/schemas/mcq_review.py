@@ -32,6 +32,8 @@ class CheckResult(BaseModel):
     tag_status: str | None = None
     provided_tags: list[str] | None = None
     suggested_tags: list[str] | None = None
+    # Only present on the `duplicate_question` check.
+    duplicate_of_rows: list[int] | None = None
 
 
 class QuestionReview(BaseModel):

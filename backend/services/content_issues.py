@@ -147,7 +147,7 @@ def _row(issue: dict, field_ids: dict[str, str], base_url: str) -> dict:
 
 async def sync(force: bool = False) -> dict:
     """Paginate the board and upsert. Safe to run on a timer or on demand —
-    the Friday scheduler job and a manual "sync now" both call this."""
+    the Monday scheduler job and a manual "sync now" both call this."""
     async with Session() as db:
         try:
             cfg = await config(db)
