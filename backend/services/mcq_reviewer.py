@@ -591,6 +591,7 @@ def _pack_duplicate_batches(
     return batches
 
 
+@traceable(name="mcq_reviewer.review_set", run_type="chain")
 async def review_mcqs(rows: list[ParsedRow], taxonomy_block: str) -> MCQReviewResult:
     """Phase 0/1 per-row checks run in CHUNK_SIZE batches (see module
     docstring for why). Duplicate-question detection runs as a second, separate
@@ -687,7 +688,18 @@ async def run_review_job(job_id: int, content: bytes) -> None:
 
             await _stage("reviewing")
             taxonomy_block = await taxonomy_service.taxonomy_prompt_block(db)
-            result = await review_mcqs(rows, taxonomy_block)
+            result = await review_mcqs(
+                rows,
+                taxonomy_block,
+                langsmith_extra={
+                    "name": f"mcq_reviewer.review_set[{job.filename}]",
+                    "metadata": {
+                        "job_id": job_id,
+                        "filename": job.filename,
+                        "row_count": len(rows),
+                    },
+                },
+            )
 
             job.result = result.model_dump(mode="json")
             await _stage("done", row_count=len(rows))
