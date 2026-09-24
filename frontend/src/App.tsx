@@ -23,6 +23,7 @@ import { Analytics } from "./routes/Analytics";
 import { ContentHealth } from "./routes/ContentHealth";
 import { ContentIssueAnalysis } from "./routes/ContentIssueAnalysis";
 import { ContentRequests } from "./routes/ContentRequests";
+import { EventQuestionReview } from "./routes/EventQuestionReview";
 import { Leaderboard } from "./routes/Leaderboard";
 import { Requests } from "./routes/Requests";
 import { Login } from "./routes/Login";
@@ -130,6 +131,8 @@ function TabPanes({
         <Route path="/utils/mcq-reviewer" element={<McqReviewer />} />
         <Route path="/utils/mcq-reviewer/:jobId" element={<McqReviewer />} />
         <Route path="/utils/taxonomy" element={<TaxonomyManager />} />
+        <Route path="/utils/event-review" element={<EventQuestionReview me={user.member} />} />
+        <Route path="/utils/event-review/:slug" element={<EventQuestionReview me={user.member} />} />
         {/* Raw Jira board mirror. Off the nav — /requests supersedes it. */}
         <Route path="/content-requests" element={<ContentRequests />} />
         {/* The old split forms; one screen replaces both. */}

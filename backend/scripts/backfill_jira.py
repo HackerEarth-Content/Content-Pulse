@@ -21,6 +21,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from core.config import settings
 from core.database import Session
@@ -304,9 +305,18 @@ async def _sync_question_types(db, item: EntryItem, f: dict, cache: dict) -> Non
         )
     )
     if ids:
+        # ON CONFLICT DO NOTHING, not a plain insert: the same issue can show up
+        # twice in one incremental page (Jira's `updated` filter can re-match a
+        # ticket mid-fetch), and the delete above doesn't protect against that —
+        # the second pass's insert races the first pass's, both in-flight in the
+        # same transaction, and hits this table's (entry_item_id, question_type_id)
+        # primary key.
         await db.execute(
-            entry_item_question_types.insert(),
-            [{"entry_item_id": item.id, "question_type_id": qid} for qid in ids],
+            pg_insert(entry_item_question_types)
+            .values(
+                [{"entry_item_id": item.id, "question_type_id": qid} for qid in ids]
+            )
+            .on_conflict_do_nothing()
         )
 
 

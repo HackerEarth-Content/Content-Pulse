@@ -36,6 +36,10 @@ QUERIES = {
     "kpi": {"id": "5163"},
     "top10": {"id": "5145"},
     "feedback": {"id": "5215", "enum": {}},
+    # Library questions copied into a given event, by Setter Template ID —
+    # see api/utils_routes.py's event-question-review endpoints. Redash's own
+    # parameter name is "Event Slug", not "event_slug".
+    "event_question_library": {"id": "5671"},
 }
 
 # Canonical problem types -> each query's own enum vocabulary (they differ:

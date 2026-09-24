@@ -16,6 +16,11 @@ import type {
   DataQuality,
   DueRisk,
   Entry,
+  EqrEventReview,
+  EqrHistory,
+  EqrImportJob,
+  EqrQuestionRow,
+  EqrVerdict,
   Holiday,
   Lookup,
   McqReviewJobDetail,
@@ -315,4 +320,35 @@ export const api = {
   addTaxonomyTag: (category: string, tag: string) =>
     send<TaxonomyTag>("POST", "/utils/taxonomy", { category, tag }),
   removeTaxonomyTag: (id: number) => send<void>("DELETE", `/utils/taxonomy/${id}`),
+
+  eventReview: (slug: string) => get<EqrEventReview>(`/utils/event-review/${slug}`),
+  eventReviewSubmit: (body: {
+    event_slug: string;
+    setter_template_ids: number[];
+    status: EqrVerdict;
+    note?: string;
+  }) => send<EqrQuestionRow[]>("POST", "/utils/event-review/submit", body),
+  eventReviewAssign: (body: {
+    setter_template_ids: number[];
+    member_id: number;
+    level: "l1" | "l2";
+  }) => send<EqrQuestionRow[]>("POST", "/utils/event-review/assign", body),
+  eventReviewClaim: (body: { setter_template_id: number; level: "l1" | "l2" }) =>
+    send<EqrQuestionRow>("POST", "/utils/event-review/claim", body),
+  eventReviewL2Submit: (body: { setter_template_id: number; comment: string }) =>
+    send<EqrQuestionRow>("POST", "/utils/event-review/l2-submit", body),
+  eventReviewReassignL2: (body: { setter_template_id: number; member_id: number }) =>
+    send<EqrQuestionRow>("POST", "/utils/event-review/reassign-l2", body),
+  eventReviewHistory: (id: number) => get<EqrHistory>(`/utils/event-review/history/${id}`),
+  exportEventReview: (slug: string) =>
+    download(`/utils/event-review/${slug}/export.xlsx`, {}, `event-review-${slug}.xlsx`),
+
+  uploadEventReviewImport: (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return request<EqrImportJob>("/utils/event-review/import", { method: "POST", body });
+  },
+  eventReviewImportJob: (id: number) => get<EqrImportJob>(`/utils/event-review/import/${id}`),
+  confirmEventReviewImport: (id: number) =>
+    send<EqrImportJob>("POST", `/utils/event-review/import/${id}/confirm`),
 };

@@ -603,3 +603,120 @@ export interface TaxonomyGroup {
   category: string;
   tags: TaxonomyTag[];
 }
+
+// ── Utils: Event Question Review ─────────────────────────────────────────────
+
+export type EqrVerdict = "no_issue_found" | "fixed" | "removed";
+export type EqrL1Status = "not_started" | "in_progress" | "done";
+export type EqrL2Status = "not_requested" | "pending" | "in_progress" | "done";
+
+export interface EqrMemberRef {
+  id: number;
+  display_name: string;
+}
+
+export interface EqrQuestionRow {
+  setter_template_id: number;
+  question_type: string;
+  problem_id: number;
+  title: string;
+  level: string;
+  tags: string[];
+  score: number;
+  description: string;
+  company: string | null;
+  section: string | null;
+  workspace: string | null;
+  created_by: string | null;
+  added_by: string | null;
+  library_type: string | null;
+  content_created_at: string | null;
+
+  last_verdict: EqrVerdict | null;
+  last_reviewed_at: string | null;
+  last_reviewed_slug: string | null;
+  issue_summary: string | null;
+  removal_reason: string | null;
+  resurfaced_removed: boolean;
+  stale: boolean;
+
+  l1_assignee: EqrMemberRef | null;
+  l1_status: EqrL1Status;
+  l1_comments: string | null;
+
+  l2_assignee: EqrMemberRef | null;
+  l2_status: EqrL2Status;
+  l2_comments: string | null;
+}
+
+export interface EqrRecentlyReviewed {
+  setter_template_id: number;
+  by: string;
+  at: string;
+}
+
+export interface EqrSummary {
+  needs_review_count: number;
+  reviewed_count: number;
+  recently_reviewed: EqrRecentlyReviewed[];
+}
+
+export interface EqrEventReview {
+  event_slug: string;
+  rows: EqrQuestionRow[];
+  summary: EqrSummary;
+}
+
+export interface EqrHistoryEntry {
+  at: string;
+  event_slug: string;
+  level: "l1" | "l2";
+  by: string;
+  verdict: EqrVerdict | null;
+  note: string | null;
+}
+
+export interface EqrHistory {
+  setter_template_id: number;
+  entries: EqrHistoryEntry[];
+}
+
+// ── Utils: Event Question Review — admin data import ──────────────────────────
+
+export type EqrImportStatus = "uploaded" | "validating" | "ready_for_review" | "importing" | "done" | "error";
+
+export interface EqrImportSheetSummary {
+  slug: string;
+  questions: number;
+  missing_columns: string[];
+  reviews: number;
+  conflicts: number;
+  events: number;
+}
+
+export interface EqrImportConflict {
+  slug: string;
+  setter_template_id: number;
+  title: string;
+  levels: ("l1" | "l2")[];
+}
+
+export interface EqrImportSummary {
+  dry_run: boolean;
+  sheets: EqrImportSheetSummary[];
+  warnings: string[];
+  conflicts: EqrImportConflict[];
+  total_questions: number;
+  total_reviews: number;
+  total_conflicts: number;
+  total_events: number;
+}
+
+export interface EqrImportJob {
+  id: number;
+  filename: string;
+  status: EqrImportStatus;
+  error: string | null;
+  preview: EqrImportSummary | null;
+  result: EqrImportSummary | null;
+}

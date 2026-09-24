@@ -285,6 +285,26 @@ async def _post_plan(db, channel: str, entry: DailyEntry, mention: str) -> None:
             log.warning("plan ticket thread reply failed for item %s", item.id)
 
 
+async def notify_assignment(member: Member, assigner_name: str, text: str) -> None:
+    """Plain best-effort post to SLACK_CHANNEL, mentioning `member` — used by
+    Event Question Review's L1/L2 assignment (see services/event_review.py).
+    Never raises: a Slack outage must not block the assignment write itself,
+    same posture as `post_entry` below."""
+    try:
+        mention = await _mention(
+            member.slack_user_id, member.email, member.display_name
+        )
+        await _call(
+            "chat.postMessage",
+            {
+                "channel": settings.SLACK_CHANNEL,
+                "text": f"{assigner_name} {text} {mention}",
+            },
+        )
+    except Exception as e:
+        log.warning("slack assignment notify failed for member %s: %s", member.id, e)
+
+
 async def post_entry(entry_id: int) -> None:
     """Only plans get posted — the parent-per-plan-with-per-ticket-thread
     shape from `_post_plan`. A `kind="update"` entry is always the New

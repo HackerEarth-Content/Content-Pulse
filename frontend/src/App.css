@@ -2817,3 +2817,405 @@ td.heat {
 .leave-cal-day.is-weekend:disabled {
   opacity: 0.25;
 }
+
+/* ── Utils: Event Question Review ─────────────────────────────────────────── */
+
+.eqr-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 14px 0;
+  position: relative;
+  z-index: 10;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .eqr-toolbar.reveal-stagger,
+  .eqr-bulk-bar,
+  .eqr-columns-menu {
+    animation: row-in 0.22s var(--ease-out, ease-out) both;
+  }
+}
+/* A round, always-visible hit target for the row-expand toggle — the old
+   plain <td onClick> had no focus ring and no affordance at all. */
+.eqr-expand-btn {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+.eqr-expand-btn:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+/* QT/Difficulty/Last-reviewed are supporting detail, not the point of a
+   row — dimming them one step lets Title and status pills carry the eye. */
+.eqr-secondary {
+  color: var(--ink-3);
+}
+.chip {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent-blue) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent-blue) 45%, var(--line));
+  color: var(--accent-blue);
+}
+/* Stat tiles are <button>s now (clickable filters) — reset button chrome so
+   they read exactly like the plain .stat divs elsewhere in the app, then
+   layer on a pressed state that reuses each tile's own accent colour. */
+.grid.cols-4 > .stat {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+.eqr-tile-critical {
+  border-top: 2px solid var(--status-critical);
+}
+.eqr-tile-good {
+  border-top: 2px solid var(--status-good);
+}
+.eqr-tile-active {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-blue) 35%, transparent);
+}
+
+/* Sortable + filterable column header (QT / Difficulty) — replaces the
+   separate toolbar dropdowns those columns used to need. Stacked (label
+   above, select below) rather than side-by-side: packed onto one line, the
+   two controls fought the column for width and clipped each other. */
+.eqr-th-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.eqr-th-sort {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+/* Plain native select — a real <select> needs no outside-click handling to
+   close itself, unlike a hand-rolled popover. */
+.eqr-th-select {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--ink-3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  padding: 2px 4px;
+  width: 100%;
+}
+.eqr-th-select:focus {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent-blue) 55%, var(--line));
+}
+
+/* A visible seam where the frozen (sticky) columns end and the scrolling
+   body begins — without it, columns passing underneath the sticky ones on
+   scroll just look abruptly clipped rather than deliberately frozen, the
+   same cue a spreadsheet gives a frozen pane. */
+.eqr-grid .eqr-sticky2 {
+  box-shadow: 2px 0 4px -2px color-mix(in srgb, var(--ink) 25%, transparent);
+}
+.eqr-columns-menu {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  /* Must clear the grid's own sticky header/columns (z-index 1–3) and the
+     grid's own stacking context — a table full of `position: sticky` cells
+     otherwise paints over a same-page absolute popover despite DOM order. */
+  z-index: 50;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-hover);
+  padding: 10px;
+  min-width: 190px;
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.eqr-columns-menu label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+/* Grid: base table/th/td styling comes from `.table-scroll` (designed for
+   dense numeric ledgers, hence its default mono font) — a review grid is
+   mostly names and titles, so this switches the body back to the sans
+   family and gives rows a touch more breathing room, then adds the
+   sticky-column offsets an admin's extra checkbox column needs (the plain
+   `.sticky-col` pattern assumes a single leading column). */
+/* The base `table` rule elsewhere in this app sets `width: 100%`, which
+   forces `table-layout: auto` to squeeze every column into the visible
+   container before it ever considers overflowing — that's the actual cause
+   of columns "crowding" as more get toggled on, not the vertical scroll
+   window (that part's unrelated: it only bounds height, and combines fine
+   with horizontal overflow). Letting the table size to its own content and
+   giving ordinary columns a sensible floor means new columns push the table
+   wider and `.table-scroll`'s `overflow-x: auto` scrolls, instead of every
+   column silently shrinking. */
+.eqr-grid {
+  width: auto;
+  min-width: 100%;
+}
+.eqr-grid th:not(.eqr-sticky1):not(.eqr-sticky2),
+.eqr-grid td:not(.eqr-sticky1):not(.eqr-sticky2) {
+  min-width: 90px;
+}
+/* QT / Difficulty need more room than the 90px floor above — a sort label
+   plus a select stacked in one column. Matches that rule's specificity and
+   comes after it, so it actually wins (the earlier attempt at this, back up
+   near .eqr-sortable-th, silently lost that fight and never took effect). */
+.eqr-grid th.eqr-sortable-th:not(.eqr-sticky1):not(.eqr-sticky2) {
+  min-width: 116px;
+}
+.eqr-grid td,
+.eqr-grid th {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  vertical-align: middle;
+  padding: 9px 12px;
+  white-space: nowrap;
+}
+.eqr-grid th {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+/* Numeric/identifier columns (Setter ID, dates) read better in mono, tabular. */
+.eqr-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+/* Status/verdict/history columns are pills and icon buttons, not prose —
+   centered so a scanning eye lines them up in a column instead of a ragged
+   left edge. */
+.eqr-center {
+  text-align: center;
+}
+.eqr-grid .eqr-sticky1,
+.eqr-grid .eqr-sticky2 {
+  position: sticky;
+  z-index: 1;
+  background: var(--surface);
+}
+.eqr-grid thead .eqr-sticky1,
+.eqr-grid thead .eqr-sticky2 {
+  z-index: 3;
+  background: var(--surface-2);
+}
+.eqr-grid .eqr-sticky1 {
+  left: 0;
+}
+.eqr-grid .eqr-sticky2 {
+  left: 34px;
+  border-right: 1px solid var(--line);
+}
+.eqr-grid tbody tr:hover .eqr-sticky1,
+.eqr-grid tbody tr:hover .eqr-sticky2 {
+  background: var(--surface-3);
+}
+.eqr-row-selected td {
+  background: color-mix(in srgb, var(--accent-blue) 6%, var(--surface));
+}
+.eqr-title-cell {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+.eqr-detail-row {
+  background: var(--surface-2);
+  padding: 0 !important;
+  white-space: normal;
+}
+.eqr-detail {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.eqr-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 760px) {
+  .eqr-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.eqr-slot {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.eqr-slot-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.eqr-inline-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+/* Sits above the table now (was below it, sticky to the viewport bottom —
+   which got clipped by the page's own overflow once the filter/toolbar
+   clutter above the table was cleaned up). Normal flow, no stickiness
+   needed: it's already near the top of the visible content. */
+.eqr-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: color-mix(in srgb, var(--accent-blue) 6%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 30%, var(--line));
+  border-radius: var(--radius);
+  padding: 9px 14px;
+  box-shadow: var(--shadow-hover);
+  margin-bottom: 12px;
+  /* One line, always — on a narrow viewport this scrolls horizontally
+     instead of wrapping into a second (or third) line. */
+  overflow-x: auto;
+}
+.eqr-bulk-bar > span {
+  flex-shrink: 0;
+}
+.eqr-bulk-actions {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.eqr-bulk-actions select,
+.eqr-bulk-actions button {
+  flex-shrink: 0;
+}
+.eqr-bulk-actions .btn.btn-sm {
+  font-size: 12.5px;
+  padding: 7px 15px;
+}
+.eqr-bulk-actions select.field {
+  font-size: 12.5px;
+  padding: 7px 10px;
+}
+.verdict-form {
+  padding: 10px 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.eqr-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 10px 0;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.eqr-tl-item {
+  position: relative;
+  padding: 0 0 16px 20px;
+  border-left: 2px solid var(--line);
+}
+.eqr-tl-item:last-child {
+  border-color: transparent;
+  padding-bottom: 0;
+}
+.eqr-tl-item::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--accent-blue);
+  border: 2px solid var(--surface);
+}
+.eqr-tl-meta {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+}
+.eqr-tl-body {
+  font-size: 13.5px;
+  color: var(--ink-2);
+  margin-top: 2px;
+}
+
+/* History dialog reads as a document (dates, actors, notes to skim), not a
+   dense grid row — bump everything a size up from the app-wide .card-title/
+   .card-sub/.pill/.section-action defaults, and give it more room to do it in. */
+.eqr-history-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+.eqr-history-dialog .card-title {
+  font-size: 15px;
+}
+.eqr-history-dialog .card-sub {
+  font-size: 13px;
+}
+.eqr-history-dialog .section-action svg {
+  width: 15px;
+  height: 15px;
+}
+.eqr-history-dialog .eqr-tl-meta {
+  font-size: 13px;
+}
+.eqr-history-dialog .eqr-tl-body {
+  font-size: 14.5px;
+}
+.eqr-history-dialog .pill {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+.eqr-history-dialog .eqr-tl-item::before {
+  width: 12px;
+  height: 12px;
+  left: -7px;
+}
