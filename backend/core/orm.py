@@ -13,6 +13,7 @@ from sqlalchemy import (
     Column,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     String,
     Table,
@@ -715,6 +716,153 @@ class McqReviewJob(Base):
     # exact file the user uploaded. Deferred — the 2s job-status poll and the
     # recent-jobs list both load this row but never the file bytes, and this
     # column can be several MB; only the download endpoint needs it loaded.
+    source_file: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )
+
+
+# ── utils: event question review ─────────────────────────────────────────────
+# Second Utils tool, see EVENT_QUESTION_REVIEW.md. Redash (query 5671) stays
+# the authoritative source for a library question's own content — every
+# fetch re-reads it and overwrites the cached copy below — but the copy is
+# kept here too, so a question's title/tags/etc. survive a Redash outage and
+# a write endpoint (submit/assign/...) can answer with full rows without a
+# round trip back to Redash.
+
+EQR_VERDICTS = ("no_issue_found", "fixed", "removed")
+EQR_L1_STATUSES = ("not_started", "in_progress", "done")
+EQR_L2_STATUSES = ("not_requested", "pending", "in_progress", "done")
+
+
+class QuestionReview(Base):
+    __tablename__ = "question_reviews"
+    __table_args__ = (
+        _enum("last_verdict", EQR_VERDICTS),
+        _enum("l1_status", EQR_L1_STATUSES),
+        _enum("l2_status", EQR_L2_STATUSES),
+    )
+
+    setter_template_id: Mapped[int] = mapped_column(primary_key=True)
+
+    # Cached straight from Redash 5671, columns A-H plus the extra fields the
+    # "Columns" picker exposes — refreshed on every GET, never hand-edited.
+    question_type: Mapped[str] = mapped_column(default="")
+    problem_id: Mapped[int] = mapped_column(default=0)
+    title: Mapped[str] = mapped_column(Text, default="")
+    level: Mapped[str] = mapped_column(default="")
+    tags: Mapped[list[str]] = mapped_column(default=list)
+    score: Mapped[int] = mapped_column(default=0)
+    description: Mapped[str] = mapped_column(Text, default="")
+    company: Mapped[str | None]
+    section: Mapped[str | None]
+    workspace: Mapped[str | None]
+    created_by: Mapped[str | None]
+    added_by: Mapped[str | None]
+    library_type: Mapped[str | None]
+    content_created_at: Mapped[str | None]
+    synced_at: Mapped[datetime | None]
+
+    last_verdict: Mapped[str | None]
+    last_reviewed_at: Mapped[datetime | None]
+    last_reviewed_slug: Mapped[str | None]
+    issue_summary: Mapped[str | None] = mapped_column(Text)
+    removal_reason: Mapped[str | None] = mapped_column(Text)
+
+    l1_assignee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL")
+    )
+    l1_status: Mapped[str] = mapped_column(default="not_started")
+    l1_comments: Mapped[str | None] = mapped_column(Text)
+
+    l2_assignee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL")
+    )
+    l2_status: Mapped[str] = mapped_column(default="not_requested")
+    l2_comments: Mapped[str | None] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )
+
+
+class QuestionReviewEvent(Base):
+    """Append-only log behind 'recently validated, by whom' and the
+    admin-only per-question history — one row per submitted verdict or L2
+    sign-off, never edited or deleted."""
+
+    __tablename__ = "question_review_events"
+    __table_args__ = (
+        _enum("level", ("l1", "l2")),
+        _enum("verdict", EQR_VERDICTS),
+        Index("ix_qre_setter_created", "setter_template_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    setter_template_id: Mapped[int] = mapped_column(
+        ForeignKey("question_reviews.setter_template_id", ondelete="CASCADE")
+    )
+    event_slug: Mapped[str]
+    level: Mapped[str]
+    actor_member_id: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL")
+    )
+    verdict: Mapped[str | None]
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+
+
+class EventReviewSync(Base):
+    """One row per event slug ever fetched — records which Setter Template
+    IDs Redash returned for it, so a repeat GET for the same slug is served
+    straight from `question_reviews` instead of hitting Redash (and its VPN
+    requirement) again. No TTL/refresh in v1: once an event's synced, its
+    question set is treated as fixed."""
+
+    __tablename__ = "event_review_syncs"
+
+    event_slug: Mapped[str] = mapped_column(primary_key=True)
+    setter_template_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer))
+    synced_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+EQR_IMPORT_STATUSES = (
+    "uploaded",
+    "validating",
+    "ready_for_review",
+    "importing",
+    "done",
+    "error",
+)
+
+
+class EventReviewImportJob(Base):
+    """One admin-uploaded review workbook's two-phase import: `validating`
+    parses the file and produces a preview (no writes), `ready_for_review`
+    waits for an admin to confirm it, `importing` does the actual upsert.
+    Never truncates anything — see services/event_review_import.py."""
+
+    __tablename__ = "event_review_import_jobs"
+    __table_args__ = (
+        _enum("status", EQR_IMPORT_STATUSES),
+        Index("ix_eqr_import_jobs_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("user.user_id", ondelete="SET NULL")
+    )
+    filename: Mapped[str]
+    status: Mapped[str] = mapped_column(default="uploaded")
+    error: Mapped[str | None] = mapped_column(Text)
+    # The validation-phase preview (sheet/warning/conflict counts + row
+    # detail) and, once confirmed, the final write-phase summary.
+    preview: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # Kept so the confirm step re-parses the exact uploaded file rather than
+    # trusting the preview alone. Deferred — the status poll never needs it.
     source_file: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
     updated_at: Mapped[datetime] = mapped_column(

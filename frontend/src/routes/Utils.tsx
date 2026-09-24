@@ -28,6 +28,12 @@ const TOOLS: UtilTool[] = [
     blurb: "Manage the master skill/topic tag list the Utils checks question tags against.",
     icon: icon("M4 6h16M4 12h10M4 18h7"),
   },
+  {
+    to: "/utils/event-review",
+    title: "Event Question Review",
+    blurb: "Paste an event URL, see which library questions still need review, and track L1/L2 sign-off.",
+    icon: icon("M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.35-4.35"),
+  },
 ];
 
 /** Landing page for the Utils tab — a small, growing set of setter tools.

@@ -20,6 +20,7 @@ from core.dates import today
 from core.orm import STATUSES
 from services import content_requests as cr_svc
 from services import entries as entries_svc
+from services import event_review as event_review_svc
 
 MAX_ROWS = 20_000
 
@@ -673,4 +674,67 @@ async def member_overview_xlsx(db: AsyncSession, member, scope) -> bytes:
         [24, 14],
     )
 
+    return _save(wb)
+
+
+# ── event question review ────────────────────────────────────────────────────
+
+EVENT_REVIEW_HEADERS = [
+    "QuestionType",
+    "Problem ID",
+    "Setter Template ID",
+    "Title",
+    "Level",
+    "Tags",
+    "Score",
+    "Description",
+    "Last reviewed status",
+    "Last reviewed time stamp",
+    "Last reviewed slug",
+    "L1 reviewer",
+    "L1 review status",
+    "L1 review comments",
+    "L2 reviewer",
+    "L2 review status",
+    "L2 review comments",
+]
+
+
+async def event_review_xlsx(db: AsyncSession, slug: str) -> bytes:
+    """Same columns as the reference sheet (intern-backend-test-7, A-U) for
+    this event's current rows — the workbook this tool replaces, still
+    producible on demand for anyone without app access."""
+    result = await event_review_svc.get_event_review(db, slug)
+    rows = [
+        [
+            r.question_type,
+            r.problem_id,
+            r.setter_template_id,
+            r.title,
+            r.level,
+            ", ".join(r.tags),
+            r.score,
+            r.description,
+            r.last_verdict or "",
+            r.last_reviewed_at.isoformat() if r.last_reviewed_at else "",
+            r.last_reviewed_slug or "",
+            r.l1_assignee.display_name if r.l1_assignee else "",
+            r.l1_status,
+            r.l1_comments or "",
+            r.l2_assignee.display_name if r.l2_assignee else "",
+            r.l2_status,
+            r.l2_comments or "",
+        ]
+        for r in result.rows
+    ]
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Event Question Review"
+    _header(
+        ws,
+        EVENT_REVIEW_HEADERS,
+        [14, 10, 12, 40, 8, 26, 7, 40, 16, 18, 22, 16, 12, 30, 16, 12, 30],
+    )
+    _body(ws, rows, wrap_col=4)
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(EVENT_REVIEW_HEADERS))}1"
     return _save(wb)
