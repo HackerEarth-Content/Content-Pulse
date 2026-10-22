@@ -360,6 +360,10 @@ async def test_bulk_submit_limited_to_own_rows_for_non_leads(members, qr):
         with pytest.raises(svc.NotYourReview):
             await svc.submit_verdict(db, reviewer, payload, is_lead=False)
         rows = await svc.submit_verdict(db, lead, payload, is_lead=False)
+        await db.execute(
+            delete(QuestionReview).where(QuestionReview.setter_template_id == other)
+        )
+        await db.commit()
     assert all(r.l1_status == "done" for r in rows)
 
 
@@ -392,3 +396,16 @@ async def test_assignment_posts_to_review_channel(members, qr, monkeypatch):
     assert len(sent) == 1
     assert sent[0][0] == members["reviewer"]
     assert "L1 review of 1 question from" in sent[0][1] and "ev-1" in sent[0][1]
+
+
+def test_event_slug_rejects_slack_control_characters():
+    for bad in ("x|y>", "<!channel>", "a b", "a&b"):
+        with pytest.raises(ValueError):
+            SubmitIn(event_slug=bad, setter_template_ids=[1], status="no_issue_found")
+        with pytest.raises(ValueError):
+            AssignIn(setter_template_ids=[1], member_id=1, level="l1", event_slug=bad)
+
+
+def test_slack_text_escapes_user_values():
+    assert svc._esc("<@U1|x> & co") == "&lt;@U1|x&gt; &amp; co"
+    assert "<http" not in svc._where("a-b").replace("<http", "", 1)

@@ -15,6 +15,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from collections import Counter
+from urllib.parse import quote
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -139,11 +140,17 @@ def is_fully_validated(qr: QuestionReview) -> bool:
     return qr.l1_status == "done" and qr.l2_status in ("not_requested", "done")
 
 
+def _esc(s: str) -> str:
+    """Slack mrkdwn treats & < > as control characters — escape them in any
+    user-controlled value so it can't forge a link or mention."""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _where(slug: str | None) -> str:
     link = f"{settings.FRONTEND_URL}/utils/event-review"
-    return (
-        f"from <{link}/{slug}|{slug}>" if slug else f"(<{link}|open in Content Pulse>)"
-    )
+    if not slug:
+        return f"(<{link}|open in Content Pulse>)"
+    return f"from <{link}/{quote(slug, safe='')}|{_esc(slug)}>"
 
 
 def _plural(n: int) -> str:
@@ -359,9 +366,9 @@ async def assign(
 
     if member.id != actor.id:  # assigning yourself isn't news to anyone
         if payload.level == "l1":
-            text = f"{actor.display_name} assigned you L1 review of {_plural(len(reviews))} {_where(payload.event_slug)}."
+            text = f"{_esc(actor.display_name)} assigned you L1 review of {_plural(len(reviews))} {_where(payload.event_slug)}."
         else:
-            text = f"{actor.display_name} assigned you L2 review of {_plural(len(reviews))} {_where(payload.event_slug)}."
+            text = f"{_esc(actor.display_name)} assigned you L2 review of {_plural(len(reviews))} {_where(payload.event_slug)}."
             if tally := _verdict_tally(qr.last_verdict for qr in reviews):
                 text += f" L1 found: {tally}."
         await notify_review(member, text)
@@ -449,7 +456,7 @@ async def l2_submit(
     if l1_people:
         slug = reviews[0].last_reviewed_slug
         text = (
-            f"{actor.display_name} finished L2 review of {_plural(len(reviews))} "
+            f"{_esc(actor.display_name)} finished L2 review of {_plural(len(reviews))} "
             f"{_where(slug)}: {_verdict_tally(qr.l2_verdict for qr in reviews)}."
         )
         for member in (await _members_by_id(db, l1_people)).values():
@@ -473,8 +480,8 @@ async def reassign_l2(
     if member.id != actor.id:
         await notify_review(
             member,
-            f"{actor.display_name} re-assigned you L2 review of "
-            f'{_plural(1)} {_where(qr.last_reviewed_slug)}: "{qr.title}".',
+            f"{_esc(actor.display_name)} re-assigned you L2 review of "
+            f'{_plural(1)} {_where(qr.last_reviewed_slug)}: "{_esc(qr.title)}".',
         )
     return (await _rows_for(db, [qr]))[0]
 

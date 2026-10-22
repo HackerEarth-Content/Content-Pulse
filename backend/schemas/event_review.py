@@ -8,7 +8,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+import re
+
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
+_SLUG = re.compile(r"[A-Za-z0-9-]+")
+
+
+def _check_slug(v: str | None) -> str | None:
+    if v is not None and not _SLUG.fullmatch(v):
+        raise ValueError("Event slug may only contain letters, digits and hyphens.")
+    return v
+
 
 VERDICTS = Literal["no_issue_found", "fixed", "removed"]
 L1_STATUSES = Literal["not_started", "in_progress", "done"]
@@ -82,6 +93,7 @@ class EventReviewOut(BaseModel):
 
 class SubmitIn(BaseModel):
     event_slug: str
+    _slug_ok = field_validator("event_slug")(lambda v: _check_slug(v))
     setter_template_ids: list[int]
     status: VERDICTS
     note: str | None = None
@@ -101,6 +113,8 @@ class AssignIn(BaseModel):
     level: Literal["l1", "l2"]
     # Only used to name the event and link to it in the Slack message.
     event_slug: str | None = None
+
+    _slug_ok = field_validator("event_slug")(lambda v: _check_slug(v))
 
 
 class ClaimIn(BaseModel):
