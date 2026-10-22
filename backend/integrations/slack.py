@@ -285,24 +285,30 @@ async def _post_plan(db, channel: str, entry: DailyEntry, mention: str) -> None:
             log.warning("plan ticket thread reply failed for item %s", item.id)
 
 
-async def notify_assignment(member: Member, assigner_name: str, text: str) -> None:
-    """Plain best-effort post to SLACK_CHANNEL, mentioning `member` — used by
-    Event Question Review's L1/L2 assignment (see services/event_review.py).
-    Never raises: a Slack outage must not block the assignment write itself,
-    same posture as `post_entry` below."""
+async def notify_review(member: Member, text: str) -> bool:
+    """Best-effort post to SLACK_REVIEW_CHANNEL, @-mentioning `member` first
+    so the ping leads the message — used by Event Question Review (see
+    services/event_review.py). Never raises: a Slack outage must not block
+    the review write itself, same posture as `post_entry` below. Returns
+    whether it posted, and logs failures at error level (a bot that isn't in
+    the channel fails with `not_in_channel`, which must not pass silently)."""
     try:
         mention = await _mention(
             member.slack_user_id, member.email, member.display_name
         )
         await _call(
             "chat.postMessage",
-            {
-                "channel": settings.SLACK_CHANNEL,
-                "text": f"{assigner_name} {text} {mention}",
-            },
+            {"channel": settings.SLACK_REVIEW_CHANNEL, "text": f"{mention} {text}"},
         )
+        return True
     except Exception as e:
-        log.warning("slack assignment notify failed for member %s: %s", member.id, e)
+        log.error(
+            "slack review notify to #%s failed for member %s: %s",
+            settings.SLACK_REVIEW_CHANNEL,
+            member.id,
+            e,
+        )
+        return False
 
 
 async def post_entry(entry_id: int) -> None:

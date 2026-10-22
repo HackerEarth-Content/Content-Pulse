@@ -214,7 +214,12 @@ async def test_l2_submit_without_a_pending_review_raises(members, qr):
     async with Session() as db:
         with pytest.raises(svc.NotSubmittable):
             await svc.l2_submit(
-                db, actor, L2SubmitIn(setter_template_id=qr, comment="ok"), is_lead=True
+                db,
+                actor,
+                L2SubmitIn(
+                    setter_template_ids=[qr], verdict="no_issue_found", comment="ok"
+                ),
+                is_lead=True,
             )
 
 
@@ -238,17 +243,23 @@ async def test_l2_submit_by_wrong_member_raises(members, qr):
             await svc.l2_submit(
                 db,
                 reviewer,
-                L2SubmitIn(setter_template_id=qr, comment="ok"),
+                L2SubmitIn(
+                    setter_template_ids=[qr], verdict="no_issue_found", comment="ok"
+                ),
                 is_lead=False,
             )
-        row = await svc.l2_submit(
+        rows = await svc.l2_submit(
             db,
             lead,
-            L2SubmitIn(setter_template_id=qr, comment="looks good"),
+            L2SubmitIn(
+                setter_template_ids=[qr], verdict="no_issue_found", comment="looks good"
+            ),
             is_lead=False,
         )
+    row = rows[0]
     assert row.l2_status == "done"
     assert row.l2_comments == "looks good"
+    assert row.l2_verdict == "no_issue_found"
 
 
 # ── reassign + history ────────────────────────────────────────────────────────
@@ -272,7 +283,9 @@ async def test_reassign_l2_resets_status_and_history_records_both_levels(members
         await svc.l2_submit(
             db,
             lead,
-            L2SubmitIn(setter_template_id=qr, comment="first pass"),
+            L2SubmitIn(
+                setter_template_ids=[qr], verdict="no_issue_found", comment="first pass"
+            ),
             is_lead=False,
         )
         row = await svc.reassign_l2(
@@ -287,3 +300,112 @@ async def test_reassign_l2_resets_status_and_history_records_both_levels(members
     assert levels == ["l1", "l2"]
     assert hist.entries[0].verdict == "no_issue_found"
     assert hist.entries[1].by == LEAD
+
+
+# ── L2 verdicts, bulk, and notifications ──────────────────────────────────────
+
+
+def test_l2_submit_requires_comment_for_fixed_and_removed():
+    for verdict in ("fixed", "removed"):
+        with pytest.raises(ValueError):
+            L2SubmitIn(setter_template_ids=[1], verdict=verdict, comment=" ")
+    L2SubmitIn(setter_template_ids=[1], verdict="no_issue_found")
+
+
+async def test_l2_verdict_becomes_last_verdict_and_bulk_submits(members, qr):
+    lead = _member(members["lead"], LEAD)
+    async with Session() as db:
+        await svc.submit_verdict(
+            db,
+            lead,
+            SubmitIn(
+                event_slug="ev-1", setter_template_ids=[qr], status="fixed", note="typo"
+            ),
+        )
+        await svc.assign(
+            db,
+            lead,
+            AssignIn(setter_template_ids=[qr], member_id=members["lead"], level="l2"),
+        )
+        rows = await svc.l2_submit(
+            db,
+            lead,
+            L2SubmitIn(setter_template_ids=[qr], verdict="removed", comment="dup"),
+            is_lead=False,
+        )
+    assert rows[0].l2_verdict == "removed"
+    assert rows[0].last_verdict == "removed"
+    assert rows[0].removal_reason == "dup"
+    assert rows[0].last_reviewed_by.id == members["lead"]
+
+
+async def test_bulk_submit_limited_to_own_rows_for_non_leads(members, qr):
+    lead = _member(members["lead"], LEAD)
+    reviewer = _member(members["reviewer"], REVIEWER)
+    other = next(_next_id)
+    async with Session() as db:
+        db.add(QuestionReview(setter_template_id=other))
+        await db.commit()
+        for stid in (qr, other):
+            await svc.assign(
+                db,
+                lead,
+                AssignIn(
+                    setter_template_ids=[stid], member_id=members["lead"], level="l1"
+                ),
+            )
+        payload = SubmitIn(
+            event_slug="ev-1", setter_template_ids=[qr, other], status="no_issue_found"
+        )
+        with pytest.raises(svc.NotYourReview):
+            await svc.submit_verdict(db, reviewer, payload, is_lead=False)
+        rows = await svc.submit_verdict(db, lead, payload, is_lead=False)
+        await db.execute(
+            delete(QuestionReview).where(QuestionReview.setter_template_id == other)
+        )
+        await db.commit()
+    assert all(r.l1_status == "done" for r in rows)
+
+
+async def test_assignment_posts_to_review_channel(members, qr, monkeypatch):
+    sent = []
+
+    async def fake(member, text):
+        sent.append((member.id, text))
+        return True
+
+    monkeypatch.setattr(svc, "notify_review", fake)
+    lead = _member(members["lead"], LEAD)
+    async with Session() as db:
+        await svc.assign(
+            db,
+            lead,
+            AssignIn(
+                setter_template_ids=[qr],
+                member_id=members["reviewer"],
+                level="l1",
+                event_slug="ev-1",
+            ),
+        )
+        # assigning yourself stays quiet
+        await svc.assign(
+            db,
+            lead,
+            AssignIn(setter_template_ids=[qr], member_id=members["lead"], level="l1"),
+        )
+    assert len(sent) == 1
+    assert sent[0][0] == members["reviewer"]
+    assert "L1 review of 1 question from" in sent[0][1] and "ev-1" in sent[0][1]
+
+
+def test_event_slug_rejects_slack_control_characters():
+    for bad in ("x|y>", "<!channel>", "a b", "a&b"):
+        with pytest.raises(ValueError):
+            SubmitIn(event_slug=bad, setter_template_ids=[1], status="no_issue_found")
+        with pytest.raises(ValueError):
+            AssignIn(setter_template_ids=[1], member_id=1, level="l1", event_slug=bad)
+
+
+def test_slack_text_escapes_user_values():
+    assert svc._esc("<@U1|x> & co") == "&lt;@U1|x&gt; &amp; co"
+    assert "<http" not in svc._where("a-b").replace("<http", "", 1)

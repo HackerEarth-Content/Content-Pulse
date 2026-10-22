@@ -742,6 +742,7 @@ class QuestionReview(Base):
         _enum("last_verdict", EQR_VERDICTS),
         _enum("l1_status", EQR_L1_STATUSES),
         _enum("l2_status", EQR_L2_STATUSES),
+        _enum("l2_verdict", EQR_VERDICTS),
     )
 
     setter_template_id: Mapped[int] = mapped_column(primary_key=True)
@@ -769,6 +770,9 @@ class QuestionReview(Base):
     last_reviewed_slug: Mapped[str | None]
     issue_summary: Mapped[str | None] = mapped_column(Text)
     removal_reason: Mapped[str | None] = mapped_column(Text)
+    last_reviewed_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL")
+    )
 
     l1_assignee_id: Mapped[int | None] = mapped_column(
         ForeignKey("members.id", ondelete="SET NULL")
@@ -781,6 +785,7 @@ class QuestionReview(Base):
     )
     l2_status: Mapped[str] = mapped_column(default="not_requested")
     l2_comments: Mapped[str | None] = mapped_column(Text)
+    l2_verdict: Mapped[str | None]
 
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -826,6 +831,9 @@ class EventReviewSync(Base):
     event_slug: Mapped[str] = mapped_column(primary_key=True)
     setter_template_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer))
     synced_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_by_member_id: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id", ondelete="SET NULL")
+    )
 
 
 EQR_IMPORT_STATUSES = (

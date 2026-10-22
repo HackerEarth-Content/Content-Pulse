@@ -542,7 +542,8 @@ export interface McqCheckResult {
 
 export interface McqQuestionReview {
   row_number: number;
-  verdict: "fail";
+  /** "fail" = critical defect to fix; "pass_with_suggestions" = minor improvements only. */
+  verdict: "fail" | "pass_with_suggestions";
   checks: Record<string, McqCheckResult>;
   suggestion: string;
 }
@@ -554,8 +555,7 @@ export interface McqOverallResults {
   pass_pct: number;
   fail_pct: number;
   structural_failures: number;
-  clear_defects: number;
-  borderline_failures: number;
+  pass_with_suggestions: number;
   overall_status: "clean" | "issues_found";
 }
 
@@ -582,6 +582,8 @@ export interface McqSetSummary {
 
 export interface McqReviewResult {
   question_reviews: McqQuestionReview[];
+  /** One comment per row: "gtg" or the findings. Keys are row numbers. */
+  row_comments: Record<string, string>;
   set_summary: McqSetSummary;
 }
 
@@ -635,6 +637,7 @@ export interface EqrQuestionRow {
   last_verdict: EqrVerdict | null;
   last_reviewed_at: string | null;
   last_reviewed_slug: string | null;
+  last_reviewed_by: EqrMemberRef | null;
   issue_summary: string | null;
   removal_reason: string | null;
   resurfaced_removed: boolean;
@@ -647,6 +650,7 @@ export interface EqrQuestionRow {
   l2_assignee: EqrMemberRef | null;
   l2_status: EqrL2Status;
   l2_comments: string | null;
+  l2_verdict: EqrVerdict | null;
 }
 
 export interface EqrRecentlyReviewed {
@@ -658,7 +662,17 @@ export interface EqrRecentlyReviewed {
 export interface EqrSummary {
   needs_review_count: number;
   reviewed_count: number;
+  fully_validated_count: number;
   recently_reviewed: EqrRecentlyReviewed[];
+}
+
+export interface EqrEventListItem {
+  event_slug: string;
+  total: number;
+  l1_done: number;
+  fully_validated: number;
+  created_by: EqrMemberRef | null;
+  synced_at: string;
 }
 
 export interface EqrEventReview {

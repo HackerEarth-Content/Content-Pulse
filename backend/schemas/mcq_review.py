@@ -37,8 +37,13 @@ class CheckResult(BaseModel):
 
 
 class QuestionReview(BaseModel):
+    """A row with at least one finding. `fail` = a critical defect (wrong key,
+    duplicate, structural, ...) the setter must fix; `pass_with_suggestions` =
+    only minor improvements (spelling, tags, formatting, ...). Rows with no
+    findings have no QuestionReview — their comment is "gtg" in row_comments."""
+
     row_number: int
-    verdict: Literal["fail"]
+    verdict: Literal["fail", "pass_with_suggestions"]
     checks: dict[str, CheckResult]
     suggestion: str
 
@@ -58,8 +63,7 @@ class OverallResults(BaseModel):
     pass_pct: float
     fail_pct: float
     structural_failures: int
-    clear_defects: int
-    borderline_failures: int
+    pass_with_suggestions: int = 0
     overall_status: Literal["clean", "issues_found"] = "issues_found"
 
 
@@ -78,6 +82,9 @@ class MCQReviewResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question_reviews: list[QuestionReview] = []
+    # One comment per reviewed row: "gtg" or the findings. Lets the setter see
+    # what was checked even for rows that passed.
+    row_comments: dict[int, str] = {}
     set_summary: SetSummary = SetSummary()
 
 

@@ -397,7 +397,11 @@ function Results({ job }: { job: McqReviewJobDetail }) {
       </div>
 
       {hasFailures ? (
-        <Banner tone="error">Review rejected — {overall?.failed} question{overall?.failed === 1 ? "" : "s"} flagged.</Banner>
+        <Banner tone="error">Review rejected — {overall?.failed} question{overall?.failed === 1 ? "" : "s"} need fixing.</Banner>
+      ) : (overall?.pass_with_suggestions ?? 0) > 0 ? (
+        <Banner tone="success">
+          Review accepted — {overall?.pass_with_suggestions} question{overall?.pass_with_suggestions === 1 ? "" : "s"} have minor suggestions.
+        </Banner>
       ) : (
         <Banner tone="success">Review accepted — every question passed.</Banner>
       )}
@@ -428,16 +432,26 @@ function Results({ job }: { job: McqReviewJobDetail }) {
         <>
           <SectionHeading title="Flagged questions" color="var(--accent-blue)" />
           <div className="reveal-stagger mcq-flagged-list" style={{ display: "grid", gap: 10 }}>
-            {result.question_reviews.map((qr) => (
+            {[...result.question_reviews]
+              .sort((a, b) => Number(b.verdict === "fail") - Number(a.verdict === "fail"))
+              .map((qr) => (
               <div className="card" key={qr.row_number}>
-                <div className="card-title">Question {qr.row_number}</div>
+                <div className="card-title">
+                  Question {qr.row_number}{" "}
+                  <span className={`pill pill-${qr.verdict === "fail" ? "blocked" : "in_progress"}`}>
+                    {qr.verdict === "fail" ? "Must fix" : "Suggestion"}
+                  </span>
+                </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "6px 0" }}>
                   {Object.entries(qr.checks).map(([name, check]) => (
                     <span key={name} className={`pill pill-${check.status === "fail" ? "blocked" : "in_progress"}`}>
-                      {name}: {check.status}
+                      {name.replace(/_/g, " ")}: {check.status}
                     </span>
                   ))}
                 </div>
+                {Object.values(qr.checks).map((check, i) => (
+                  <p className="card-sub" key={i} style={{ margin: "2px 0" }}>{check.reason}</p>
+                ))}
                 <p className="card-sub">{qr.suggestion}</p>
               </div>
             ))}
