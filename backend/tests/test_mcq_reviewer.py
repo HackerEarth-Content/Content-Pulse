@@ -170,11 +170,7 @@ def test_build_reviewed_workbook_appends_pass_fail_suggestion():
     row2 = [
         ws.cell(row=2, column=c).value for c in (pass_col, fail_col, suggestion_col)
     ]
-    assert row2 == [
-        "Yes",
-        "No",
-        None,
-    ]  # openpyxl doesn't persist "" — reads back as None
+    assert row2 == ["Yes", "No", "gtg"]  # every row gets a comment
     assert ws.cell(row=2, column=fail_col).fill.fgColor.rgb in (None, "00000000")
 
     row3 = [
