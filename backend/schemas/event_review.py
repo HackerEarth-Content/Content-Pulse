@@ -42,6 +42,7 @@ class QuestionRow(BaseModel):
     last_verdict: VERDICTS | None = None
     last_reviewed_at: datetime | None = None
     last_reviewed_slug: str | None = None
+    last_reviewed_by: MemberRef | None = None
     issue_summary: str | None = None
     removal_reason: str | None = None
     # A `removed` row only ever appears here because Redash just returned it
@@ -57,6 +58,7 @@ class QuestionRow(BaseModel):
     l2_assignee: MemberRef | None = None
     l2_status: L2_STATUSES = "not_requested"
     l2_comments: str | None = None
+    l2_verdict: VERDICTS | None = None
 
 
 class RecentlyReviewed(BaseModel):
@@ -68,6 +70,7 @@ class RecentlyReviewed(BaseModel):
 class EventReviewSummary(BaseModel):
     needs_review_count: int
     reviewed_count: int
+    fully_validated_count: int = 0
     recently_reviewed: list[RecentlyReviewed]
 
 
@@ -96,6 +99,8 @@ class AssignIn(BaseModel):
     setter_template_ids: list[int]
     member_id: int
     level: Literal["l1", "l2"]
+    # Only used to name the event and link to it in the Slack message.
+    event_slug: str | None = None
 
 
 class ClaimIn(BaseModel):
@@ -104,19 +109,34 @@ class ClaimIn(BaseModel):
 
 
 class L2SubmitIn(BaseModel):
-    setter_template_id: int
-    comment: str
+    """Same shape as L1's SubmitIn: a verdict, plus a comment that's only
+    required when the verdict reports a problem."""
+
+    setter_template_ids: list[int]
+    verdict: VERDICTS
+    comment: str | None = None
 
     @model_validator(mode="after")
-    def comment_required(self) -> "L2SubmitIn":
-        if not self.comment.strip():
-            raise ValueError("A comment is required to mark an L2 review done.")
+    def comment_required_for_issues(self) -> "L2SubmitIn":
+        if self.verdict in ("fixed", "removed") and not (self.comment or "").strip():
+            raise ValueError(
+                "A summary (fixed) or reason (removed) is required for this verdict."
+            )
         return self
 
 
 class ReassignL2In(BaseModel):
     setter_template_id: int
     member_id: int
+
+
+class EventListItem(BaseModel):
+    event_slug: str
+    total: int
+    l1_done: int
+    fully_validated: int
+    created_by: MemberRef | None = None
+    synced_at: datetime
 
 
 class HistoryEntry(BaseModel):

@@ -17,6 +17,7 @@ import type {
   DueRisk,
   Entry,
   EqrEventReview,
+  EqrEventListItem,
   EqrHistory,
   EqrImportJob,
   EqrQuestionRow,
@@ -321,6 +322,7 @@ export const api = {
     send<TaxonomyTag>("POST", "/utils/taxonomy", { category, tag }),
   removeTaxonomyTag: (id: number) => send<void>("DELETE", `/utils/taxonomy/${id}`),
 
+  eventReviewList: () => get<EqrEventListItem[]>("/utils/event-review"),
   eventReview: (slug: string) => get<EqrEventReview>(`/utils/event-review/${slug}`),
   eventReviewSubmit: (body: {
     event_slug: string;
@@ -332,11 +334,12 @@ export const api = {
     setter_template_ids: number[];
     member_id: number;
     level: "l1" | "l2";
+    event_slug?: string;
   }) => send<EqrQuestionRow[]>("POST", "/utils/event-review/assign", body),
   eventReviewClaim: (body: { setter_template_id: number; level: "l1" | "l2" }) =>
     send<EqrQuestionRow>("POST", "/utils/event-review/claim", body),
-  eventReviewL2Submit: (body: { setter_template_id: number; comment: string }) =>
-    send<EqrQuestionRow>("POST", "/utils/event-review/l2-submit", body),
+  eventReviewL2Submit: (body: { setter_template_ids: number[]; verdict: EqrVerdict; comment?: string }) =>
+    send<EqrQuestionRow[]>("POST", "/utils/event-review/l2-submit", body),
   eventReviewReassignL2: (body: { setter_template_id: number; member_id: number }) =>
     send<EqrQuestionRow>("POST", "/utils/event-review/reassign-l2", body),
   eventReviewHistory: (id: number) => get<EqrHistory>(`/utils/event-review/history/${id}`),

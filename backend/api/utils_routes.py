@@ -17,6 +17,7 @@ from core.users import current_user
 from schemas.event_review import (
     AssignIn,
     ClaimIn,
+    EventListItem,
     EventReviewOut,
     HistoryOut,
     ImportJobOut,
@@ -164,10 +165,19 @@ async def remove_taxonomy_tag(tag_id: int, db: AsyncSession = Depends(get_sessio
 # ── event question review ────────────────────────────────────────────────────
 
 
+@router.get("/event-review", response_model=list[EventListItem])
+async def list_event_reviews(db: AsyncSession = Depends(get_session)):
+    return await eqr_svc.list_events(db)
+
+
 @router.get("/event-review/{slug}", response_model=EventReviewOut)
-async def get_event_review(slug: str, db: AsyncSession = Depends(get_session)):
+async def get_event_review(
+    slug: str,
+    db: AsyncSession = Depends(get_session),
+    viewer: Viewer = Depends(get_viewer),
+):
     try:
-        return await eqr_svc.get_event_review(db, slug)
+        return await eqr_svc.get_event_review(db, slug, viewer.member)
     except eqr_svc.EventReviewError as e:
         raise HTTPException(502, {"code": "redash_unreachable", "detail": str(e)})
 
@@ -179,11 +189,16 @@ async def submit_event_review(
     viewer: Viewer = Depends(get_viewer),
 ):
     actor = _viewer_member(viewer)
-    if len(body.setter_template_ids) > 1 and not viewer.is_lead:
+    try:
+        return await eqr_svc.submit_verdict(db, actor, body, is_lead=viewer.is_lead)
+    except eqr_svc.NotYourReview:
         raise HTTPException(
-            403, {"code": "wrong_role", "detail": "Bulk submit is admin-only."}
+            403,
+            {
+                "code": "wrong_role",
+                "detail": "Bulk submit is limited to questions assigned to you, unless you're an admin.",
+            },
         )
-    return await eqr_svc.submit_verdict(db, actor, body)
 
 
 @router.post("/event-review/assign", response_model=list[QuestionRow])
@@ -237,7 +252,7 @@ async def claim_event_review(
         raise HTTPException(404, {"code": "not_found", "detail": "Question not found."})
 
 
-@router.post("/event-review/l2-submit", response_model=QuestionRow)
+@router.post("/event-review/l2-submit", response_model=list[QuestionRow])
 async def l2_submit_event_review(
     body: L2SubmitIn,
     db: AsyncSession = Depends(get_session),

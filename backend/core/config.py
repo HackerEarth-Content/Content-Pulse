@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     # When the nudge goes out, in the team's timezone.
     PLAN_REMINDER_HOUR: int = 11
     SLACK_CHANNEL: str = "ai-initiatives"
+    # Event Question Review assignment/sign-off pings go to the content team's
+    # channel, not the general plan-digest one above.
+    SLACK_REVIEW_CHANNEL: str = "team-content"
 
     # Reports run Mon-Sun; flip to 6 for Sun-Sat.
     WEEK_START: int = 0
@@ -64,6 +67,9 @@ class Settings(BaseSettings):
     # immediately, which is already handled — no separate on/off flag needed.
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4.1"
+    # Embeddings narrow duplicate candidates semantically (rephrased stems that
+    # share few tokens); the token-overlap filter still runs if this fails.
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-sonnet-4-5"
     LANGSMITH_API_KEY: str = ""

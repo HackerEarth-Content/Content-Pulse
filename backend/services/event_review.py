@@ -14,15 +14,19 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
+from collections import Counter
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import settings
 from core.orm import EventReviewSync, Member, QuestionReview, QuestionReviewEvent
 from integrations import redash
-from integrations.slack import notify_assignment
+from integrations.slack import notify_review
 from schemas.event_review import (
     AssignIn,
     ClaimIn,
+    EventListItem,
     EventReviewOut,
     EventReviewSummary,
     HistoryEntry,
@@ -117,6 +121,40 @@ def _ref(m: Member | None) -> MemberRef | None:
     return MemberRef(id=m.id, display_name=m.display_name) if m else None
 
 
+VERDICT_WORDS = {"no_issue_found": "no issue", "fixed": "fixed", "removed": "removed"}
+
+
+def _member_ids(reviews: list[QuestionReview]) -> set[int]:
+    return {
+        i
+        for qr in reviews
+        for i in (qr.l1_assignee_id, qr.l2_assignee_id, qr.last_reviewed_by_id)
+        if i
+    }
+
+
+def is_fully_validated(qr: QuestionReview) -> bool:
+    """L1 done, and L2 either never requested or signed off — the one state
+    where nobody still owes this question a review."""
+    return qr.l1_status == "done" and qr.l2_status in ("not_requested", "done")
+
+
+def _where(slug: str | None) -> str:
+    link = f"{settings.FRONTEND_URL}/utils/event-review"
+    return (
+        f"from <{link}/{slug}|{slug}>" if slug else f"(<{link}|open in Content Pulse>)"
+    )
+
+
+def _plural(n: int) -> str:
+    return f"{n} question{'' if n == 1 else 's'}"
+
+
+def _verdict_tally(verdicts) -> str:
+    counts = Counter(v for v in verdicts if v)
+    return ", ".join(f"{n} {VERDICT_WORDS[v]}" for v, n in counts.items())
+
+
 def _to_row(qr: QuestionReview, members: dict[int, Member]) -> QuestionRow:
     stale = bool(
         qr.last_reviewed_at and (_now() - qr.last_reviewed_at).days >= STALE_DAYS
@@ -140,6 +178,7 @@ def _to_row(qr: QuestionReview, members: dict[int, Member]) -> QuestionRow:
         last_verdict=qr.last_verdict,
         last_reviewed_at=qr.last_reviewed_at,
         last_reviewed_slug=qr.last_reviewed_slug,
+        last_reviewed_by=_ref(members.get(qr.last_reviewed_by_id)),
         issue_summary=qr.issue_summary,
         removal_reason=qr.removal_reason,
         resurfaced_removed=qr.last_verdict == "removed",
@@ -150,16 +189,14 @@ def _to_row(qr: QuestionReview, members: dict[int, Member]) -> QuestionRow:
         l2_assignee=_ref(members.get(qr.l2_assignee_id)) if qr.l2_assignee_id else None,
         l2_status=qr.l2_status,
         l2_comments=qr.l2_comments,
+        l2_verdict=qr.l2_verdict,
     )
 
 
 async def _rows_for(
     db: AsyncSession, reviews: list[QuestionReview]
 ) -> list[QuestionRow]:
-    member_ids = {qr.l1_assignee_id for qr in reviews if qr.l1_assignee_id} | {
-        qr.l2_assignee_id for qr in reviews if qr.l2_assignee_id
-    }
-    members = await _members_by_id(db, member_ids)
+    members = await _members_by_id(db, _member_ids(reviews))
     return [_to_row(qr, members) for qr in reviews]
 
 
@@ -181,7 +218,9 @@ def _apply_redash_fields(qr: QuestionReview, row: dict, now: datetime) -> None:
     qr.synced_at = now
 
 
-async def get_event_review(db: AsyncSession, slug: str) -> EventReviewOut:
+async def get_event_review(
+    db: AsyncSession, slug: str, actor: Member | None = None
+) -> EventReviewOut:
     sync = await db.get(EventReviewSync, slug)
     if sync is None:
         # First time seeing this slug — the only path that ever calls
@@ -197,24 +236,28 @@ async def get_event_review(db: AsyncSession, slug: str) -> EventReviewOut:
             _apply_redash_fields(
                 by_id[int(redash_row["Setter Template ID"])], redash_row, now
             )
-        db.add(EventReviewSync(event_slug=slug, setter_template_ids=ids, synced_at=now))
+        db.add(
+            EventReviewSync(
+                event_slug=slug,
+                setter_template_ids=ids,
+                synced_at=now,
+                created_by_member_id=actor.id if actor else None,
+            )
+        )
         await db.commit()
     else:
         ids = sync.setter_template_ids
         reviews = await _get_or_create(db, ids)
         by_id = {qr.setter_template_id: qr for qr in reviews}
 
-    member_ids = {qr.l1_assignee_id for qr in reviews if qr.l1_assignee_id} | {
-        qr.l2_assignee_id for qr in reviews if qr.l2_assignee_id
-    }
-    members = await _members_by_id(db, member_ids)
+    members = await _members_by_id(db, _member_ids(reviews))
     rows = [_to_row(by_id[stid], members) for stid in ids]
 
     cutoff = _now() - timedelta(days=RECENT_DAYS)
     recently_reviewed = [
         RecentlyReviewed(
             setter_template_id=row.setter_template_id,
-            by=row.l1_assignee.display_name if row.l1_assignee else "—",
+            by=row.last_reviewed_by.display_name if row.last_reviewed_by else "—",
             at=row.last_reviewed_at,
         )
         for row in rows
@@ -228,6 +271,7 @@ async def get_event_review(db: AsyncSession, slug: str) -> EventReviewOut:
         summary=EventReviewSummary(
             needs_review_count=needs_review,
             reviewed_count=len(rows) - needs_review,
+            fully_validated_count=sum(is_fully_validated(by_id[stid]) for stid in ids),
             recently_reviewed=recently_reviewed,
         ),
     )
@@ -251,9 +295,14 @@ async def _get_or_create(db: AsyncSession, ids: list[int]) -> list[QuestionRevie
 
 
 async def submit_verdict(
-    db: AsyncSession, actor: Member, payload: SubmitIn
+    db: AsyncSession, actor: Member, payload: SubmitIn, is_lead: bool = False
 ) -> list[QuestionRow]:
     reviews = await _get_or_create(db, payload.setter_template_ids)
+    # A bulk submit is fine for your own queue; touching rows assigned to
+    # someone else (or nobody) in bulk stays a lead's call.
+    if len(reviews) > 1 and not is_lead:
+        if any(qr.l1_assignee_id != actor.id for qr in reviews):
+            raise NotYourReview()
     now = _now()
     comment = payload.note or (
         "No issue found." if payload.status == "no_issue_found" else ""
@@ -266,6 +315,7 @@ async def submit_verdict(
         qr.last_verdict = payload.status
         qr.last_reviewed_at = now
         qr.last_reviewed_slug = payload.event_slug
+        qr.last_reviewed_by_id = actor.id
         qr.issue_summary = payload.note if payload.status == "fixed" else None
         qr.removal_reason = payload.note if payload.status == "removed" else None
         db.add(
@@ -307,12 +357,14 @@ async def assign(
             qr.l2_comments = None
     await db.commit()
 
-    if payload.level == "l2":
-        await notify_assignment(
-            member,
-            actor.display_name,
-            f"assigned you for L2 review of {len(reviews)} question(s).",
-        )
+    if member.id != actor.id:  # assigning yourself isn't news to anyone
+        if payload.level == "l1":
+            text = f"{actor.display_name} assigned you L1 review of {_plural(len(reviews))} {_where(payload.event_slug)}."
+        else:
+            text = f"{actor.display_name} assigned you L2 review of {_plural(len(reviews))} {_where(payload.event_slug)}."
+            if tally := _verdict_tally(qr.last_verdict for qr in reviews):
+                text += f" L1 found: {tally}."
+        await notify_review(member, text)
 
     return await _rows_for(db, reviews)
 
@@ -351,28 +403,58 @@ class NotSubmittable(Exception):
 
 async def l2_submit(
     db: AsyncSession, actor: Member, payload: L2SubmitIn, is_lead: bool
-) -> QuestionRow:
-    qr = await db.get(QuestionReview, payload.setter_template_id)
-    if qr is None:
-        raise ValueError("Not found")
-    if qr.l2_assignee_id != actor.id and not is_lead:
-        raise NotYourReview()
-    if qr.l2_status not in ("pending", "in_progress"):
-        raise NotSubmittable()
-    qr.l2_status = "done"
-    qr.l2_comments = payload.comment
-    db.add(
-        QuestionReviewEvent(
-            setter_template_id=qr.setter_template_id,
-            event_slug=qr.last_reviewed_slug or "",
-            level="l2",
-            actor_member_id=actor.id,
-            verdict=None,
-            note=payload.comment,
+) -> list[QuestionRow]:
+    reviews = list(
+        await db.scalars(
+            select(QuestionReview).where(
+                QuestionReview.setter_template_id.in_(payload.setter_template_ids)
+            )
         )
     )
+    if len(reviews) != len(set(payload.setter_template_ids)):
+        raise ValueError("Not found")
+    if not is_lead and any(qr.l2_assignee_id != actor.id for qr in reviews):
+        raise NotYourReview()
+    if any(qr.l2_status not in ("pending", "in_progress") for qr in reviews):
+        raise NotSubmittable()
+
+    now = _now()
+    comment = (payload.comment or "").strip() or (
+        "No issue found." if payload.verdict == "no_issue_found" else ""
+    )
+    l1_people = {qr.l1_assignee_id for qr in reviews if qr.l1_assignee_id} - {actor.id}
+    for qr in reviews:
+        qr.l2_status = "done"
+        qr.l2_comments = comment
+        qr.l2_verdict = payload.verdict
+        # L2 has the final word, so its verdict becomes the question's
+        # current one; L1's stays in the history log.
+        qr.last_verdict = payload.verdict
+        qr.last_reviewed_at = now
+        qr.last_reviewed_by_id = actor.id
+        qr.issue_summary = comment if payload.verdict == "fixed" else None
+        qr.removal_reason = comment if payload.verdict == "removed" else None
+        db.add(
+            QuestionReviewEvent(
+                setter_template_id=qr.setter_template_id,
+                event_slug=qr.last_reviewed_slug or "",
+                level="l2",
+                actor_member_id=actor.id,
+                verdict=payload.verdict,
+                note=comment,
+            )
+        )
     await db.commit()
-    return (await _rows_for(db, [qr]))[0]
+
+    if l1_people:
+        slug = reviews[0].last_reviewed_slug
+        text = (
+            f"{actor.display_name} finished L2 review of {_plural(len(reviews))} "
+            f"{_where(slug)}: {_verdict_tally(qr.l2_verdict for qr in reviews)}."
+        )
+        for member in (await _members_by_id(db, l1_people)).values():
+            await notify_review(member, text)
+    return await _rows_for(db, reviews)
 
 
 async def reassign_l2(
@@ -388,10 +470,53 @@ async def reassign_l2(
     qr.l2_status = "pending"
     qr.l2_comments = None
     await db.commit()
-    await notify_assignment(
-        member, actor.display_name, "re-assigned you for L2 review."
-    )
+    if member.id != actor.id:
+        await notify_review(
+            member,
+            f"{actor.display_name} re-assigned you L2 review of "
+            f'{_plural(1)} {_where(qr.last_reviewed_slug)}: "{qr.title}".',
+        )
     return (await _rows_for(db, [qr]))[0]
+
+
+async def list_events(db: AsyncSession, limit: int = 50) -> list[EventListItem]:
+    """Every event ever fetched, newest first — what the landing page lists
+    so a returning reviewer doesn't have to remember a slug."""
+    syncs = list(
+        await db.scalars(
+            select(EventReviewSync)
+            .order_by(EventReviewSync.synced_at.desc())
+            .limit(limit)
+        )
+    )
+    all_ids = {i for s in syncs for i in s.setter_template_ids}
+    by_id = (
+        {
+            qr.setter_template_id: qr
+            for qr in await db.scalars(
+                select(QuestionReview).where(
+                    QuestionReview.setter_template_id.in_(all_ids)
+                )
+            )
+        }
+        if all_ids
+        else {}
+    )
+    members = await _members_by_id(db, {s.created_by_member_id for s in syncs})
+    out = []
+    for s in syncs:
+        qrs = [by_id[i] for i in s.setter_template_ids if i in by_id]
+        out.append(
+            EventListItem(
+                event_slug=s.event_slug,
+                total=len(s.setter_template_ids),
+                l1_done=sum(qr.l1_status == "done" for qr in qrs),
+                fully_validated=sum(is_fully_validated(qr) for qr in qrs),
+                created_by=_ref(members.get(s.created_by_member_id)),
+                synced_at=s.synced_at,
+            )
+        )
+    return out
 
 
 async def history(db: AsyncSession, setter_template_id: int) -> HistoryOut:

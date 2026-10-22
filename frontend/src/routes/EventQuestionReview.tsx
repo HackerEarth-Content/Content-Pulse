@@ -69,6 +69,17 @@ function extractSlug(text: string): string | null {
   return /^[a-z0-9-]+$/i.test(raw) ? raw : null;
 }
 
+/** Problem statements arrive as raw text or HTML from Redash — show them as
+ * plain wrapped text (DOMParser never runs scripts or loads resources). */
+function plainText(s: string): string {
+  if (!/<[a-z][\s\S]*>/i.test(s)) return s;
+  return new DOMParser().parseFromString(s, "text/html").body.textContent ?? s;
+}
+
+function isFullyValidated(row: EqrQuestionRow): boolean {
+  return row.l1_status === "done" && (row.l2_status === "not_requested" || row.l2_status === "done");
+}
+
 function staleMonths(iso: string): number {
   return Math.round((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24 * 30));
 }
@@ -93,6 +104,37 @@ function useClickOutside(ref: RefObject<HTMLElement | null>, onOutside: () => vo
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, [active, onOutside]);
+}
+
+/** Every event anyone has fetched, newest first — reviews live in the DB, so
+ * coming back later is a click, not a re-paste of the URL. */
+function RecentEvents() {
+  const events = useApi(() => api.eventReviewList(), []);
+  if (events.loading || events.error || !events.data?.length) return null;
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="card-title">Recent events</div>
+      <div className="table-scroll">
+        <table className="eqr-grid">
+          <thead>
+            <tr><th>Event</th><th className="eqr-center">Questions</th><th className="eqr-center">L1 reviewed</th><th className="eqr-center">Fully validated</th><th>Added by</th><th>Fetched</th></tr>
+          </thead>
+          <tbody>
+            {events.data.map((e) => (
+              <tr key={e.event_slug}>
+                <td><Link to={`/utils/event-review/${e.event_slug}`}>{e.event_slug}</Link></td>
+                <td className="eqr-center">{e.total}</td>
+                <td className="eqr-center">{e.l1_done}/{e.total}</td>
+                <td className="eqr-center">{e.fully_validated}/{e.total}</td>
+                <td>{e.created_by?.display_name ?? "—"}</td>
+                <td className="eqr-mono">{new Date(e.synced_at).toLocaleDateString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 function UrlForm({ isAdmin }: { isAdmin: boolean }) {
@@ -142,6 +184,8 @@ function UrlForm({ isAdmin }: { isAdmin: boolean }) {
           </button>
         </div>
       </div>
+
+      <RecentEvents />
 
       {isAdmin && (
         <div className="card" style={{ marginTop: 14 }}>
@@ -199,10 +243,13 @@ function RemovedWarning() {
   );
 }
 
+/** One form for both review levels — L1 and L2 pick a verdict and leave a
+ * comment the same way (required only when the verdict reports a problem). */
 function VerdictForm({
-  onSubmit,
+  onSubmit, submitLabel = "Submit review",
 }: {
   onSubmit: (status: EqrVerdict, note: string) => Promise<void>;
+  submitLabel?: string;
 }) {
   const [status, setStatus] = useState<EqrVerdict | "">("");
   const [note, setNote] = useState("");
@@ -235,18 +282,16 @@ function VerdictForm({
         <option value="removed">Removed from library</option>
       </select>
       {status === "removed" && <RemovedWarning />}
-      {needsNote && (
-        <textarea
-          className="field"
-          placeholder="Summary of the fix, or the reason for removal — required."
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-        />
-      )}
+      <textarea
+        className="field"
+        placeholder={needsNote ? "Summary of the fix, or the reason for removal — required." : "Comment (optional)"}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+      />
       {error && <p className="card-sub" style={{ color: "var(--status-critical)" }}>{error}</p>}
       <div className="btn-row" style={{ marginTop: 0, justifyContent: "flex-end" }}>
         <button className="btn btn-primary btn-sm" disabled={saving} onClick={submit}>
-          {saving ? "Submitting…" : "Submit review"}
+          {saving ? "Submitting…" : submitLabel}
         </button>
       </div>
     </div>
@@ -265,7 +310,6 @@ function DetailPanel({
   onOpenHistory: () => void;
 }) {
   const [l2Pick, setL2Pick] = useState("");
-  const [l2Comment, setL2Comment] = useState(row.l2_comments || "");
   const [l2Error, setL2Error] = useState<string | null>(null);
   const [l2Busy, setL2Busy] = useState(false);
   const [confirmReassign, setConfirmReassign] = useState(false);
@@ -281,33 +325,9 @@ function DetailPanel({
     try {
       const updated = await api.eventReviewAssign({
         setter_template_ids: [row.setter_template_id], member_id: Number(l2Pick), level: "l2",
+        event_slug: currentSlug,
       });
       onChanged(updated);
-    } catch (e) {
-      setL2Error((e as ApiError).message);
-    } finally {
-      setL2Busy(false);
-    }
-  }
-  async function startL2() {
-    setL2Error(null);
-    setL2Busy(true);
-    try {
-      const updated = await api.eventReviewClaim({ setter_template_id: row.setter_template_id, level: "l2" });
-      onChanged([updated]);
-    } catch (e) {
-      setL2Error((e as ApiError).message);
-    } finally {
-      setL2Busy(false);
-    }
-  }
-  async function finishL2() {
-    if (!l2Comment.trim()) { setL2Error("L2 sign-off needs a comment before it can be marked done."); return; }
-    setL2Error(null);
-    setL2Busy(true);
-    try {
-      const updated = await api.eventReviewL2Submit({ setter_template_id: row.setter_template_id, comment: l2Comment.trim() });
-      onChanged([updated]);
     } catch (e) {
       setL2Error((e as ApiError).message);
     } finally {
@@ -338,7 +358,7 @@ function DetailPanel({
       <p className="card-sub">
         Problem ID {row.problem_id} · {row.question_type} · {row.tags.join(", ") || "no tags"}
       </p>
-      {row.description && <p className="card-sub">{row.description}</p>}
+      {row.description && <div className="eqr-desc">{plainText(row.description)}</div>}
 
       {row.resurfaced_removed && (
         <Banner tone="error">
@@ -357,7 +377,8 @@ function DetailPanel({
       <div className="eqr-detail-grid">
         <div className="eqr-slot">
           <div className="eqr-slot-label">L1 review</div>
-          {row.l1_status === "in_progress" && (
+          {row.l1_status !== "done" && (
+            // No Start step needed: submitting claims the row if nobody has.
             <VerdictForm
               onSubmit={async (status, note) => {
                 const updated = await api.eventReviewSubmit({
@@ -368,6 +389,9 @@ function DetailPanel({
                 onChanged(updated);
               }}
             />
+          )}
+          {row.l1_status === "done" && row.l1_comments && !editing && (
+            <p className="card-sub">{row.l1_comments}</p>
           )}
           {row.l1_status === "done" && (
             editableHere ? (
@@ -411,24 +435,24 @@ function DetailPanel({
               <p className="card-sub" style={{ fontStyle: "italic" }}>Assign an L1 reviewer first — L2 needs someone to hand off from.</p>
             )
           )}
-          {row.l2_status === "pending" && (
-            <button className="btn btn-secondary btn-sm" disabled={l2Busy} onClick={startL2}>
-              {l2Busy ? "Starting…" : row.l2_assignee?.id === me?.id ? "Start review" : `Start review (as ${row.l2_assignee?.display_name})`}
-            </button>
-          )}
-          {row.l2_status === "in_progress" && (
-            <>
-              <textarea className="field" placeholder="L2 comments — required to mark done." value={l2Comment}
-                        onChange={(e) => setL2Comment(e.target.value)} />
-              <div className="btn-row" style={{ marginTop: 6 }}>
-                <button className="btn btn-primary btn-sm" disabled={l2Busy} onClick={finishL2}>
-                  {l2Busy ? "Saving…" : "Mark L2 review done"}
-                </button>
-              </div>
-            </>
+          {(row.l2_status === "pending" || row.l2_status === "in_progress") && (
+            row.l2_assignee?.id === me?.id || isAdmin ? (
+              <VerdictForm
+                submitLabel="Submit L2 review"
+                onSubmit={async (verdict, comment) => {
+                  const updated = await api.eventReviewL2Submit({
+                    setter_template_ids: [row.setter_template_id], verdict, comment: comment || undefined,
+                  });
+                  onChanged(updated);
+                }}
+              />
+            ) : (
+              <p className="card-sub" style={{ fontStyle: "italic" }}>Waiting on {row.l2_assignee?.display_name}.</p>
+            )
           )}
           {row.l2_status === "done" && (
             <>
+              {row.l2_verdict && <span className={`pill pill-${STATUS_PILL[row.l2_verdict]}`}>{STATUS_LABEL[row.l2_verdict]}</span>}
               {row.l2_comments && <p className="card-sub">{row.l2_comments}</p>}
               <div className="eqr-inline-row">
                 <select className="field" style={{ maxWidth: 150 }} value={l2Pick} onChange={(e) => setL2Pick(e.target.value)}>
@@ -533,7 +557,7 @@ function ResultsGrid({ slug, me }: { slug: string; me: Me }) {
   // "all" | "needs" | "done" | "recent" — driven by clicking the stat tiles
   // above instead of a separate segmented control, so there's one filter
   // surface instead of two that could disagree.
-  const [stage, setStage] = useState<"all" | "needs" | "done" | "recent">(DEFAULT_FILTERS.stage);
+  const [stage, setStage] = useState<"all" | "needs" | "done" | "validated" | "recent">(DEFAULT_FILTERS.stage);
   const [mineOnly, setMineOnly] = useState(DEFAULT_FILTERS.mineOnly);
   const [staleOnly, setStaleOnly] = useState(DEFAULT_FILTERS.staleOnly);
   const [visibleCols, setVisibleCols] = useState<Set<string>>(new Set());
@@ -545,7 +569,7 @@ function ResultsGrid({ slug, me }: { slug: string; me: Me }) {
   const [bulkL1, setBulkL1] = useState("");
   const [bulkL2, setBulkL2] = useState("");
   const [bulkError, setBulkError] = useState<string | null>(null);
-  const [bulkVerdictOpen, setBulkVerdictOpen] = useState(false);
+  const [bulkVerdictOpen, setBulkVerdictOpen] = useState<"l1" | "l2" | null>(null);
   const [history, setHistory] = useState<EqrHistory | null>(null);
 
   async function openHistory(setterTemplateId: number) {
@@ -568,18 +592,19 @@ function ResultsGrid({ slug, me }: { slug: string; me: Me }) {
   // the headline numbers move the instant a row does, same as the table.
   const needsReviewCount = useMemo(() => rows.filter((r) => r.l1_status !== "done").length, [rows]);
   const reviewedCount = rows.length - needsReviewCount;
+  const validatedCount = useMemo(() => rows.filter(isFullyValidated).length, [rows]);
   const recentCutoff = Date.now() - 7 * 86400000;
   const recentlyReviewed = useMemo(
     () => rows.filter((r) => r.last_reviewed_at && new Date(r.last_reviewed_at).getTime() >= recentCutoff),
     [rows, recentCutoff]
   );
   const recentIds = useMemo(() => new Set(recentlyReviewed.map((r) => r.setter_template_id)), [recentlyReviewed]);
-  const recentNames = [...new Set(recentlyReviewed.map((r) => r.l1_assignee?.display_name).filter(Boolean))];
+  const recentNames = [...new Set(recentlyReviewed.map((r) => r.last_reviewed_by?.display_name).filter(Boolean))];
 
   const selectedRows = useMemo(() => rows.filter((r) => selected.has(r.setter_template_id)), [rows, selected]);
   const selectedMissingL1 = selectedRows.some((r) => !r.l1_assignee);
 
-  function toggleStage(next: "needs" | "done" | "recent") {
+  function toggleStage(next: "needs" | "done" | "validated" | "recent") {
     setStage((s) => (s === next ? "all" : next));
   }
 
@@ -598,6 +623,7 @@ function ResultsGrid({ slug, me }: { slug: string; me: Me }) {
     if (staleOnly) list = list.filter(isStale);
     if (stage === "needs") list = list.filter((r) => r.l1_status !== "done");
     if (stage === "done") list = list.filter((r) => r.l1_status === "done");
+    if (stage === "validated") list = list.filter(isFullyValidated);
     if (stage === "recent") list = list.filter((r) => recentIds.has(r.setter_template_id));
     if (sortKey) {
       list = [...list].sort((a, b) => {
@@ -680,35 +706,40 @@ function ResultsGrid({ slug, me }: { slug: string; me: Me }) {
               className={`stat eqr-tile-critical${stage === "needs" ? " eqr-tile-active" : ""}`}
               aria-pressed={stage === "needs"}
               onClick={() => toggleStage("needs")}
-              title="Filter to questions that still need review"
+              title="No L1 verdict yet"
             >
-              <span className="stat-label">Needs review <Icon d={PATH.chevronDown} size={9} /></span>
+              <span className="stat-label">Needs L1 review <Icon d={PATH.chevronDown} size={9} /></span>
               <div className="stat-value">{needsReviewCount}</div>
             </button>
             <button
               className={`stat eqr-tile-good${stage === "done" ? " eqr-tile-active" : ""}`}
               aria-pressed={stage === "done"}
               onClick={() => toggleStage("done")}
-              title="Filter to already-reviewed questions"
+              title="L1 verdict submitted (L2 may still be pending)"
             >
-              <span className="stat-label">Reviewed <Icon d={PATH.chevronDown} size={9} /></span>
+              <span className="stat-label">L1 reviewed <Icon d={PATH.chevronDown} size={9} /></span>
               <div className="stat-value">{reviewedCount}</div>
             </button>
             <button
-              className={`stat${stage === "recent" ? " eqr-tile-active" : ""}`}
-              aria-pressed={stage === "recent"}
-              onClick={() => toggleStage("recent")}
-              title="Filter to questions validated in the last 7 days"
+              className={`stat eqr-tile-good${stage === "validated" ? " eqr-tile-active" : ""}`}
+              aria-pressed={stage === "validated"}
+              onClick={() => toggleStage("validated")}
+              title="L1 done, and L2 either not requested or signed off — nobody owes this question a review"
             >
-              <span className="stat-label">Validated (7d) <Icon d={PATH.chevronDown} size={9} /></span>
-              <div className="stat-value">{recentlyReviewed.length}</div>
-              <div className="stat-sub">{recentNames.length ? `by ${recentNames.join(", ")}` : "—"}</div>
+              <span className="stat-label">Fully validated <Icon d={PATH.chevronDown} size={9} /></span>
+              <div className="stat-value">{validatedCount}</div>
             </button>
           </div>
 
           <div className="eqr-toolbar reveal-stagger">
             <input className="field" style={{ maxWidth: 220 }} placeholder="Search title, tag, or setter ID…" value={search} onChange={(e) => setSearch(e.target.value)} />
             <button className="chip" aria-pressed={mineOnly} onClick={() => setMineOnly((v) => !v)}>My queue</button>
+            <button
+              className="chip" aria-pressed={stage === "recent"} onClick={() => toggleStage("recent")}
+              title={recentNames.length ? `Reviewed in the last 7 days by ${recentNames.join(", ")}` : "Reviewed in the last 7 days"}
+            >
+              Reviewed this week ({recentlyReviewed.length})
+            </button>
             <button className="chip" aria-pressed={staleOnly} onClick={() => setStaleOnly((v) => !v)}>Stale (3mo+)</button>
             <div style={{ position: "relative" }} ref={colsMenuRef}>
               <button className="chip" onClick={() => setColsOpen((v) => !v)}>
@@ -730,11 +761,12 @@ function ResultsGrid({ slug, me }: { slug: string; me: Me }) {
             </button>
           </div>
 
-          {isAdmin && selected.size > 0 && (
+          {selected.size > 0 && (
             <div>
               <div className="eqr-bulk-bar">
                 <span style={{ fontWeight: 600 }}>{selected.size} question{selected.size === 1 ? "" : "s"} selected</span>
                 <div className="eqr-bulk-actions">
+                  {isAdmin && (<>
                   <select className="field" style={{ maxWidth: 150 }} value={bulkL1} onChange={(e) => setBulkL1(e.target.value)}>
                     <option value="">Assign L1 to…</option>
                     {members.map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}
@@ -756,11 +788,13 @@ function ResultsGrid({ slug, me }: { slug: string; me: Me }) {
                   >
                     Assign L2
                   </button>
+                  </>)}
                   {/* Grouped in their own flex item so wrapping at narrower
                       widths can't split them apart — Close always stays
                       immediately right of Set verdict. */}
                   <div className="eqr-inline-row" style={{ gap: 7, flexWrap: "nowrap" }}>
-                    <button className="btn btn-secondary btn-sm" onClick={() => setBulkVerdictOpen(true)}>Set verdict for selected</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setBulkVerdictOpen("l1")}>Set L1 verdict</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setBulkVerdictOpen("l2")}>Set L2 verdict</button>
                     <button className="btn btn-secondary btn-sm" onClick={() => setSelected(new Set())}>Close</button>
                   </div>
                 </div>
@@ -773,14 +807,14 @@ function ResultsGrid({ slug, me }: { slug: string; me: Me }) {
             <table className="eqr-grid">
               <thead>
                 <tr>
-                  {isAdmin && (
+                  {(
                     <th className="eqr-sticky1">
                       <input type="checkbox" checked={filtered.length > 0 && filtered.every((r) => selected.has(r.setter_template_id))}
                              onChange={(e) => toggleSelectAll(e.target.checked)} />
                     </th>
                   )}
-                  <th className={isAdmin ? "eqr-sticky2" : "eqr-sticky1"} />
-                  <th className={isAdmin ? "eqr-mono" : "eqr-sticky2 eqr-mono"}>Setter ID</th>
+                  <th className={"eqr-sticky2"} />
+                  <th className={"eqr-mono"}>Setter ID</th>
                   <th>Title</th>
                   <SortFilterHeader
                     label="QT" sortActive={sortKey === "question_type"} sortDir={sortDir}
@@ -836,18 +870,22 @@ function ResultsGrid({ slug, me }: { slug: string; me: Me }) {
 
           <p className="card-sub" style={{ marginTop: 6 }}>
             {isAdmin
-              ? "As admin: select rows via the checkbox column to bulk-assign L1, bulk-assign L2 (once L1 is assigned), or set a shared verdict for all of them at once."
-              : "Bulk selection and assignment are admin-only — use the row's expand arrow to review one question at a time."}
+              ? "Select rows to bulk-assign L1 or L2 (L2 needs an L1 first), or set one L1/L2 verdict for all of them."
+              : "Select rows assigned to you to set one L1/L2 verdict for all of them. Assigning other people is admin-only."}
           </p>
 
           {bulkVerdictOpen && (
             <BulkVerdictModal
               count={selected.size}
-              onCancel={() => setBulkVerdictOpen(false)}
+              level={bulkVerdictOpen}
+              onCancel={() => setBulkVerdictOpen(null)}
               onSubmit={async (status, note) => {
-                const updated = await api.eventReviewSubmit({ event_slug: slug, setter_template_ids: [...selected], status, note: note || undefined });
+                const ids = [...selected];
+                const updated = bulkVerdictOpen === "l2"
+                  ? await api.eventReviewL2Submit({ setter_template_ids: ids, verdict: status, comment: note || undefined })
+                  : await api.eventReviewSubmit({ event_slug: slug, setter_template_ids: ids, status, note: note || undefined });
                 patchRows(updated);
-                setBulkVerdictOpen(false);
+                setBulkVerdictOpen(null);
                 setSelected(new Set());
               }}
             />
@@ -1054,8 +1092,8 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
 }
 
 function BulkVerdictModal({
-  count, onCancel, onSubmit,
-}: { count: number; onCancel: () => void; onSubmit: (status: EqrVerdict, note: string) => Promise<void> }) {
+  count, level, onCancel, onSubmit,
+}: { count: number; level: "l1" | "l2"; onCancel: () => void; onSubmit: (status: EqrVerdict, note: string) => Promise<void> }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { ref.current?.showModal(); }, []);
 
@@ -1081,7 +1119,7 @@ function BulkVerdictModal({
     <dialog ref={ref} className="dialog" onClose={onCancel} onCancel={onCancel}>
       <div className="dialog-head">
         <div>
-          <div className="card-title">Set verdict for selected</div>
+          <div className="card-title">Set {level.toUpperCase()} verdict for selected</div>
           <div className="card-sub">Applies the same verdict to all {count} selected rows.</div>
         </div>
         <button className="section-action" onClick={() => ref.current?.close()} aria-label="Close"><Icon d={PATH.close} size={12} /></button>
@@ -1094,10 +1132,9 @@ function BulkVerdictModal({
           <option value="removed">Removed from library</option>
         </select>
         {status === "removed" && <RemovedWarning />}
-        {needsNote && (
-          <textarea className="field" placeholder="Same summary/reason applied to every selected row — required."
-                    value={note} onChange={(e) => setNote(e.target.value)} />
-        )}
+        <textarea className="field"
+                  placeholder={needsNote ? "Same summary/reason applied to every selected row — required." : "Comment applied to every selected row (optional)"}
+                  value={note} onChange={(e) => setNote(e.target.value)} />
         {error && <p className="card-sub" style={{ color: "var(--status-critical)" }}>{error}</p>}
       </div>
       <div className="btn-row" style={{ justifyContent: "flex-end" }}>
@@ -1170,15 +1207,15 @@ function GridRow({
   return (
     <>
       <tr className={selected ? "eqr-row-selected" : undefined}>
-        {isAdmin && (
+        {(
           <td className="eqr-sticky1"><input type="checkbox" checked={selected} onChange={(e) => onToggleSelect(e.target.checked)} /></td>
         )}
-        <td className={isAdmin ? "eqr-sticky2" : "eqr-sticky1"}>
+        <td className={"eqr-sticky2"}>
           <button className="eqr-expand-btn" onClick={onToggleExpand} aria-expanded={expanded} aria-label={expanded ? "Collapse details" : "Expand details"}>
             <Icon d={expanded ? PATH.chevronDown : PATH.chevronRight} size={12} />
           </button>
         </td>
-        <td className={`eqr-mono${isAdmin ? "" : " eqr-sticky2"}`}>{id}</td>
+        <td className={"eqr-mono"}>{id}</td>
         <td className="eqr-title-cell" title={row.title} style={{ color: "var(--ink)", fontWeight: 560, cursor: "pointer" }} onClick={onToggleExpand}>{row.title}</td>
         <td className="eqr-secondary">{row.question_type.replace("Multiple Choice Questions", "MCQ")}</td>
         <td className="eqr-secondary">{row.level}</td>
